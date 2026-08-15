@@ -1,0 +1,6 @@
+{
+  "name": "Type Right",
+  "description": "Type Right offline/online AI keyboard featuring real-time grammar check, WhisperFlow-style continuous voice transcription, and advanced AI polish.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
