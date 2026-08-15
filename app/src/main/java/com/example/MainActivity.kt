@@ -120,6 +120,7 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
     val profanityFilterEnabled = remember { mutableStateOf(settings.profanityFilterEnabled) }
     val cloudSyncEnabled = remember { mutableStateOf(settings.cloudSyncEnabled) }
     val activeIsDarkMode = remember { mutableStateOf(settings.isDarkMode) }
+    val activeDynamicThemeEnabled = remember { mutableStateOf(settings.dynamicThemeEnabled) }
     val activeNumberRowEnabled = remember { mutableStateOf(settings.numberRowEnabled) }
     val activeAccentColor = remember { mutableStateOf(settings.accentColor) }
 
@@ -269,6 +270,18 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
                 color = Color.White.copy(alpha = 0.5f),
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 1.5.sp
+            )
+
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+
+            PreferenceSwitchRow(
+                title = "Material You Dynamic Color",
+                description = "Adapt keyboard background, keys, and accents to your system wallpaper & device palette (Android 12+).",
+                checked = activeDynamicThemeEnabled.value,
+                onCheckedChange = {
+                    activeDynamicThemeEnabled.value = it
+                    settings.dynamicThemeEnabled = it
+                }
             )
 
             HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)

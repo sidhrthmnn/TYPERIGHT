@@ -17,6 +17,7 @@ class KeyboardSettings(context: Context) {
         const val KEY_PROFANITY_FILTER_ENABLED = "profanity_filter_enabled"
         const val KEY_CLOUD_SYNC_ENABLED = "cloud_sync_enabled"
         const val KEY_DARK_MODE = "keyboard_dark_mode"
+        const val KEY_DYNAMIC_THEME_ENABLED = "keyboard_dynamic_theme_enabled"
         const val KEY_ACCENT_COLOR = "keyboard_accent_color"
         const val KEY_AI_MODEL = "keyboard_ai_model"
         const val KEY_WHISPER_MODEL = "keyboard_whisper_model"
@@ -115,6 +116,10 @@ class KeyboardSettings(context: Context) {
     var isDarkMode: Boolean
         get() = prefs.getBoolean(KEY_DARK_MODE, true)
         set(value) = prefs.edit().putBoolean(KEY_DARK_MODE, value).apply()
+
+    var dynamicThemeEnabled: Boolean
+        get() = prefs.getBoolean(KEY_DYNAMIC_THEME_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_DYNAMIC_THEME_ENABLED, value).apply()
 
     var accentColor: String
         get() = prefs.getString(KEY_ACCENT_COLOR, "#70C7C1") ?: "#70C7C1"

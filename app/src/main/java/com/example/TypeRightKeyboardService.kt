@@ -387,69 +387,74 @@ class TypeRightKeyboardService : KeyboardService() {
         )
 
         composeView.setContent {
-            KeyboardLayout(
-                context = this,
-                settings = settings,
-                dictionaryManager = dictionaryManager,
-                isShift = isShiftActive.value,
-                isCapsLock = isCapsLockActive.value,
-                isSymbols = isSymbolLayerActive.value,
-                isEmojis = isEmojiLayerActive.value,
-                isClipboard = isClipboardLayerActive.value,
-                isAssistant = isAssistantLayerActive.value,
-                isVoiceTyping = isVoiceTypingActive.value,
-                voiceText = voiceTranscript.value,
-                audioLevel = voiceAudioLevel.value,
-                isPolishing = isAiPolishing.value,
-                micPermission = isMicPermissionGranted.value,
-                currentTypedWord = currentTypedWord.value,
-                wordUnderCursor = wordUnderCursor.value,
-                previousWord = previousWord.value,
-                previousWords = previousWords.value,
-                clipboardRepository = clipboardRepository,
-                onKeyClick = { handleKeyPress(it) },
-                onDelete = { handleDelete() },
-                onDeleteWord = { handleDeleteWord() },
-                onSpace = { handleSpace() },
-                onEnter = { handleEnter() },
-                onShiftToggle = { toggleShift() },
-                onSymbolsToggle = { toggleSymbols() },
-                onEmojiToggle = { toggleEmojis() },
-                onClipboardToggle = { toggleClipboard() },
-                onAssistantToggle = { toggleAssistant() },
-                currentAiMode = currentAiMode.value,
-                onTriggerAiAction = { mode -> triggerAiAction(mode) },
-                onVoiceTypingToggle = { toggleVoiceTyping() },
-                onAiPolishClick = { toggleAssistant() },
-                onProofreadClick = { performDirectLocalProofread() },
-                onSuggestionClick = { commitSuggestion(it) },
-                onOpenSettings = { launchSettingsActivity() },
-                isRephrasing = isAiPolishing.value,
-                aiRephraseSuggestions = aiRephraseSuggestions,
-                onAiRephraseClick = { },
-                onRephraseSuggestionClick = { commitRephraseSuggestion(it) },
-                onClearRephrasings = { aiRephraseSuggestions.clear() },
-                onTapCoordinates = { x, y ->
-                    lastTapX = x
-                    lastTapY = y
-                },
-                onSpaceSwipeLeft = { moveCursorLeft() },
-                onSpaceSwipeRight = { moveCursorRight() },
-                onUndo = { handleUndo() },
-                onRedo = { handleRedo() },
-                showVoicePolishPrompt = showVoicePolishPrompt.value,
-                onAcceptVoicePolish = {
-                    showVoicePolishPrompt.value = false
-                    val textToPolish = pendingVoiceTranscript.value
-                    if (textToPolish.isNotBlank()) {
-                        polishAndPresentVoiceResult(textToPolish)
+            com.example.ui.theme.MyApplicationTheme(
+                darkTheme = settings.isDarkMode,
+                dynamicColor = settings.dynamicThemeEnabled
+            ) {
+                KeyboardLayout(
+                    context = this,
+                    settings = settings,
+                    dictionaryManager = dictionaryManager,
+                    isShift = isShiftActive.value,
+                    isCapsLock = isCapsLockActive.value,
+                    isSymbols = isSymbolLayerActive.value,
+                    isEmojis = isEmojiLayerActive.value,
+                    isClipboard = isClipboardLayerActive.value,
+                    isAssistant = isAssistantLayerActive.value,
+                    isVoiceTyping = isVoiceTypingActive.value,
+                    voiceText = voiceTranscript.value,
+                    audioLevel = voiceAudioLevel.value,
+                    isPolishing = isAiPolishing.value,
+                    micPermission = isMicPermissionGranted.value,
+                    currentTypedWord = currentTypedWord.value,
+                    wordUnderCursor = wordUnderCursor.value,
+                    previousWord = previousWord.value,
+                    previousWords = previousWords.value,
+                    clipboardRepository = clipboardRepository,
+                    onKeyClick = { handleKeyPress(it) },
+                    onDelete = { handleDelete() },
+                    onDeleteWord = { handleDeleteWord() },
+                    onSpace = { handleSpace() },
+                    onEnter = { handleEnter() },
+                    onShiftToggle = { toggleShift() },
+                    onSymbolsToggle = { toggleSymbols() },
+                    onEmojiToggle = { toggleEmojis() },
+                    onClipboardToggle = { toggleClipboard() },
+                    onAssistantToggle = { toggleAssistant() },
+                    currentAiMode = currentAiMode.value,
+                    onTriggerAiAction = { mode -> triggerAiAction(mode) },
+                    onVoiceTypingToggle = { toggleVoiceTyping() },
+                    onAiPolishClick = { toggleAssistant() },
+                    onProofreadClick = { performDirectLocalProofread() },
+                    onSuggestionClick = { commitSuggestion(it) },
+                    onOpenSettings = { launchSettingsActivity() },
+                    isRephrasing = isAiPolishing.value,
+                    aiRephraseSuggestions = aiRephraseSuggestions,
+                    onAiRephraseClick = { },
+                    onRephraseSuggestionClick = { commitRephraseSuggestion(it) },
+                    onClearRephrasings = { aiRephraseSuggestions.clear() },
+                    onTapCoordinates = { x, y ->
+                        lastTapX = x
+                        lastTapY = y
+                    },
+                    onSpaceSwipeLeft = { moveCursorLeft() },
+                    onSpaceSwipeRight = { moveCursorRight() },
+                    onUndo = { handleUndo() },
+                    onRedo = { handleRedo() },
+                    showVoicePolishPrompt = showVoicePolishPrompt.value,
+                    onAcceptVoicePolish = {
+                        showVoicePolishPrompt.value = false
+                        val textToPolish = pendingVoiceTranscript.value
+                        if (textToPolish.isNotBlank()) {
+                            polishAndPresentVoiceResult(textToPolish)
+                        }
+                    },
+                    onRejectVoicePolish = {
+                        showVoicePolishPrompt.value = false
+                        pendingVoiceTranscript.value = ""
                     }
-                },
-                onRejectVoicePolish = {
-                    showVoicePolishPrompt.value = false
-                    pendingVoiceTranscript.value = ""
-                }
-            )
+                )
+            }
         }
         return composeView
     }
@@ -1557,6 +1562,7 @@ fun KeyboardLayout(
     
     var themeState by remember { mutableStateOf(settings.theme) }
     var isDarkState by remember { mutableStateOf(settings.isDarkMode) }
+    var dynamicThemeState by remember { mutableStateOf(settings.dynamicThemeEnabled) }
     var accentColorHexState by remember { mutableStateOf(settings.accentColor) }
     var keyboardHeightState by remember { mutableStateOf(settings.height) }
     var numberRowEnabledState by remember { mutableStateOf(settings.numberRowEnabled) }
@@ -1566,6 +1572,7 @@ fun KeyboardLayout(
             when (key) {
                 KeyboardSettings.KEY_THEME -> themeState = settings.theme
                 KeyboardSettings.KEY_DARK_MODE -> isDarkState = settings.isDarkMode
+                KeyboardSettings.KEY_DYNAMIC_THEME_ENABLED -> dynamicThemeState = settings.dynamicThemeEnabled
                 KeyboardSettings.KEY_ACCENT_COLOR -> accentColorHexState = settings.accentColor
                 KeyboardSettings.KEY_HEIGHT -> keyboardHeightState = settings.height
                 KeyboardSettings.KEY_NUMBER_ROW_ENABLED -> numberRowEnabledState = settings.numberRowEnabled
@@ -1585,17 +1592,47 @@ fun KeyboardLayout(
         }
     }
 
-    val style = remember(themeState, isDarkState, parsedAccentColor) {
+    val style = remember(themeState, isDarkState, dynamicThemeState, parsedAccentColor) {
         val isDark = isDarkState
-        val accent = parsedAccentColor
+        val isDynamic = dynamicThemeState && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+        val dynamicScheme = if (isDynamic) {
+            com.example.ui.theme.getAppColorScheme(context, isDark, dynamicColor = true)
+        } else null
 
-        if (isDark) {
+        if (dynamicScheme != null) {
+            // Material You Dynamic Palette (Adapts to system wallpaper & Material You tokens)
+            val bg = dynamicScheme.surface
+            val normalBg = dynamicScheme.surfaceVariant
+            val specialBg = dynamicScheme.secondaryContainer
+            val textColor = dynamicScheme.onSurface
+            val enterBg = dynamicScheme.primary
+            val enterTextColor = dynamicScheme.onPrimary
+            val accent = dynamicScheme.primary
+            val shape = RoundedCornerShape(6.dp)
+
+            KeyboardStyle(
+                theme = if (isDark) "Material You Dark" else "Material You Light",
+                isDark = isDark,
+                backgroundColor = bg,
+                normalKeyBg = normalBg,
+                specialKeyBg = specialBg,
+                keyTextColor = textColor,
+                accentColor = accent,
+                enterKeyBg = enterBg,
+                enterKeyTextColor = enterTextColor,
+                keyShape = shape,
+                keyBorder = null,
+                showPressPopup = true,
+                scaleOnPress = true,
+                pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh)
+            )
+        } else if (isDark) {
             // Gboard Dark Theme
             val bg = Color(0xFF202124)
             val normalBg = Color(0xFF323438)
             val specialBg = Color(0xFF424446)
             val textColor = Color(0xFFE8EAED)
-            val enterBg = accent
+            val enterBg = parsedAccentColor
             val enterTextColor = Color(0xFF000000)
             val shape = RoundedCornerShape(6.dp)
 
@@ -1606,7 +1643,7 @@ fun KeyboardLayout(
                 normalKeyBg = normalBg,
                 specialKeyBg = specialBg,
                 keyTextColor = textColor,
-                accentColor = accent,
+                accentColor = parsedAccentColor,
                 enterKeyBg = enterBg,
                 enterKeyTextColor = enterTextColor,
                 keyShape = shape,
@@ -1621,7 +1658,7 @@ fun KeyboardLayout(
             val normalBg = Color(0xFFFFFFFF)
             val specialBg = Color(0xFFD1D6D9)
             val textColor = Color(0xFF202124)
-            val enterBg = accent
+            val enterBg = parsedAccentColor
             val enterTextColor = Color(0xFFFFFFFF)
             val shape = RoundedCornerShape(6.dp)
 
@@ -1632,7 +1669,7 @@ fun KeyboardLayout(
                 normalKeyBg = normalBg,
                 specialKeyBg = specialBg,
                 keyTextColor = textColor,
-                accentColor = accent,
+                accentColor = parsedAccentColor,
                 enterKeyBg = enterBg,
                 enterKeyTextColor = enterTextColor,
                 keyShape = shape,
