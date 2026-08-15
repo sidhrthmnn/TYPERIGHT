@@ -24,7 +24,7 @@ class DictionaryManager(private val context: Context) {
         contextWords: List<String>,
         tapCoords: List<PointF>?,
         isSensitiveField: Boolean = false
-    ): GboardPredictionEngine.GboardSuggestionResult {
+    ): GboardSuggestionResult {
         return gboardEngine.getGboardPredictionsAndCorrections(
             rawTyped = rawTyped,
             contextWords = contextWords,
@@ -32,6 +32,11 @@ class DictionaryManager(private val context: Context) {
             dictionaryManager = this,
             isSensitiveField = isSensitiveField
         )
+    }
+
+    fun isWordInUserDictionary(word: String): Boolean {
+        val w = word.lowercase().trim()
+        return synchronized(userWords) { userWords.contains(w) }
     }
 
     fun learnSwipePattern(word: String, path: List<PointF>) {
@@ -708,9 +713,10 @@ class DictionaryManager(private val context: Context) {
     private val textServicesManager = context.getSystemService(Context.TEXT_SERVICES_MANAGER_SERVICE) as? TextServicesManager
 
     init {
-        // Build local Trie index & Phonetic index from common words
+        // Build local Trie index, SymSpell index & Phonetic index from common words
         commonWords.forEach {
             trie.insert(it.word, it.frequency)
+            gboardEngine.symSpellEngine.insertWord(it.word, it.frequency)
             val pKey = computePhoneticKey(it.word)
             if (pKey.isNotEmpty()) {
                 phoneticIndex.getOrPut(pKey) { mutableListOf() }.add(it.word)
@@ -844,6 +850,7 @@ class DictionaryManager(private val context: Context) {
                 if (!userWords.contains(clean)) {
                     userWords.add(clean)
                     trie.insert(clean, 35)
+                    gboardEngine.symSpellEngine.insertWord(clean, 35)
                     false
                 } else {
                     true
