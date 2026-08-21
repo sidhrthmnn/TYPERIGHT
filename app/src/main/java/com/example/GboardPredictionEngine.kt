@@ -93,6 +93,12 @@ class GboardPredictionEngine(private val context: Context) {
     val spatialModel = SpatialKeyProximityModel()
     val symSpellEngine = SymSpellCorrectionEngine(spatialModel, maxEditDistance = 2)
 
+    private val predictionCache = object : LinkedHashMap<String, GboardSuggestionResult>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, GboardSuggestionResult>?): Boolean {
+            return size > 128
+        }
+    }
+
     companion object {
         private const val TAG = "TypeRightAutoCorrect"
 
@@ -122,7 +128,7 @@ class GboardPredictionEngine(private val context: Context) {
         "ehst" to "what", "waht" to "what", "whta" to "what", "alredy" to "already",
         "alwasy" to "always", "beacuse" to "because", "becuase" to "because",
         "comming" to "coming", "realy" to "really", "thier" to "their", "theri" to "their",
-        "tought" to "thought", "tihs" to "this", "thsi" to "this", "whcih" to "which", "abotu" to "about",
+        "tought" to "thought", "tihs" to "this", "thsi" to "this", "thid" to "this", "fir" to "for", "whcih" to "which", "abotu" to "about",
         "peopel" to "people", "poeple" to "people", "jsut" to "just", "juts" to "just",
         "knwo" to "know", "themselfs" to "themselves", "wich" to "which", "widht" to "width",
         "acording" to "according", "beleive" to "believe", "rember" to "remember",
@@ -271,6 +277,12 @@ class GboardPredictionEngine(private val context: Context) {
     ): GboardSuggestionResult {
         val trimmed = rawTyped.trim()
         val lower = trimmed.lowercase()
+
+        val cacheKey = "$lower|${contextWords.takeLast(2).joinToString(",")}|${tapCoords?.size ?: 0}|$isSensitiveField"
+        synchronized(predictionCache) {
+            val cached = predictionCache[cacheKey]
+            if (cached != null) return cached
+        }
 
         // Empty typing state: Next-Word Prediction and Phrase Completion
         if (trimmed.isEmpty()) {
@@ -501,7 +513,7 @@ class GboardPredictionEngine(private val context: Context) {
 
         Log.d(TAG, "[AUTOCORRECT] $decisionReason")
 
-        return GboardSuggestionResult(
+        val result = GboardSuggestionResult(
             leftCandidate = leftSlotWord,
             centerCandidate = centerSlotWord,
             rightCandidate = rightSlotWord,
@@ -515,6 +527,12 @@ class GboardPredictionEngine(private val context: Context) {
                 decisionReason = decisionReason
             )
         )
+
+        synchronized(predictionCache) {
+            predictionCache[cacheKey] = result
+        }
+
+        return result
     }
 
     private fun restoreCasing(original: String, target: String): String {

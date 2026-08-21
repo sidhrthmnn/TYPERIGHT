@@ -12,19 +12,24 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * GeminiApiClient handles server-side / cloud AI requests using low-latency Google Gemini APIs (gemini-3.1-flash-lite, gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-flash).
+ * GeminiApiClient handles server-side / cloud AI requests using ultra-fast Google Gemini Flash Lite API (gemini-3.1-flash-lite-preview, gemini-flash-lite-latest).
  * Understands the context of user input/voice dictation, corrects spelling errors, fixes grammar,
  * and recreates sentences naturally to reflect what the user intended to say.
  */
 object GeminiApiClient {
     private const val TAG = "GeminiApiClient"
-    private val CANDIDATE_MODELS = listOf("gemini-3.5-flash", "gemini-3.1-flash-lite-preview", "gemini-2.5-flash")
+    private val CANDIDATE_MODELS = listOf(
+        "gemini-3.1-flash-lite-preview",
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash",
+        "gemini-flash-latest"
+    )
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .writeTimeout(6, TimeUnit.SECONDS)
         .build()
 
     /**

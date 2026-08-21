@@ -105,6 +105,7 @@ class PatternLearningPredictor private constructor(context: Context) {
     // In-memory caches to guarantee sub-millisecond response times for real-time predictions
     private val swipeTemplates = HashMap<String, List<PointF>>()
     private val touchOffsets = HashMap<Char, PointF>() // Average offset dx, dy per key
+    private val touchStatsMap = HashMap<Char, Triple<Float, Float, Int>>() // char -> (dxSum, dySum, count)
     private val bigramCounts = HashMap<String, HashMap<String, Int>>() // prevWord -> (nextWord -> count)
     private val trigramCounts = HashMap<String, HashMap<String, Int>>() // "prev2:prev1" -> (nextWord -> count)
 
@@ -133,6 +134,7 @@ class PatternLearningPredictor private constructor(context: Context) {
                         if (it.char.isNotEmpty() && it.count > 0) {
                             val charKey = it.char[0].lowercaseChar()
                             touchOffsets[charKey] = PointF(it.dxSum / it.count, it.dySum / it.count)
+                            touchStatsMap[charKey] = Triple(it.dxSum, it.dySum, it.count)
                         }
                     }
                 }
@@ -227,35 +229,35 @@ class PatternLearningPredictor private constructor(context: Context) {
         val dx = tapX - targetX
         val dy = tapY - targetY
 
+        val updatedOffset: LearnedTouchOffset
+        synchronized(touchOffsets) {
+            val currentStats = touchStatsMap[charKey]
+            val count = currentStats?.third ?: 0
+            val dxSum = currentStats?.first ?: 0f
+            val dySum = currentStats?.second ?: 0f
+
+            val newCount = (count + 1).coerceAtMost(50)
+            val decay = if (count >= 50) 0.95f else 1.0f
+
+            val newDxSum = (dxSum * decay) + dx
+            val newDySum = (dySum * decay) + dy
+
+            touchStatsMap[charKey] = Triple(newDxSum, newDySum, newCount)
+            touchOffsets[charKey] = PointF(newDxSum / newCount, newDySum / newCount)
+
+            updatedOffset = LearnedTouchOffset(
+                char = charKey.toString(),
+                dxSum = newDxSum,
+                dySum = newDySum,
+                count = newCount
+            )
+        }
+
         scope.launch {
             try {
-                val dbRow = dao.getAllTouchOffsets().firstOrNull { it.char == charKey.toString() }
-                
-                val count = dbRow?.count ?: 0
-                val dxSum = dbRow?.dxSum ?: 0f
-                val dySum = dbRow?.dySum ?: 0f
-
-                // Use a rolling memory limit to keep learning adaptive to grip/hand posture changes
-                val newCount = (count + 1).coerceAtMost(50)
-                val decay = if (count >= 50) 0.95f else 1.0f
-
-                val newDxSum = (dxSum * decay) + dx
-                val newDySum = (dySum * decay) + dy
-
-                val updatedOffset = LearnedTouchOffset(
-                    char = charKey.toString(),
-                    dxSum = newDxSum,
-                    dySum = newDySum,
-                    count = newCount
-                )
-
                 dao.insertTouchOffset(updatedOffset)
-
-                synchronized(touchOffsets) {
-                    touchOffsets[charKey] = PointF(newDxSum / newCount, newDySum / newCount)
-                }
             } catch (e: Exception) {
-                Log.e("MLPredictor", "Error learning tap pattern: ${e.message}")
+                Log.e("MLPredictor", "Error saving tap pattern: ${e.message}")
             }
         }
     }

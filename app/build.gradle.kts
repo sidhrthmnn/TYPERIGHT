@@ -17,8 +17,8 @@ android {
     applicationId = "com.aistudio.typeright.jkwpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 100
-    versionName = "100.0"
+    versionCode = 120
+    versionName = "120.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -109,6 +109,7 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  implementation(libs.tensorflow.lite)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

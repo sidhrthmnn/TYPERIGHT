@@ -126,6 +126,6 @@ class KeyboardSettings(context: Context) {
         set(value) = prefs.edit().putString(KEY_ACCENT_COLOR, value).apply()
 
     var strictlyUseGemini: Boolean
-        get() = true
-        set(_) {}
+        get() = prefs.getBoolean(KEY_STRICTLY_USE_GEMINI, false)
+        set(value) = prefs.edit().putBoolean(KEY_STRICTLY_USE_GEMINI, value).apply()
 }

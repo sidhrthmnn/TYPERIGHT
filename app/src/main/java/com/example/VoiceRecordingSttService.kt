@@ -154,7 +154,7 @@ class VoiceRecordingSttService(private val context: Context) {
 
         if (shouldPolish) {
             scope.launch {
-                val polishedText = GeminiNanoManager.proofreadAndCleanVoiceText(rawText)
+                val polishedText = WhisperCppBrain.whisperCleanAndPolish(rawText)
                 _currentTranscript.value = polishedText
                 onFinalTranscript(polishedText)
             }

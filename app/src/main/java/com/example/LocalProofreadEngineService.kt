@@ -93,7 +93,9 @@ class LocalProofreadEngineService : Service() {
         text = localPredictor.polishSentenceLocally(text)
 
         // 4. Format list structures if present
-        text = GeminiNanoManager.formatListsInText(text)
+        if (text.contains(Regex("(?m)^\\s*\\d+\\."))) {
+            text = text.replace(Regex("(?m)^\\s*(\\d+\\.)\\s*"), "$1 ")
+        }
 
         return@withContext text
     }

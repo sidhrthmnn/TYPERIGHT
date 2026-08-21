@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 class LocalInferenceEngine private constructor(private val context: Context) {
 
     val localPredictor = LocalGrammarSpellPredictor(context)
+    val tfLiteCorrectionModel = TfLiteCorrectionModel.getInstance(context)
 
     companion object {
         private const val TAG = "LocalInferenceEngine"
@@ -60,22 +61,29 @@ class LocalInferenceEngine private constructor(private val context: Context) {
     }
 
     /**
-     * Runs AI inference on the prompt using Gemini API with Gemini Nano fallback.
+     * Runs AI inference on the prompt: executes local NLP processing first,
+     * then escalates to Gemini Cloud API if more extensive correction or transformation is needed.
      */
     suspend fun runInference(prompt: String, mode: String): String = withContext(Dispatchers.IO) {
-        val settings = KeyboardSettings(context)
-        if (settings.strictlyUseGemini) {
-            try {
-                val geminiResult = GeminiApiClient.generatePolish(prompt, mode)
-                if (!geminiResult.isNullOrBlank()) {
-                    return@withContext geminiResult
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Gemini API cloud inference error: ${e.message}")
+        val localCleaned = polishSentenceLocally(prompt)
+
+        // If local system already performed full cleanup or if offline
+        if (mode.equals("proofread", ignoreCase = true) && localCleaned.isNotBlank()) {
+            val hasGrammarFlaws = localCleaned.contains(Regex("(?i)\\b(i has|he have|she have|buyed|goed|they was|more better)\\b"))
+            if (!hasGrammarFlaws) {
+                return@withContext localCleaned
             }
         }
+
+        try {
+            val geminiResult = GeminiApiClient.generatePolish(prompt, mode)
+            if (!geminiResult.isNullOrBlank()) {
+                return@withContext geminiResult
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Gemini API cloud inference error: ${e.message}")
+        }
         
-        // On-device brain (Gemini Nano)
-        GeminiNanoManager.processWithGeminiNano(context, prompt, mode)
+        return@withContext localCleaned
     }
 }

@@ -9,58 +9,217 @@ import kotlinx.coroutines.flow.flow
 class AiPolishManager(private val context: Context) {
     private val settings = KeyboardSettings(context)
     private val dictionaryManager = DictionaryManager(context)
+    private val tfLiteCorrectionModel = TfLiteCorrectionModel.getInstance(context)
 
     /**
-     * Check if on-device AI (Gemini Nano/AICore) is supported on this device.
-     * We use a robust detection that respects the user-selected tier or simulates realistically.
+     * Proofreads text by running the Local TensorFlow Lite (TFLite) System first.
+     * If the local system is unable to fully resolve spelling/grammar errors,
+     * it escalates to Google Gemini Cloud API.
      */
-    fun isAiCoreSupported(): Boolean {
-        return when (settings.supportTier) {
-            KeyboardSettings.TIER_1 -> true
-            KeyboardSettings.TIER_2 -> false
-            KeyboardSettings.TIER_3 -> false
-            else -> {
-                // Auto-detect. Since we are in an emulator environment, we simulate
-                // partial or full support depending on the system specs, defaulting to true
-                // to show off the polished capabilities.
-                true
-            }
+    suspend fun proofreadText(text: String): String {
+        if (text.isBlank()) return ""
+
+        val startTime = System.currentTimeMillis()
+        Log.d("AiPolishManager", "Step 1: Local system acting first on: $text")
+
+        // 1. Local System acts first (0ms latency, local rules, SymSpell, grammar)
+        val localResult = performOfflinePolish(text)
+
+        // 2. Check if local system successfully corrected the text or if errors remain
+        val needsCloudGemini = hasUnresolvedErrors(original = text, locallyCorrected = localResult)
+
+        if (!needsCloudGemini && localResult.isNotBlank()) {
+            val duration = System.currentTimeMillis() - startTime
+            Log.d("AiPolishManager", "Local system fully corrected text in ${duration}ms: $localResult")
+            AiExecutionLogger.logAiAction(context, "Proofreading (Local First)", AiExecutionLogger.ENGINE_OFFLINE_LOCAL, text, localResult, duration)
+            return localResult
         }
+
+        // 3. Local system didn't completely resolve it -> Escalate to Google Gemini Cloud API
+        Log.d("AiPolishManager", "Local system flagged unresolved issues. Escalating to Gemini Cloud API...")
+        try {
+            val geminiResult = GeminiApiClient.generatePolish(text, "proofread")
+            if (!geminiResult.isNullOrBlank()) {
+                val duration = System.currentTimeMillis() - startTime
+                AiExecutionLogger.logAiAction(context, "Proofreading (Gemini Cloud)", AiExecutionLogger.ENGINE_GEMINI_CLOUD, text, geminiResult, duration)
+                return geminiResult
+            }
+        } catch (e: Exception) {
+            Log.w("AiPolishManager", "Gemini Cloud escalation failed: ${e.message}")
+        }
+
+        // 4. Return local result if cloud is unreachable
+        val duration = System.currentTimeMillis() - startTime
+        AiExecutionLogger.logAiAction(context, "Proofreading (Local Fallback)", AiExecutionLogger.ENGINE_OFFLINE_LOCAL, text, localResult, duration)
+        return localResult
     }
 
     /**
-     * Polishes the given raw dictation/typing text on-device.
-     * It outputs a flow of chunks to simulate streaming results like a real local LLM while preserving line breaks.
+     * Streams proofreading output chunk-by-chunk: Local system acts first, escalates to Gemini Cloud if uncorrected.
      */
-    fun polishTextStream(text: String): Flow<String> = flow {
+    fun proofreadTextStream(text: String): Flow<String> = flow {
         if (text.isBlank()) {
             emit("")
             return@flow
         }
 
-        Log.d("AiPolishManager", "Starting local device-based LLM inference...")
-        Log.d("AiPolishManager", "System Prompt: Correct all spelling, grammar, symbols, and formatting locally.")
-        Log.d("AiPolishManager", "User Input text: $text")
+        val startTime = System.currentTimeMillis()
+        val localResult = performOfflinePolish(text)
+        val needsCloudGemini = hasUnresolvedErrors(original = text, locallyCorrected = localResult)
 
-        // Perform polish via Gemini cloud if strictly enabled, otherwise fallback to offline AI polish engine
-        val polished = if (settings.strictlyUseGemini) {
-            Log.d("AiPolishManager", "Attempting Gemini Cloud API for AI proofreading...")
-            val cloudResult = GeminiApiClient.generatePolish(text, "proofread")
-            if (!cloudResult.isNullOrBlank()) {
-                cloudResult
-            } else {
-                Log.i("AiPolishManager", "Gemini Cloud API unavailable or offline. Falling back to offline AI polish engine.")
-                performOfflinePolish(text)
+        var finalResult = localResult
+        var engineUsed = AiExecutionLogger.ENGINE_OFFLINE_LOCAL
+
+        if (needsCloudGemini) {
+            try {
+                val cloud = GeminiApiClient.generatePolish(text, "proofread")
+                if (!cloud.isNullOrBlank()) {
+                    finalResult = cloud
+                    engineUsed = AiExecutionLogger.ENGINE_GEMINI_CLOUD
+                }
+            } catch (e: Exception) {
+                finalResult = localResult
+                engineUsed = AiExecutionLogger.ENGINE_OFFLINE_LOCAL
             }
-        } else {
-            Log.d("AiPolishManager", "Using offline AI polish engine for proofreading...")
-            performOfflinePolish(text)
         }
-        
-        Log.d("AiPolishManager", "Inference complete! Polished output: $polished")
 
-        // Tokenize by spaces but keep the actual line breaks
-        val lines = polished.split("\n")
+        val duration = System.currentTimeMillis() - startTime
+        AiExecutionLogger.logAiAction(context, "Proofreading (Stream)", engineUsed, text, finalResult, duration)
+
+        streamWords(finalResult)
+    }
+
+    /**
+     * AI Polish text: Local system transforms first, escalates to Gemini Cloud for complex nuance.
+     */
+    suspend fun polishText(text: String, mode: String = "formalize"): String {
+        if (text.isBlank()) return ""
+
+        val startTime = System.currentTimeMillis()
+        val opName = "AI Polish ($mode)"
+        Log.d("AiPolishManager", "Step 1: Local system acting first on style polish [mode=$mode] for: $text")
+
+        // 1. Local system acts first
+        val localTransformed = generateOfflineStyleTransformation(text, mode)
+
+        val isTrivialOrUnchanged = localTransformed.trim() == text.trim() ||
+            (mode.equals("expand", ignoreCase = true) && localTransformed.startsWith("Please note that")) ||
+            text.split(" ").size > 6
+
+        if (!isTrivialOrUnchanged && localTransformed.isNotBlank()) {
+            val duration = System.currentTimeMillis() - startTime
+            AiExecutionLogger.logAiAction(context, "$opName (Local First)", AiExecutionLogger.ENGINE_OFFLINE_LOCAL, text, localTransformed, duration)
+            return localTransformed
+        }
+
+        // 2. Escalate to Gemini Cloud
+        Log.d("AiPolishManager", "Escalating AI Polish to Gemini Cloud for stylistic refinement...")
+        try {
+            val geminiResult = GeminiApiClient.generatePolish(text, mode)
+            if (!geminiResult.isNullOrBlank()) {
+                val duration = System.currentTimeMillis() - startTime
+                AiExecutionLogger.logAiAction(context, "$opName (Gemini Cloud)", AiExecutionLogger.ENGINE_GEMINI_CLOUD, text, geminiResult, duration)
+                return geminiResult
+            }
+        } catch (e: Exception) {
+            Log.w("AiPolishManager", "Gemini Cloud polish failed: ${e.message}")
+        }
+
+        val duration = System.currentTimeMillis() - startTime
+        AiExecutionLogger.logAiAction(context, "$opName (Local Fallback)", AiExecutionLogger.ENGINE_OFFLINE_LOCAL, text, localTransformed, duration)
+        return localTransformed
+    }
+
+    /**
+     * Streams AI Polish output: Local system acts first, escalates to Gemini Cloud if complex.
+     */
+    fun polishTextStream(text: String, mode: String = "formalize"): Flow<String> = flow {
+        if (text.isBlank()) {
+            emit("")
+            return@flow
+        }
+
+        val startTime = System.currentTimeMillis()
+        val opName = "AI Polish ($mode Stream)"
+
+        val localTransformed = generateOfflineStyleTransformation(text, mode)
+        val isTrivialOrUnchanged = localTransformed.trim() == text.trim() ||
+            (mode.equals("expand", ignoreCase = true) && localTransformed.startsWith("Please note that")) ||
+            text.split(" ").size > 6
+
+        var finalResult = localTransformed
+        var engineUsed = AiExecutionLogger.ENGINE_OFFLINE_LOCAL
+
+        if (isTrivialOrUnchanged) {
+            try {
+                val cloud = GeminiApiClient.generatePolish(text, mode)
+                if (!cloud.isNullOrBlank()) {
+                    finalResult = cloud
+                    engineUsed = AiExecutionLogger.ENGINE_GEMINI_CLOUD
+                }
+            } catch (e: Exception) {
+                finalResult = localTransformed
+                engineUsed = AiExecutionLogger.ENGINE_OFFLINE_LOCAL
+            }
+        }
+
+        val duration = System.currentTimeMillis() - startTime
+        AiExecutionLogger.logAiAction(context, opName, engineUsed, text, finalResult, duration)
+
+        streamWords(finalResult)
+    }
+
+    /**
+     * Checks if the locally corrected text has unresolved errors (spelling, typos, grammar)
+     * to determine if escalation to Gemini Cloud is required.
+     */
+    private fun hasUnresolvedErrors(original: String, locallyCorrected: String): Boolean {
+        if (locallyCorrected.isBlank()) return false
+
+        val lower = locallyCorrected.lowercase().trim()
+
+        // 1. Check for known uncorrected grammatical mistakes
+        val obviousGrammarFlaws = listOf(
+            "i has", "he have", "she have", "it have", "they was", "we was", "you was",
+            "buyed", "goed", "catched", "sleeped", "runned", "swimmed", "eated", "bringed",
+            "more better", "most best", "could of", "should of", "would of",
+            "has went", "have went", "had went", "have saw", "has saw", "had saw",
+            "did went", "did saw", "did took", "did ate"
+        )
+        if (obviousGrammarFlaws.any { lower.contains(it) }) {
+            return true
+        }
+
+        // 2. Check for unknown/misspelled words not recognized by dictionary
+        val words = locallyCorrected.split(Regex("[\\s,;:.!?-]+")).filter { it.isNotBlank() }
+        var unknownCount = 0
+        for (word in words) {
+            val clean = word.lowercase().trim()
+            if (clean.length > 2 && !clean.all { it.isDigit() }) {
+                if (!dictionaryManager.isValidOrKnownWord(clean)) {
+                    unknownCount++
+                }
+            }
+        }
+        if (unknownCount > 0) {
+            return true
+        }
+
+        // 3. If original text had errors that were completely unchanged by local rules
+        if (original.trim().lowercase() == locallyCorrected.trim().lowercase()) {
+            val originalWords = original.split(Regex("[\\s,;:.!?-]+")).filter { it.isNotBlank() }
+            val hasUnknown = originalWords.any { w ->
+                val clean = w.lowercase().trim()
+                clean.length > 2 && !clean.all { it.isDigit() } && !dictionaryManager.isValidOrKnownWord(clean)
+            }
+            if (hasUnknown) return true
+        }
+
+        return false
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<String>.streamWords(content: String) {
+        val lines = content.split("\n")
         val currentText = StringBuilder()
         var isFirstLine = true
         for (line in lines) {
@@ -83,8 +242,23 @@ class AiPolishManager(private val context: Context) {
                 delay(30)
             }
         }
-        if (currentText.toString() != polished) {
-            emit(polished)
+        if (currentText.toString() != content) {
+            emit(content)
+        }
+    }
+
+    /**
+     * Offline transformation for specific AI Polish modes when offline.
+     */
+    private fun generateOfflineStyleTransformation(input: String, mode: String): String {
+        val alternatives = generateStyleAlternatives(input)
+        return when (mode.lowercase()) {
+            "formalize", "formal", "professional" -> alternatives.getOrNull(0) ?: input
+            "casual" -> alternatives.getOrNull(1) ?: alternatives.getOrNull(0) ?: input
+            "shorten", "concise" -> alternatives.getOrNull(2) ?: alternatives.getOrNull(0) ?: input
+            "expand" -> "Please note that " + input.replaceFirstChar { it.lowercase() }
+            "rephrase" -> alternatives.getOrNull(0) ?: input
+            else -> alternatives.getOrNull(0) ?: input
         }
     }
 
@@ -95,6 +269,9 @@ class AiPolishManager(private val context: Context) {
     private fun performOfflinePolish(input: String): String {
         var text = WhisperCppBrain.whisperCleanAndPolish(input)
         if (text.isEmpty()) return ""
+
+        // Primary TFLite local neural processing layer
+        text = tfLiteCorrectionModel.correctText(text)
 
         // 2.7. Correct spelling mistakes, typos, and grammar errors
         val spellingAndGrammarCorrections = listOf(
@@ -534,8 +711,7 @@ class AiPolishManager(private val context: Context) {
     }
 
     /**
-     * Suggests improvements / rephrases for highlighted or provided text.
-     * Always improves grammar, spelling, and punctuation first, then returns distinct style alternatives.
+     * Suggests AI Polish style improvements (Professional, Casual, Concise) for highlighted or provided text.
      */
     fun suggestImprovements(text: String): Flow<List<String>> = flow {
         if (text.isBlank()) {
@@ -543,34 +719,28 @@ class AiPolishManager(private val context: Context) {
             return@flow
         }
 
-        Log.d("AiPolishManager", "Starting local device-based LLM inference for improvements...")
-        Log.d("AiPolishManager", "System Prompt: Suggest improvements and rephrase highlighted text locally.")
+        Log.d("AiPolishManager", "Starting AI Polish improvements...")
         Log.d("AiPolishManager", "User Input text: $text")
 
-        // Simulate local AI processing delay for multiple options
-        val (cloudProofread, cloudRephrase, cloudFormal) = if (settings.strictlyUseGemini) {
-            Triple(
-                GeminiApiClient.generatePolish(text, "proofread"),
-                GeminiApiClient.generatePolish(text, "rephrase"),
-                GeminiApiClient.generatePolish(text, "formalize")
-            )
-        } else {
-            val localPolished = performOfflinePolish(text)
-            Triple(
-                localPolished,
-                GeminiNanoManager.processWithGeminiNano(context, text, "rephrase"),
-                GeminiNanoManager.processWithGeminiNano(context, text, "formalize")
-            )
+        // 1. Try Gemini cloud API
+        val (formalOpt, casualOpt, conciseOpt) = try {
+            val formal = GeminiApiClient.generatePolish(text, "formalize")
+            val casual = GeminiApiClient.generatePolish(text, "casual")
+            val rephrase = GeminiApiClient.generatePolish(text, "rephrase")
+            Triple(formal, casual, rephrase)
+        } catch (e: Exception) {
+            Log.w("AiPolishManager", "Gemini suggestion error: ${e.message}")
+            Triple(null, null, null)
         }
 
-        val polished = cloudProofread ?: performOfflinePolish(text)
-        val alternatives = if (!cloudRephrase.isNullOrEmpty() && !cloudFormal.isNullOrEmpty()) {
-            listOf(cloudProofread ?: polished, cloudRephrase, cloudFormal)
+        val alternatives = if (!formalOpt.isNullOrEmpty() && !casualOpt.isNullOrEmpty()) {
+            listOfNotNull(formalOpt, casualOpt, conciseOpt).distinct()
         } else {
+            val polished = performOfflinePolish(text)
             generateStyleAlternatives(polished)
         }
 
-        Log.d("AiPolishManager", "Inference complete! Suggestions generated: $alternatives")
+        Log.d("AiPolishManager", "Inference complete! AI Polish suggestions generated: $alternatives")
         emit(alternatives)
     }
 

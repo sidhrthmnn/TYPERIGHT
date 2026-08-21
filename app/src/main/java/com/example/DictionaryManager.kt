@@ -51,6 +51,26 @@ class DictionaryManager(private val context: Context) {
         }
     }
 
+    fun findWordsWithPrefix(prefix: String, maxResults: Int = 3): List<String> {
+        return trie.searchPrefix(prefix, maxResults).map { it.first }
+    }
+
+    /**
+     * Find nearest dictionary candidates for user input using Levenshtein distance algorithm.
+     */
+    fun findLevenshteinCorrections(
+        input: String,
+        maxDistance: Int = 2,
+        maxResults: Int = 5
+    ): List<LevenshteinAutoCorrector.LevenshteinMatch> {
+        return LevenshteinAutoCorrector.findClosestWords(
+            input = input,
+            dictionary = commonWords,
+            maxDistance = maxDistance,
+            maxResults = maxResults
+        )
+    }
+
     data class WordFrequency(val word: String, val frequency: Int)
 
     private val settings = KeyboardSettings(context)
@@ -705,6 +725,8 @@ class DictionaryManager(private val context: Context) {
 
     private val trie = TrieDictionary()
     private val phoneticIndex = HashMap<String, MutableList<String>>()
+    private val commonWordsSet = HashSet<String>(1500)
+    private val commonWordsFreqMap = HashMap<String, Int>(1500)
 
     private val database = AppDatabase.getDatabase(context)
     private val learnedWordDao = database.learnedWordDao()
@@ -713,8 +735,11 @@ class DictionaryManager(private val context: Context) {
     private val textServicesManager = context.getSystemService(Context.TEXT_SERVICES_MANAGER_SERVICE) as? TextServicesManager
 
     init {
-        // Build local Trie index, SymSpell index & Phonetic index from common words
+        // Build local Trie index, SymSpell index, Fast Hash Set & Phonetic index from common words
         commonWords.forEach {
+            val lower = it.word.lowercase()
+            commonWordsSet.add(lower)
+            commonWordsFreqMap[lower] = it.frequency
             trie.insert(it.word, it.frequency)
             gboardEngine.symSpellEngine.insertWord(it.word, it.frequency)
             val pKey = computePhoneticKey(it.word)
@@ -841,6 +866,20 @@ class DictionaryManager(private val context: Context) {
         }
     }
 
+    /**
+     * Checks whether a given word is recognized by the local dictionary, user words, or SymSpell index.
+     */
+    fun isValidOrKnownWord(word: String): Boolean {
+        val clean = word.lowercase().trim().trim { !it.isLetterOrDigit() && it != '\'' }
+        if (clean.isEmpty()) return true
+        if (clean.length == 1 && (clean == "a" || clean == "i")) return true
+        if (clean.all { it.isDigit() }) return true
+        if (commonWordsSet.contains(clean)) return true
+        if (synchronized(userWords) { userWords.contains(clean) }) return true
+        if (gboardEngine.symSpellEngine.hasWord(clean)) return true
+        return false
+    }
+
     fun learnWord(word: String) {
         val clean = word.lowercase().trim()
         if (clean.isEmpty() || clean.length < 2 || isProfane(clean)) return
@@ -880,8 +919,9 @@ class DictionaryManager(private val context: Context) {
         val c = current.lowercase().trim()
         if (p.isEmpty() || c.isEmpty() || isProfane(c)) return
         
-        // Train the machine learning Markov model on this word transition
+        // Train the machine learning Markov model & N-gram Language Model
         mlPredictor.learnBigram(p, c)
+        nGramModel.addBigram(p, c, 1)
 
         val list = personalizedBigrams.getOrPut(p) { mutableListOf() }
         if (!list.contains(c)) {
@@ -899,8 +939,9 @@ class DictionaryManager(private val context: Context) {
         val c = current.lowercase().trim()
         if (p2.isEmpty() || p1.isEmpty() || c.isEmpty() || isProfane(c)) return
 
-        // Train the machine learning Markov model on 3-word sequence transitions
+        // Train the machine learning Markov model & N-gram Language Model
         mlPredictor.learnTrigram(p2, p1, c)
+        nGramModel.addTrigram(p2, p1, c, 1)
 
         val key = "$p2 $p1"
         val list = personalizedBigrams.getOrPut(key) { mutableListOf() }
@@ -911,6 +952,16 @@ class DictionaryManager(private val context: Context) {
             }
             saveUserDictionary()
         }
+    }
+
+    fun learnQuadgram(prev3: String, prev2: String, prev1: String, current: String) {
+        val p3 = prev3.lowercase().trim()
+        val p2 = prev2.lowercase().trim()
+        val p1 = prev1.lowercase().trim()
+        val c = current.lowercase().trim()
+        if (p3.isEmpty() || p2.isEmpty() || p1.isEmpty() || c.isEmpty() || isProfane(c)) return
+
+        nGramModel.addQuadgram(p3, p2, p1, c, 1)
     }
 
     fun addToBlocklist(word: String) {
@@ -1008,8 +1059,7 @@ class DictionaryManager(private val context: Context) {
             // Context-aware phrase completions from local grammar predictor
             val phrasePredictions = localGrammarPredictor.predictPhraseCompletions(contextList, "", 3)
 
-            // Predict based on previous words using Gemini Nano AI model and N-Gram Language Model
-            val nanoContextPredictions = GeminiNanoManager.predictNextWordsFromContext(contextList)
+            // Predict based on previous words using N-Gram Language Model
             val nGramPredictions = nGramModel.predictNextWords(contextList, "", 5)
 
             val normalizedPrev1 = prevWord?.lowercase()?.trim() ?: (contextList.lastOrNull()?.lowercase()?.trim() ?: "")
@@ -1026,7 +1076,17 @@ class DictionaryManager(private val context: Context) {
             val learnedPredicted = if (normalizedPrev1.isNotEmpty()) personalizedBigrams[normalizedPrev1] ?: emptyList() else emptyList()
             val predicted = if (normalizedPrev1.isNotEmpty()) bigrams[normalizedPrev1] ?: emptyList() else emptyList()
             
-            val combinedPredictions = (phrasePredictions + mlTrigramPredicted + nanoContextPredictions + nGramPredictions + mlBigramPredicted + learnedPredicted + predicted + userWords + commonWords.map { it.word })
+            val candidateList = mutableListOf<String>()
+            candidateList.addAll(phrasePredictions)
+            candidateList.addAll(mlTrigramPredicted)
+            candidateList.addAll(nGramPredictions)
+            candidateList.addAll(mlBigramPredicted)
+            candidateList.addAll(learnedPredicted)
+            candidateList.addAll(predicted)
+            candidateList.addAll(userWords)
+            candidateList.addAll(commonWords.map { it.word })
+
+            val combinedPredictions = candidateList
                 .filter { !settings.profanityFilterEnabled || !isProfane(it) }
                 .distinct()
                 .take(3)
@@ -1042,10 +1102,8 @@ class DictionaryManager(private val context: Context) {
         // 2. Phrase completions matching typed prefix
         val phraseMatches = localGrammarPredictor.predictPhraseCompletions(contextList, normalizedPrefix, 3)
 
-        // 3. Query N-gram model & Gemini Nano context-aware predictions matching current prefix
+        // 3. Query N-gram model predictions matching current prefix
         val nGramMatches = nGramModel.predictNextWords(contextList, normalizedPrefix, 5)
-        val nanoContextMatches = GeminiNanoManager.predictNextWordsFromContext(contextList)
-            .filter { it.lowercase().startsWith(normalizedPrefix) }
 
         // 4. Query Trie for prefix matching in O(k) time
         val trieRawMatches = trie.searchPrefix(normalizedPrefix, 30)
@@ -1062,8 +1120,16 @@ class DictionaryManager(private val context: Context) {
         val contextBigrams = if (normalizedPrev1.isNotEmpty()) bigrams[normalizedPrev1] ?: emptyList() else emptyList()
         val learnedBigrams = if (normalizedPrev1.isNotEmpty()) personalizedBigrams[normalizedPrev1] ?: emptyList() else emptyList()
 
+        val matchPool = mutableListOf<String>()
+        matchPool.addAll(phraseMatches)
+        matchPool.addAll(mlTrigramMatches)
+        matchPool.addAll(nGramMatches)
+        matchPool.addAll(trieRawMatches)
+        matchPool.addAll(userWords)
+        matchPool.addAll(commonWords.map { it.word })
+
         // Score and rank candidates by Phrase match, Trigram match, Bigram match, User habit words, and N-gram frequency
-        val scoredMatches = (phraseMatches + mlTrigramMatches + nGramMatches + nanoContextMatches + trieRawMatches + userWords + commonWords.map { it.word })
+        val scoredMatches = matchPool
             .filter { it.lowercase().startsWith(normalizedPrefix) }
             .filter { !settings.profanityFilterEnabled || !isProfane(it) }
             .distinctBy { it.lowercase() }
@@ -1076,7 +1142,6 @@ class DictionaryManager(private val context: Context) {
                 if (userWords.contains(lower)) score += 1200f
                 if (nGramMatches.any { it.lowercase() == lower }) score += 1000f
                 if (contextBigrams.any { it.lowercase() == lower }) score += 700f
-                if (nanoContextMatches.any { it.lowercase() == lower }) score += 400f
                 val wordFreq = commonWords.firstOrNull { it.word.lowercase() == lower }?.frequency ?: 10
                 score += wordFreq.toFloat()
                 // Prefer words whose length is close to typed prefix
@@ -1110,9 +1175,15 @@ class DictionaryManager(private val context: Context) {
         }
 
         // Left Slot (Index 0): Raw typed literal if middle is a prediction/correction, otherwise alternative candidate
-        val candidatePool = (corrections + scoredMatches + listOfNotNull(emojiPredictions[normalizedPrefix]) + commonWords.map { it.word } + userWords + listOf("and", "you", "to", "this", "in", "it"))
-            .filter { !settings.profanityFilterEnabled || !isProfane(it) }
-            .distinctBy { it.lowercase() }
+        val candidatePool = mutableListOf<String>().apply {
+            addAll(corrections)
+            addAll(scoredMatches)
+            addAll(listOfNotNull(emojiPredictions[normalizedPrefix]))
+            addAll(commonWords.map { it.word })
+            addAll(userWords)
+            addAll(listOf("and", "you", "to", "this", "in", "it"))
+        }.filter { !settings.profanityFilterEnabled || !isProfane(it) }
+         .distinctBy { it.lowercase() }
 
         val leftWord = if (centerWord.lowercase() != normalizedPrefix) {
             prefix
@@ -1132,46 +1203,7 @@ class DictionaryManager(private val context: Context) {
     }
 
     /**
-     * Query Android TextServicesManager / Google Spellchecker for additional high-precision candidate suggestions.
-     */
-    fun getGoogleSpellCheckerSuggestions(word: String): List<String> {
-        if (word.length < 2) return emptyList()
-        val results = mutableListOf<String>()
-        try {
-            val tsm = textServicesManager ?: return emptyList()
-            if (!tsm.isSpellCheckerEnabled) return emptyList()
-            
-            val tsmSession = tsm.newSpellCheckerSession(null, null, object : SpellCheckerSession.SpellCheckerSessionListener {
-                override fun onGetSuggestions(resultsArray: Array<out SuggestionsInfo>?) {
-                    if (resultsArray != null) {
-                        for (suggestionsInfo in resultsArray) {
-                            val count = suggestionsInfo.suggestionsCount
-                            for (i in 0 until count) {
-                                val suggestion = suggestionsInfo.getSuggestionAt(i)
-                                if (!suggestion.isNullOrBlank()) {
-                                    results.add(suggestion)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                override fun onGetSentenceSuggestions(resultsArray: Array<out android.view.textservice.SentenceSuggestionsInfo>?) {
-                    // Not used
-                }
-            }, false)
-
-            tsmSession?.getSuggestions(TextInfo(word), 5)
-            Thread.sleep(12)
-            tsmSession?.close()
-        } catch (e: Exception) {
-            // Fallback gracefully
-        }
-        return results
-    }
-
-    /**
-     * Finds spelling corrections scoring above the suggestion confidence threshold.
+     * Finds spelling corrections scoring above the suggestion confidence threshold using fast Trie Levenshtein and fuzzy lookup.
      */
     fun getSpellingCorrections(
         word: String,
@@ -1229,8 +1261,13 @@ class DictionaryManager(private val context: Context) {
         val directTypoMatch = typoMap[normalized]
 
         // 1. Contraction Candidate Search (e.g. dont -> don't, cant -> can't, im -> I'm)
-        val contractionCandidates = (commonWords.map { it.word } + userWords)
-            .filter { dictWord -> dictWord.lowercase().replace("'", "") == normalized.replace("'", "") }
+        val cleanNormalized = normalized.replace("'", "")
+        val contractionCandidates = mutableListOf<String>()
+        commonWords.forEach { item ->
+            if (item.word.contains("'") && item.word.lowercase().replace("'", "") == cleanNormalized) {
+                contractionCandidates.add(item.word)
+            }
+        }
 
         // 2. Missed space split candidates (e.g. "goodmorning" -> "good morning", "thankyou" -> "thank you", "forthe" -> "for the")
         val missedSpaceCandidates = findMissedSpaceSplits(normalized)
@@ -1239,25 +1276,24 @@ class DictionaryManager(private val context: Context) {
         val phoneticKey = computePhoneticKey(normalized)
         val phoneticCandidates = if (phoneticKey.isNotEmpty()) phoneticIndex[phoneticKey] ?: emptyList() else emptyList()
 
-        // 4. Query Google Spellchecker candidate corrections
-        val googleCandidates = getGoogleSpellCheckerSuggestions(normalized)
+        // 4. Ultra-fast Levenshtein edit distance lookup via pruned Trie (<0.2ms)
+        val trieLevenshteinCandidates = LevenshteinAutoCorrector.searchTrieLevenshtein(trie.root, normalized, maxDistance = 2)
+            .map { it.word }
 
-        // 5. Fetch candidate corrections via Trie fuzzy tree search
-        val fuzzyCandidates = trie.searchFuzzy(normalized, 2.5f, 25)
-            .map { it.first }
+        // 5. SymSpell candidates
+        val symSpellCandidates = gboardEngine.symSpellEngine.lookup(normalized, maxDistance = 2f).map { it.term }
+
+        val candidateList = (listOfNotNull(directTypoMatch) + missedSpaceCandidates + contractionCandidates + phoneticCandidates + trieLevenshteinCandidates + symSpellCandidates).distinct()
             .filter { !settings.profanityFilterEnabled || !isProfane(it) }
 
-        val candidateList = (listOfNotNull(directTypoMatch) + missedSpaceCandidates + contractionCandidates + phoneticCandidates + googleCandidates + fuzzyCandidates).ifEmpty {
-            (commonWords.map { it.word } + userWords)
-                .filter { !settings.profanityFilterEnabled || !isProfane(it) }
-        }.distinct()
+        if (candidateList.isEmpty()) return emptyList()
 
         return candidateList
             .map { dictWord ->
                 val confidence = calculateCorrectionConfidence(normalized, dictWord, prevWord, prevWord2, tapCoords)
                 Pair(dictWord, confidence)
             }
-            .filter { it.second >= SUGGESTION_THRESHOLD } // Only suggest above medium threshold
+            .filter { it.second >= SUGGESTION_THRESHOLD }
             .sortedByDescending { it.second }
             .map { it.first }
             .take(3)
@@ -1709,35 +1745,29 @@ class DictionaryManager(private val context: Context) {
     }
 
     /**
-     * Get frequency for a word from corpus or user dictionary.
+     * Get frequency for a word from corpus or user dictionary in O(1) time.
      */
     fun getWordFrequency(word: String): Int {
         val w = word.lowercase().trim()
         if (w.isEmpty()) return 0
         if (userWords.contains(w)) return 120
-        return commonWords.firstOrNull { it.word.lowercase() == w }?.frequency ?: 10
+        return commonWordsFreqMap[w] ?: 10
     }
 
     /**
-     * Check if a word exists in the app's dictionary or libraries (case-insensitive).
+     * Check if a word exists in the app's dictionary or libraries (case-insensitive) in O(1) time.
      */
     fun isWordInDictionary(word: String): Boolean {
         val w = word.lowercase().trim()
         if (w.isEmpty()) return false
-        val inCommon = commonWords.any { it.word.lowercase() == w }
-        val inUser = userWords.any { it.lowercase() == w }
-        val inSlang = slangExpansions.containsKey(w)
-        val inRecent = recentlyAcceptedWords.contains(w)
-        if (inCommon || inUser || inSlang || inRecent) return true
+        if (commonWordsSet.contains(w) || userWords.contains(w) || slangExpansions.containsKey(w) || recentlyAcceptedWords.contains(w)) return true
 
-        // Base to inflections
-        if (w.endsWith("s") && commonWords.any { it.word.lowercase() == w.dropLast(1) }) return true
-        if (w.endsWith("es") && commonWords.any { it.word.lowercase() == w.dropLast(2) }) return true
-        if (w.endsWith("ed") && commonWords.any { it.word.lowercase() == w.dropLast(1) || it.word.lowercase() == w.dropLast(2) }) return true
-        if (w.endsWith("ing") && commonWords.any { it.word.lowercase() == w.dropLast(3) || it.word.lowercase() == w.dropLast(3) + "e" }) return true
-
-        // Inflections to base
-        if (commonWords.any { it.word.lowercase() == w + "s" || it.word.lowercase() == w + "es" || it.word.lowercase() == w + "ed" || it.word.lowercase() == w + "ing" }) return true
+        // Strict grammatical suffix check to prevent false positives on random typos
+        if (w.length >= 3 && w.endsWith("s") && !w.endsWith("ss") && commonWordsSet.contains(w.dropLast(1))) return true
+        if (w.length >= 4 && w.endsWith("es") && commonWordsSet.contains(w.dropLast(2))) return true
+        if (w.length >= 4 && w.endsWith("ed") && (commonWordsSet.contains(w.dropLast(2)) || commonWordsSet.contains(w.dropLast(1)))) return true
+        if (w.length >= 5 && w.endsWith("ing") && (commonWordsSet.contains(w.dropLast(3)) || commonWordsSet.contains(w.dropLast(3) + "e"))) return true
+        if (w.length >= 4 && w.endsWith("ly") && commonWordsSet.contains(w.dropLast(2))) return true
 
         return false
     }

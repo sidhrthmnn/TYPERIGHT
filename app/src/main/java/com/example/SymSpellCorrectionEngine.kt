@@ -32,6 +32,13 @@ class SymSpellCorrectionEngine(
     private val wordFrequencyMap = ConcurrentHashMap<String, Int>()
 
     /**
+     * Checks if a word exists directly in the dictionary.
+     */
+    fun hasWord(word: String): Boolean {
+        return wordFrequencyMap.containsKey(word.lowercase().trim())
+    }
+
+    /**
      * Inserts a dictionary word and precomputes its deletion variants up to maxEditDistance.
      */
     fun insertWord(word: String, frequency: Int = 1) {

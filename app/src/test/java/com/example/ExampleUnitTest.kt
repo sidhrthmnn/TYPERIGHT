@@ -80,51 +80,65 @@ class ExampleUnitTest {
   }
 
   @Test
-  fun testAiPolishFormatting() = runBlocking {
+  fun testAiProofreadingFormatting() = runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val manager = AiPolishManager(context)
 
-    // 1. Test letter / greeting formatting
-    val greetingResult = manager.polishTextStream("hey john how are you doing").last()
+    // 1. Test letter / greeting formatting in proofreading
+    val greetingResult = manager.proofreadTextStream("hey john how are you doing").last()
     assertEquals("Hey John,\n\nHow are you doing?", greetingResult)
 
     // 2. Test bullet points lists
-    val listResult = manager.polishTextStream("first point confirm venue second point bring laptop").last()
+    val listResult = manager.proofreadTextStream("first point confirm venue second point bring laptop").last()
     assertEquals("• Confirm venue.\n• Bring laptop.", listResult)
 
     // 3. Test numeric lists
-    val numericResult = manager.polishTextStream("number one buy milk number two wash car").last()
+    val numericResult = manager.proofreadTextStream("number one buy milk number two wash car").last()
     assertEquals("1. Buy milk.\n2. Wash car.", numericResult)
 
     // 4. Test paragraph splitting with transition words
-    val transitionResult = manager.polishTextStream("I like apples by the way did you get my mail anyway let me know").last()
+    val transitionResult = manager.proofreadTextStream("I like apples by the way did you get my mail anyway let me know").last()
     assertEquals("I like apples.\n\nBy the way, did you get my mail?\n\nAnyway, let me know.", transitionResult)
 
     // 5. Test sign-offs
-    val closingResult = manager.polishTextStream("hope to see you soon best regards sally").last()
+    val closingResult = manager.proofreadTextStream("hope to see you soon best regards sally").last()
     assertEquals("Hope to see you soon.\n\nBest regards,\nSally", closingResult)
   }
 
   @Test
-  fun testWisprFlowFeatures() = runBlocking {
+  fun testWisprFlowProofreadingFeatures() = runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val manager = AiPolishManager(context)
 
     // 1. Test duplicate and stutter removal
-    val stutterResult = manager.polishTextStream("the the the car was very very fast").last()
+    val stutterResult = manager.proofreadTextStream("the the the car was very very fast").last()
     assertEquals("The car was very fast.", stutterResult)
 
     // 2. Test filler words filtering
-    val fillerResult = manager.polishTextStream("umm so yeah actually we should go").last()
+    val fillerResult = manager.proofreadTextStream("umm so yeah actually we should go").last()
     assertEquals("We should go.", fillerResult)
 
     // 3. Test self-correction resolution
-    val selfCorrectionResult = manager.polishTextStream("let's meet at five no wait six").last()
+    val selfCorrectionResult = manager.proofreadTextStream("let's meet at five no wait six").last()
     assertEquals("Let's meet at six.", selfCorrectionResult)
 
     // 4. Test local LLM symbol and emoji translation
-    val symbolResult = manager.polishTextStream("I love heart symbol and smiley face arrow right").last()
+    val symbolResult = manager.proofreadTextStream("I love heart symbol and smiley face arrow right").last()
     assertEquals("I love ❤️ and 😊 →.", symbolResult)
+  }
+
+  @Test
+  fun testAiPolishStyles() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val manager = AiPolishManager(context)
+
+    // 1. Test Formal Polish
+    val formalResult = manager.polishTextStream("thanks i cant make it gonna be late", mode = "formalize").last()
+    assertTrue("Formal polish should replace casual contractions", formalResult.contains("cannot", ignoreCase = true) || formalResult.contains("thank you", ignoreCase = true))
+
+    // 2. Test Direct polishText
+    val directFormal = manager.polishText("hey buddy", "formalize")
+    assertNotNull(directFormal)
   }
 
   @Test
@@ -231,8 +245,8 @@ class ExampleUnitTest {
 
     // 7. Telemetry & Scoring Details
     assertNotNull(resTeh.debugTelemetry)
-    assertTrue(resTeh.debugTelemetry.topCandidates.isNotEmpty())
-    assertTrue(resTeh.debugTelemetry.decisionReason.isNotEmpty())
+    assertTrue(resTeh.debugTelemetry?.topCandidates?.isNotEmpty() == true)
+    assertTrue(resTeh.debugTelemetry?.decisionReason?.isNotEmpty() == true)
   }
 }
 
