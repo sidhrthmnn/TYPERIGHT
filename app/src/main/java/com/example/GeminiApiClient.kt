@@ -12,31 +12,40 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * GeminiApiClient handles server-side / cloud AI requests using ultra-fast Google Gemini Flash Lite API (gemini-3.1-flash-lite-preview, gemini-flash-lite-latest).
- * Understands the context of user input/voice dictation, corrects spelling errors, fixes grammar,
- * and recreates sentences naturally to reflect what the user intended to say.
+ * GeminiApiClient handles cloud AI inference using fast Google Gemini Flash models.
+ * Strictly adheres to mode-specific prompt constraints and privacy boundaries.
  */
 object GeminiApiClient {
     private const val TAG = "GeminiApiClient"
     private val CANDIDATE_MODELS = listOf(
-        "gemini-3.1-flash-lite-preview",
-        "gemini-flash-lite-latest",
         "gemini-3.5-flash",
+        "gemini-3.1-flash-lite-preview",
         "gemini-flash-latest"
     )
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
-        .writeTimeout(6, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
     /**
-     * Sends the text and mode to Gemini API to understand context, fix spelling/grammar,
-     * and recreate the sentence.
+     * String-based backward compatible signature.
      */
-    suspend fun generatePolish(input: String, mode: String): String? = withContext(Dispatchers.IO) {
+    suspend fun generatePolish(input: String, mode: String): String? {
+        val polishMode = PolishMode.fromString(mode)
+        return generatePolish(input, polishMode)
+    }
+
+    /**
+     * Sends the text and specific PolishMode to Gemini API.
+     */
+    suspend fun generatePolish(
+        input: String,
+        mode: PolishMode,
+        context: TextContext? = null
+    ): String? = withContext(Dispatchers.IO) {
         val apiKey = try {
             BuildConfig::class.java.getField("GEMINI_API_KEY").get(null) as? String
         } catch (e: Exception) {
@@ -44,35 +53,87 @@ object GeminiApiClient {
         }
 
         if (apiKey.isNullOrBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            Log.w(TAG, "Gemini API key is not configured or placeholder. Falling back to local engine.")
+            Log.d(TAG, "Gemini API key not configured. Using on-device inference pipeline.")
             return@withContext null
         }
 
         val cleanInput = input.trim()
         if (cleanInput.isEmpty()) return@withContext ""
 
-        val modeDescription = when (mode.lowercase()) {
-            "proofread", "grammar" -> "Perform smart proofreading for voice dictation and raw typing. Remove all fillers (um, uh, er, like, you know, etc.), stutters, repeated words, and spoken self-corrections (e.g. 'five no wait six' -> '6'). Put everything into proper sentences with correct capitalization, grammar, and punctuation. CRITICAL: If the user is listing things out or enumerating items (such as 'buy milk eggs bread', '1 clean room 2 do laundry 3 cook', 'first finish report second email boss', or items separated by commas/and), rewrite and format them neatly as a bulleted list (using '- ') or numbered list (using '1. ', '2. ')."
-            "formalize", "professional" -> "Rewrite the input into a crisp, polished, respectful, and professional business tone while preserving the core message and context."
-            "rephrase" -> "Rephrase and articulate the sentence into smooth, natural, and expressive English based on what the user intended to communicate."
-            "casual" -> "Convert the text into a warm, natural, friendly, and conversational tone without changing the underlying meaning."
-            "shorten" -> "Condense and summarize the input into a concise, direct sentence while retaining all vital context."
-            "expand" -> "Elaborate on the input text naturally, adding appropriate detail, polite phrasing, and completing incomplete ideas."
-            else -> "Proofread, fix all typos, remove fillers and stutters, and recreate the sentence clearly into well-formatted proper sentences."
+        val systemInstructionText = when (mode) {
+            PolishMode.PROOFREAD -> """
+                You are a proofreading engine inside an Android keyboard.
+                Make the minimum changes necessary to correct the text.
+                Preserve meaning, tone, slang, names, numbers, URLs, technical terms and emojis.
+                Do not add information.
+                Do not remove information.
+                Do not rewrite text that is already correct.
+                Return ONLY the corrected text without any preamble, quotes or markdown.
+            """.trimIndent()
+
+            PolishMode.POLISH -> """
+                You are an AI text polish engine inside an Android keyboard.
+                Improve natural flow, sentence cadence, and clarity while strictly preserving the author's meaning, tone, names, URLs, numbers, and emojis.
+                Return ONLY the polished text without any preamble, quotes or markdown.
+            """.trimIndent()
+
+            PolishMode.PROFESSIONAL -> """
+                You are an AI text rewriting engine inside an Android keyboard.
+                Rewrite the input into a crisp, polished, respectful, and professional business tone while preserving the core message, facts, numbers, and URLs.
+                Return ONLY the rewritten text without preamble, quotes or markdown.
+            """.trimIndent()
+
+            PolishMode.CASUAL -> """
+                You are an AI text rewriting engine inside an Android keyboard.
+                Convert the text into a warm, natural, friendly, and conversational tone without changing the underlying meaning or details.
+                Return ONLY the rewritten text without preamble, quotes or markdown.
+            """.trimIndent()
+
+            PolishMode.SHORTEN -> """
+                You are an AI text editing engine inside an Android keyboard.
+                Condense and summarize the input into a concise, direct text while retaining all vital context, facts, numbers, and URLs.
+                Return ONLY the shortened text without preamble, quotes or markdown.
+            """.trimIndent()
+
+            PolishMode.EXPAND -> """
+                You are an AI text editing engine inside an Android keyboard.
+                Elaborate on the input text naturally, adding appropriate detail, polite phrasing, and completing incomplete ideas while strictly preserving context.
+                Return ONLY the expanded text without preamble, quotes or markdown.
+            """.trimIndent()
+
+            PolishMode.REPHRASE -> """
+                You are an AI text rephrasing engine inside an Android keyboard.
+                Articulate the sentence smoothly, cleanly, and clearly into expressive English based on what the user intended to communicate.
+                Return ONLY the rephrased text without preamble, quotes or markdown.
+            """.trimIndent()
+
+            PolishMode.VOICE_CLEANUP -> """
+                You are a voice speech-to-text cleanup engine inside an Android keyboard.
+                Clean up spoken transcripts by removing speech disfluencies, filler words (um, uh, like, you know, er), stutters, repeated words, and resolving spoken self-corrections (e.g. 'five no wait six' becomes '6').
+                Format into clear, grammatically correct sentences.
+                Preserve names, numbers, and meaning.
+                Return ONLY the clean text without preamble, quotes or markdown.
+            """.trimIndent()
+
+            PolishMode.RAMBLE -> """
+                You are an intent-based voice dictation engine ("Ramble Mode") inside an Android keyboard.
+                The input is raw transcript text from a user speaking freely or rambling.
+                
+                Your transformation rules:
+                1. Strip all vocal disfluencies, filler words ("um", "uh", "like", "you know", "kind of", "sort of", "er", "ah", "basically", "literally", "so yeah"), false starts, and repeated words.
+                2. Resolve live mid-sentence self-corrections (e.g., "Let's meet at 2... actually let's make it 4" -> "Let's meet at 4", "send this to John sorry I mean Sarah" -> "Send this to Sarah").
+                3. Process inline or trailing voice instructions appended to the thought (e.g., "...make this more concise" -> condense it, "...translate to Spanish" -> translate, "...bullet points please" -> format as bullet points, "...sound professional" -> format professionally, "...make it a todo list" -> format as checklist).
+                4. Structure the finalized thoughts into clear, natural, well-punctuated, properly capitalized text.
+                5. Output ONLY the finalized, transformed text. Do NOT include any conversational preamble, commentary, quotes, or markdown code fences.
+            """.trimIndent()
         }
 
-        val systemInstructionText = """
-            You are an expert AI proofreader and sentence reconstruction engine for a mobile keyboard voice dictation system.
-            Goal: $modeDescription
-
-            STRICT RULES:
-            1. Understand context and user intent from raw speech-to-text dictation.
-            2. Remove ALL filler words (um, uh, er, ah, like, you know, basically, actually), stutters, duplicate adjacent words, and verbal self-corrections (e.g. 'three sorry four' -> '4').
-            3. Reformat the raw transcript into proper, well-structured sentences with accurate punctuation (periods, commas, question marks) and proper capitalization.
-            4. LIST FORMATTING RULE: While proofreading, if the user is listing things out, enumerating multiple items, or specifying a sequence of tasks (e.g., 'things to buy milk eggs bread', 'first clean second wash third cook', '1 finish report 2 send email', or items separated by 'and'/commas), rewrite and format them as a clean vertical list using bullet points ('- Item') or numbered items ('1. Item', '2. Item').
-            5. Do NOT add meta explanations, intro/outro commentary, preamble, or quotes (e.g. do NOT output 'Here is the polished text:').
-            6. Output ONLY the final clean polished text string.
-        """.trimIndent()
+        // Build prompt payload with minimal context if available
+        val promptText = if (context != null && context.selectedText.isNullOrEmpty() && context.previousSentence?.isNotBlank() == true) {
+            "Context: ${context.previousSentence}\nInput: $cleanInput"
+        } else {
+            cleanInput
+        }
 
         // Try candidate models in order of speed and capability
         for (model in CANDIDATE_MODELS) {
@@ -87,11 +148,11 @@ object GeminiApiClient {
                     })
                     put("contents", JSONArray().put(JSONObject().apply {
                         put("parts", JSONArray().put(JSONObject().apply {
-                            put("text", cleanInput)
+                            put("text", promptText)
                         }))
                     }))
                     put("generationConfig", JSONObject().apply {
-                        put("temperature", 0.1)
+                        put("temperature", 0.0)
                         put("topP", 0.95)
                     })
                 }
@@ -113,18 +174,18 @@ object GeminiApiClient {
                         val content = firstCandidate.optJSONObject("content")
                         val parts = content?.optJSONArray("parts")
                         if (parts != null && parts.length() > 0) {
-                            val textResult = parts.getJSONObject(0).optString("text", "").trim()
-                            if (textResult.isNotEmpty()) {
-                                Log.i(TAG, "Gemini API ($model) generated result: $textResult")
-                                return@withContext textResult
+                            val rawTextResult = parts.getJSONObject(0).optString("text", "").trim()
+                            val sanitized = AiOutputValidator.sanitize(rawTextResult, cleanInput)
+                            if (sanitized.isNotEmpty()) {
+                                return@withContext sanitized
                             }
                         }
                     }
                 } else {
-                    Log.w(TAG, "Gemini API ($model) HTTP Error ${response.code}, trying next model...")
+                    Log.d(TAG, "Gemini API ($model) response code: ${response.code}")
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Gemini API ($model) call exception: ${e.message}")
+                Log.d(TAG, "Gemini API ($model) request failed: ${e.message}")
             }
         }
 

@@ -4,7 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 
 class KeyboardSettings(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences("typeright_prefs", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext ?: context
+    private val prefs: SharedPreferences = appContext.getSharedPreferences("typeright_prefs", Context.MODE_PRIVATE)
 
     companion object {
         const val KEY_THEME = "keyboard_theme"
@@ -26,6 +27,15 @@ class KeyboardSettings(context: Context) {
         const val KEY_CLIPBOARD_ENABLED = "keyboard_clipboard_enabled"
         const val KEY_NUMBER_ROW_ENABLED = "keyboard_number_row_enabled"
         const val KEY_STRICTLY_USE_GEMINI = "strictly_use_gemini"
+        const val KEY_OFFLINE_AI_ENABLED = "offline_ai_enabled"
+        const val KEY_GEMINI_AI_ENABLED = "gemini_ai_enabled"
+        const val KEY_VOCAB_AUTO_UPDATE_ENABLED = "vocab_auto_update_enabled"
+        const val KEY_VOCAB_UPDATE_INTERVAL_HOURS = "vocab_update_interval_hours"
+        const val KEY_LAST_VOCAB_SYNC_TIMESTAMP = "last_vocab_sync_timestamp"
+        const val KEY_TOTAL_VOCAB_WORDS_COUNT = "total_vocab_words_count"
+        const val KEY_LAST_VOCAB_SYNC_STATUS = "last_vocab_sync_status"
+        const val KEY_TRENDING_WORDS_COUNT = "trending_words_count"
+        const val KEY_USER_WORDS_COUNT = "user_words_count"
 
         const val THEME_LIGHT = "Minimal Light"
         const val THEME_DARK = "Minimal Dark"
@@ -128,4 +138,85 @@ class KeyboardSettings(context: Context) {
     var strictlyUseGemini: Boolean
         get() = prefs.getBoolean(KEY_STRICTLY_USE_GEMINI, false)
         set(value) = prefs.edit().putBoolean(KEY_STRICTLY_USE_GEMINI, value).apply()
+
+    var offlineAiEnabled: Boolean
+        get() = prefs.getBoolean(KEY_OFFLINE_AI_ENABLED, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_OFFLINE_AI_ENABLED, value).commit()
+        }
+
+    var geminiAiEnabled: Boolean
+        get() = prefs.getBoolean(KEY_GEMINI_AI_ENABLED, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_GEMINI_AI_ENABLED, value).commit()
+        }
+
+    val activeAiEngine: ActiveAiEngine
+        get() = when {
+            offlineAiEnabled && geminiAiEnabled -> ActiveAiEngine.BOTH
+            offlineAiEnabled && !geminiAiEnabled -> ActiveAiEngine.OFFLINE
+            !offlineAiEnabled && geminiAiEnabled -> ActiveAiEngine.ONLINE
+            else -> ActiveAiEngine.NONE
+        }
+
+    var vocabAutoUpdateEnabled: Boolean
+        get() = prefs.getBoolean(KEY_VOCAB_AUTO_UPDATE_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_VOCAB_AUTO_UPDATE_ENABLED, value).apply()
+
+    var vocabUpdateIntervalHours: Int
+        get() = prefs.getInt(KEY_VOCAB_UPDATE_INTERVAL_HOURS, 12)
+        set(value) = prefs.edit().putInt(KEY_VOCAB_UPDATE_INTERVAL_HOURS, value).apply()
+
+    var lastVocabSyncTimestamp: Long
+        get() = prefs.getLong(KEY_LAST_VOCAB_SYNC_TIMESTAMP, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_VOCAB_SYNC_TIMESTAMP, value).apply()
+
+    var totalVocabWordsCount: Int
+        get() = prefs.getInt(KEY_TOTAL_VOCAB_WORDS_COUNT, 0)
+        set(value) = prefs.edit().putInt(KEY_TOTAL_VOCAB_WORDS_COUNT, value).apply()
+
+    var lastVocabSyncStatus: String
+        get() = prefs.getString(KEY_LAST_VOCAB_SYNC_STATUS, "Ready to sync") ?: "Ready to sync"
+        set(value) = prefs.edit().putString(KEY_LAST_VOCAB_SYNC_STATUS, value).apply()
+
+    var trendingWordsCount: Int
+        get() = prefs.getInt(KEY_TRENDING_WORDS_COUNT, 0)
+        set(value) = prefs.edit().putInt(KEY_TRENDING_WORDS_COUNT, value).apply()
+
+    var userWordsCount: Int
+        get() = prefs.getInt(KEY_USER_WORDS_COUNT, 0)
+        set(value) = prefs.edit().putInt(KEY_USER_WORDS_COUNT, value).apply()
+
+    fun setActiveAiEngine(engine: ActiveAiEngine) {
+        when (engine) {
+            ActiveAiEngine.BOTH -> {
+                offlineAiEnabled = true
+                geminiAiEnabled = true
+            }
+            ActiveAiEngine.OFFLINE -> {
+                offlineAiEnabled = true
+                geminiAiEnabled = false
+            }
+            ActiveAiEngine.ONLINE -> {
+                offlineAiEnabled = false
+                geminiAiEnabled = true
+            }
+            ActiveAiEngine.NONE -> {
+                offlineAiEnabled = false
+                geminiAiEnabled = false
+            }
+        }
+    }
+}
+
+enum class ActiveAiEngine(
+    val title: String,
+    val shortLabel: String,
+    val symbol: String,
+    val description: String
+) {
+    BOTH("Both Engines", "Both", "⚡☁️", "Offline on-device + Online Gemini Cloud"),
+    OFFLINE("Offline AI", "Offline", "⚡", "Fast on-device neural & grammar engine"),
+    ONLINE("Online Gemini", "Online", "☁️", "Advanced cloud Gemini intelligence"),
+    NONE("AI Off", "Off", "⚪", "AI assistants disabled")
 }

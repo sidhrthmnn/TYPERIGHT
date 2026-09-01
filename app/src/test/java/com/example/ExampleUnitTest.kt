@@ -248,5 +248,193 @@ class ExampleUnitTest {
     assertTrue(resTeh.debugTelemetry?.topCandidates?.isNotEmpty() == true)
     assertTrue(resTeh.debugTelemetry?.decisionReason?.isNotEmpty() == true)
   }
+
+  @Test
+  fun testAiOutputValidator() {
+    // 1. Commentary rejection
+    assertFalse(AiOutputValidator.isValid("hello world", "Here is the corrected text: hello world", PolishMode.PROOFREAD))
+    assertFalse(AiOutputValidator.isValid("hello world", "Sure! Here's your output:\nHello world", PolishMode.PROOFREAD))
+
+    // 2. URL preservation
+    assertTrue(AiOutputValidator.isValid("Check https://example.com/test", "Check https://example.com/test.", PolishMode.PROOFREAD))
+    assertFalse(AiOutputValidator.isValid("Check https://example.com/test", "Check the website.", PolishMode.PROOFREAD))
+
+    // 3. Email preservation
+    assertTrue(AiOutputValidator.isValid("Email me at user@test.com", "Email me at user@test.com.", PolishMode.PROOFREAD))
+    assertFalse(AiOutputValidator.isValid("Email me at user@test.com", "Email me at user@other.com.", PolishMode.PROOFREAD))
+
+    // 4. Number preservation in PROOFREAD
+    assertTrue(AiOutputValidator.isValid("Order 42 items for 10 dollars", "Order 42 items for $10.", PolishMode.PROOFREAD))
+    assertFalse(AiOutputValidator.isValid("Order 42 items for 10 dollars", "Order 50 items for $10.", PolishMode.PROOFREAD))
+
+    // 5. Sanitizer cleans markdown wrappers
+    val sanitized = AiOutputValidator.sanitize("```\nHello world\n```", "Hello world")
+    assertEquals("Hello world", sanitized)
+  }
+
+  @Test
+  fun testNewAiProofreadingPipelineCases() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val engine = LocalInferenceEngine.getInstance(context)
+
+    // 1. "teh cat is here" -> "the cat is here"
+    val res1 = engine.process("teh cat is here", PolishMode.PROOFREAD)
+    assertTrue("Should fix 'teh' to 'the': ${res1.text}", res1.text.contains("the cat is here", ignoreCase = true))
+
+    // 2. "I has went there" -> "I went there"
+    val res2 = engine.process("I has went there", PolishMode.PROOFREAD)
+    assertTrue("Should fix 'I has went there': ${res2.text}", res2.text.contains("I went there", ignoreCase = true) || res2.text.contains("I have gone there", ignoreCase = true))
+
+    // 3. "she dont like it" -> "she doesn't like it"
+    val res3 = engine.process("she dont like it", PolishMode.PROOFREAD)
+    assertTrue("Should fix 'she dont' to 'she doesn't': ${res3.text}", res3.text.contains("she doesn't like it", ignoreCase = true))
+
+    // 4. "your going to love this" -> "you're going to love this"
+    val res4 = engine.process("your going to love this", PolishMode.PROOFREAD)
+    assertTrue("Should fix 'your going to' to 'you're going to': ${res4.text}", res4.text.contains("you're going to love this", ignoreCase = true))
+
+    // 5. "their going home" -> "they're going home"
+    val res5 = engine.process("their going home", PolishMode.PROOFREAD)
+    assertTrue("Should fix 'their going' to 'they're going': ${res5.text}", res5.text.contains("they're going home", ignoreCase = true))
+
+    // 6. "i could of done it" -> "I could have done it"
+    val res6 = engine.process("i could of done it", PolishMode.PROOFREAD)
+    assertTrue("Should fix 'could of' to 'could have': ${res6.text}", res6.text.contains("could have done it", ignoreCase = true))
+
+    // 7. Already correct sentence: "I'm going to the gym after work." -> preserved
+    val res7 = engine.process("I'm going to the gym after work.", PolishMode.PROOFREAD)
+    assertEquals("I'm going to the gym after work.", res7.text)
+
+    // 8. Technical terms and URLs preserved
+    val techText = "The API returns JSON from https://example.com"
+    val res8 = engine.process(techText, PolishMode.PROOFREAD)
+    assertTrue("URL and technical terms must be preserved verbatim", res8.text.contains("API") && res8.text.contains("JSON") && res8.text.contains("https://example.com"))
+  }
+
+  @Test
+  fun testVoiceCleanupVsProofread() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val engine = LocalInferenceEngine.getInstance(context)
+
+    val spokenText = "um send the report tomorrow no wait Friday"
+
+    // In VOICE_CLEANUP mode, filler "um" is removed and "tomorrow no wait Friday" resolves to "Friday"
+    val voiceRes = engine.process(spokenText, PolishMode.VOICE_CLEANUP)
+    assertFalse("Voice cleanup should remove 'um'", voiceRes.text.contains("um", ignoreCase = true))
+    assertTrue("Voice cleanup should resolve self-correction to Friday: ${voiceRes.text}", voiceRes.text.contains("Friday", ignoreCase = true))
+  }
+
+  @Test
+  fun testAiEngineTogglesArchitecture() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val engine = LocalInferenceEngine.getInstance(context)
+    val settings = engine.keyboardSettings
+
+    // Save initial state
+    val origOffline = settings.offlineAiEnabled
+    val origGemini = settings.geminiAiEnabled
+
+    try {
+      // 1. Both engines DISABLED -> should return exact original text with no processing
+      settings.offlineAiEnabled = false
+      settings.geminiAiEnabled = false
+      val disabledRes = engine.process("teh cat is here", PolishMode.PROOFREAD)
+      assertEquals("teh cat is here", disabledRes.text)
+      assertFalse(disabledRes.changed)
+      assertEquals(AiSource.ORIGINAL, disabledRes.source)
+
+      // 2. Offline AI engine ONLY (Gemini disabled) -> should apply on-device neural & rule corrections
+      settings.offlineAiEnabled = true
+      settings.geminiAiEnabled = false
+      val offlineOnlyRes = engine.process("teh cat is here", PolishMode.PROOFREAD)
+      assertTrue("Offline engine should fix 'teh': ${offlineOnlyRes.text}", offlineOnlyRes.text.contains("the cat is here", ignoreCase = true))
+      assertTrue(offlineOnlyRes.changed)
+      assertEquals(AiSource.LOCAL_MODEL, offlineOnlyRes.source)
+
+      // 3. Both engines ENABLED (Hybrid mode) -> high confidence local corrections handled locally
+      settings.offlineAiEnabled = true
+      settings.geminiAiEnabled = true
+      val hybridRes = engine.process("she dont like it", PolishMode.PROOFREAD)
+      assertTrue("Hybrid pipeline should fix 'she dont': ${hybridRes.text}", hybridRes.text.contains("she doesn't like it", ignoreCase = true))
+      assertTrue(hybridRes.changed)
+
+    } finally {
+      // Restore initial state
+      settings.offlineAiEnabled = origOffline
+      settings.geminiAiEnabled = origGemini
+    }
+  }
+
+  @Test
+  fun testActiveAiEngineIndicatorState() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val settings = KeyboardSettings(context)
+
+    val origOffline = settings.offlineAiEnabled
+    val origGemini = settings.geminiAiEnabled
+
+    try {
+      // Both
+      settings.setActiveAiEngine(ActiveAiEngine.BOTH)
+      assertEquals(ActiveAiEngine.BOTH, settings.activeAiEngine)
+      assertEquals("Both", settings.activeAiEngine.shortLabel)
+      assertTrue(settings.offlineAiEnabled)
+      assertTrue(settings.geminiAiEnabled)
+
+      // Offline
+      settings.setActiveAiEngine(ActiveAiEngine.OFFLINE)
+      assertEquals(ActiveAiEngine.OFFLINE, settings.activeAiEngine)
+      assertEquals("Offline", settings.activeAiEngine.shortLabel)
+      assertTrue(settings.offlineAiEnabled)
+      assertFalse(settings.geminiAiEnabled)
+
+      // Online
+      settings.setActiveAiEngine(ActiveAiEngine.ONLINE)
+      assertEquals(ActiveAiEngine.ONLINE, settings.activeAiEngine)
+      assertEquals("Online", settings.activeAiEngine.shortLabel)
+      assertFalse(settings.offlineAiEnabled)
+      assertTrue(settings.geminiAiEnabled)
+
+      // None
+      settings.setActiveAiEngine(ActiveAiEngine.NONE)
+      assertEquals(ActiveAiEngine.NONE, settings.activeAiEngine)
+      assertEquals("Off", settings.activeAiEngine.shortLabel)
+      assertFalse(settings.offlineAiEnabled)
+      assertFalse(settings.geminiAiEnabled)
+    } finally {
+      settings.offlineAiEnabled = origOffline
+      settings.geminiAiEnabled = origGemini
+    }
+  }
+
+  @Test
+  fun testLocalRambleFormatter_SelfCorrectionsAndFillers() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val formatter = LocalRambleFormatter(context)
+
+    // 1. Prompt generation validation
+    val prompt = LocalRambleFormatter.buildExactOnDevicePrompt("um let's meet at 2 wait no 3")
+    assertTrue(prompt.contains("<start_of_turn>user"))
+    assertTrue(prompt.contains("Task: Convert this raw voice transcript into clean, finished text."))
+    assertTrue(prompt.contains("Transcript: \"um let's meet at 2 wait no 3\""))
+    assertTrue(prompt.contains("<start_of_turn>model"))
+
+    // 2. Self correction: "Let's meet Tuesday—wait no, Wednesday at 2" -> "Let's meet Wednesday at 2"
+    val result1 = formatter.runDeterministicLocalRambleEngine("Let's meet Tuesday—wait no, Wednesday at 2")
+    assertTrue(result1.contains("Wednesday at 2"))
+    assertFalse(result1.contains("wait no"))
+
+    // 3. Vocal fillers removal
+    val result2 = formatter.runDeterministicLocalRambleEngine("Um, uh, we should like basically launch tomorrow, you know")
+    assertFalse(result2.contains("Um"))
+    assertFalse(result2.contains("uh"))
+    assertFalse(result2.contains("you know"))
+    assertTrue(result2.contains("launch tomorrow"))
+
+    // 4. Meta command parsing: "I'm running late send this to my boss formally"
+    val result3 = formatter.runDeterministicLocalRambleEngine("I'm running late send this to my boss formally")
+    assertTrue(result3.contains("Good morning") || result3.contains("apologize") || result3.contains("running behind schedule"))
+    assertFalse(result3.contains("send this to my boss formally"))
+  }
 }
 

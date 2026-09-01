@@ -141,12 +141,15 @@ class TfLiteCorrectionModel private constructor(private val context: Context) {
     fun correctText(input: String): String {
         if (input.isBlank()) return input
 
-        // 1. If physical TFLite Interpreter is loaded, run tensor inference
+        // 1. High-speed local neural character-ngram and sequence matrix transformation
+        val embeddedResult = runEmbeddedNeuralCorrection(input)
+
+        // 2. If physical TFLite Interpreter is loaded and initialized, evaluate tensor inference
         val tfliteInterp = interpreter
         if (tfliteInterp != null) {
             try {
-                val tensorResult = runTensorInference(tfliteInterp, input)
-                if (!tensorResult.isNullOrBlank()) {
+                val tensorResult = runTensorInference(tfliteInterp, embeddedResult)
+                if (!tensorResult.isNullOrBlank() && AiOutputValidator.isValid(embeddedResult, tensorResult, PolishMode.PROOFREAD)) {
                     return tensorResult
                 }
             } catch (e: Exception) {
@@ -154,8 +157,7 @@ class TfLiteCorrectionModel private constructor(private val context: Context) {
             }
         }
 
-        // 2. High-speed local neural character-ngram and sequence matrix transformation
-        return runEmbeddedNeuralCorrection(input)
+        return embeddedResult
     }
 
     /**

@@ -89,6 +89,7 @@ class GboardPredictionEngine(private val context: Context) {
     private val settings = KeyboardSettings(context)
     private val mlPredictor = PatternLearningPredictor.getInstance(context)
     private val localGrammarPredictor by lazy { LocalGrammarSpellPredictor(context) }
+    val tfLiteModel = TfLiteCorrectionModel.getInstance(context)
     val nGramModel = NGramLanguageModel()
     val spatialModel = SpatialKeyProximityModel()
     val symSpellEngine = SymSpellCorrectionEngine(spatialModel, maxEditDistance = 2)
@@ -284,10 +285,11 @@ class GboardPredictionEngine(private val context: Context) {
             if (cached != null) return cached
         }
 
-        // Empty typing state: Next-Word Prediction and Phrase Completion
+        // Empty typing state: Next-Word Prediction and Phrase Completion (N-Gram + Phrase Predictor)
         if (trimmed.isEmpty()) {
             val phrasePredictions = localGrammarPredictor.predictPhraseCompletions(contextWords, "", 3)
-            val nextPredictions = nGramModel.predictNextWords(contextWords, "", 5)
+            val nGramNextPredictions = nGramModel.predictNextWords(contextWords, "", 8)
+            val nGramNextPhrases = nGramModel.predictNextPhrases(contextWords, 3)
             val prev1 = contextWords.lastOrNull()?.lowercase()?.trim() ?: ""
             val prev2 = if (contextWords.size >= 2) contextWords[contextWords.size - 2].lowercase().trim() else ""
 
@@ -301,8 +303,9 @@ class GboardPredictionEngine(private val context: Context) {
 
             val combinedPool = mutableListOf<String>()
             if (phrasePredictions.isNotEmpty()) combinedPool.addAll(phrasePredictions)
+            if (nGramNextPhrases.isNotEmpty()) combinedPool.addAll(nGramNextPhrases)
+            combinedPool.addAll(nGramNextPredictions)
             combinedPool.addAll(mlTrigram)
-            combinedPool.addAll(nextPredictions)
             combinedPool.addAll(mlBigram)
             combinedPool.addAll(listOf("the", "I", "to"))
 
@@ -320,7 +323,7 @@ class GboardPredictionEngine(private val context: Context) {
                     rawInput = "",
                     contextWords = contextWords,
                     topCandidates = top3.map {
-                        GboardCandidate(it, 1f, 1f, 0f, 1f, 1f, ConfidenceTier.LOW, false, "Next-Word Prediction")
+                        GboardCandidate(it, 1f, 1f, 0f, 1f, 1f, ConfidenceTier.LOW, false, "N-Gram Next-Word Prediction")
                     },
                     touchDeltas = emptyList(),
                     scoreMargin = 0f,
@@ -332,7 +335,45 @@ class GboardPredictionEngine(private val context: Context) {
         // Candidate Generation Set
         val candidatePool = LinkedHashSet<String>()
 
-        // 1. Local Grammar Multi-Word Phrase Completion & Grammar Check
+        // 1. TFLite Neural Sequence & Word Transformation Model
+        val tfliteWordCandidate = try {
+            val res = tfLiteModel.correctText(lower).trim()
+            if (res.isNotEmpty() && res.lowercase() != lower) res else null
+        } catch (_: Exception) { null }
+        if (tfliteWordCandidate != null) {
+            candidatePool.add(tfliteWordCandidate)
+        }
+
+        val tfliteContextCandidates = mutableListOf<String>()
+        if (contextWords.isNotEmpty()) {
+            try {
+                val ctxBigram = "${contextWords.last()} $lower"
+                val tfliteSeqFix = tfLiteModel.correctText(ctxBigram).trim()
+                if (tfliteSeqFix.isNotEmpty() && tfliteSeqFix.lowercase() != ctxBigram.lowercase()) {
+                    val tokens = tfliteSeqFix.split(Regex("\\s+"))
+                    if (tokens.isNotEmpty()) {
+                        val lastToken = tokens.last()
+                        tfliteContextCandidates.add(lastToken)
+                        candidatePool.add(lastToken)
+                        if (tokens.size > 1) {
+                            candidatePool.add(tfliteSeqFix)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. SymSpell Bounded Edit-Distance Dictionary Lookup (distance <= 2)
+        val symSpellMatches = symSpellEngine.lookup(lower, maxDistance = 2.0f, maxResults = 12)
+        for (match in symSpellMatches) {
+            candidatePool.add(match.term)
+        }
+
+        // 3. Multi-Order N-Gram Language Model Candidates (Quadgram, Trigram, Bigram, Unigram)
+        val nGramPredictions = nGramModel.predictNextWords(contextWords, prefix = lower, maxResults = 8)
+        candidatePool.addAll(nGramPredictions)
+
+        // 4. Local Grammar Multi-Word Phrase Completion & Grammar Check
         val phraseMatches = localGrammarPredictor.predictPhraseCompletions(contextWords, lower, 3)
         candidatePool.addAll(phraseMatches)
 
@@ -341,26 +382,28 @@ class GboardPredictionEngine(private val context: Context) {
             candidatePool.add(localGrammarCorrection.correctedWord)
         }
 
-        // 2. Direct typo & Contraction lookups
+        // 5. Direct typo & Contraction lookups
         commonTypoLookup[lower]?.let { candidatePool.add(it) }
         contractionLookup[lower]?.let { candidatePool.add(it) }
 
-        // 3. Algorithmic Candidates (SymSpell bounded delete lookup, transpositions, insertions, deletions)
+        // 6. Algorithmic Candidates (Transpositions, insertions, deletions)
         val algoCandidates = generateAlgorithmicCandidates(lower, dictionaryManager)
         candidatePool.addAll(algoCandidates)
 
-        // 4. Missed space split candidate (e.g. goodmorning -> good morning)
+        // 7. Missed space split candidate (e.g. goodmorning -> good morning)
         segmentMissedSpaces(lower, dictionaryManager)?.let { candidatePool.add(it) }
 
-        // 5. Prefix match candidates from Trie
+        // 8. Prefix match candidates and fuzzy matches from local Trie
         val prefixMatches = dictionaryManager.getSuggestionsForPrefix(
             prefix = lower,
             previousWords = contextWords,
             tapCoords = tapCoords
         )
         candidatePool.addAll(prefixMatches)
+        candidatePool.addAll(dictionaryManager.wordTrie.findByPrefix(lower, 10))
+        candidatePool.addAll(dictionaryManager.wordTrie.findFuzzyMatches(lower, maxDistance = 2, maxResults = 10))
 
-        // 6. Fuzzy spell corrections & phonetic matches
+        // 9. Fuzzy spell corrections & phonetic matches
         val spellCorrections = dictionaryManager.getSpellingCorrections(
             word = lower,
             prevWord = contextWords.lastOrNull(),
@@ -368,28 +411,36 @@ class GboardPredictionEngine(private val context: Context) {
         )
         candidatePool.addAll(spellCorrections)
 
-        // 7. Include raw typed literal in pool
+        // 10. Include raw typed literal in pool
         candidatePool.add(trimmed)
 
-        val isRawValidWord = dictionaryManager.isWordInDictionary(lower)
+        val isRawValidWord = dictionaryManager.isWordInDictionary(lower) || symSpellEngine.hasWord(lower)
         val isRawCodeOrSpecial = dictionaryManager.isCodeOrSpecialToken(trimmed)
 
-        // Decode and score each candidate using Gboard's multi-signal equation
+        // Decode and score each candidate using unified multi-signal equation:
+        // [TFLite Neural + SymSpell Spatial Dictionary + N-Gram Language Model + Corpus Frequency]
         val scoredCandidates = mutableListOf<GboardCandidate>()
 
         for (cand in candidatePool) {
             val cleanCand = cand.lowercase().trim()
             val isExactMatch = cleanCand == lower
-            val isKnownWord = dictionaryManager.isWordInDictionary(cleanCand) || cleanCand == "i" || cleanCand == "a"
+            val isKnownWord = dictionaryManager.isWordInDictionary(cleanCand) || symSpellEngine.hasWord(cleanCand) || cleanCand == "i" || cleanCand == "a"
             val isGrammarFix = localGrammarCorrection != null && (cleanCand == localGrammarCorrection.correctedWord.lowercase() || cand == localGrammarCorrection.correctedWord)
+            val isTfLiteMatch = (tfliteWordCandidate != null && cleanCand == tfliteWordCandidate.lowercase()) ||
+                    tfliteContextCandidates.any { it.lowercase() == cleanCand }
+            val symSpellMatch = symSpellMatches.firstOrNull { it.term == cleanCand }
 
-            // 1. Spatial-Weighted Edit Distance
-            val editDist = spatialModel.computeSpatialEditDistance(lower, cleanCand)
+            // 1. Spatial-Weighted Edit Distance (using SymSpell metric if present, else spatial model)
+            val editDist = if (symSpellMatch != null) {
+                symSpellMatch.distance
+            } else {
+                spatialModel.computeSpatialEditDistance(lower, cleanCand)
+            }
 
             // 2. Spatial Tap Coordinate Likelihood
             val spatialLikelihood = spatialModel.computeSpatialTouchLikelihood(cleanCand, tapCoords)
 
-            // 3. Language Model Probability (N-Gram)
+            // 3. Language Model Probability (Smoothed Multi-Order N-Gram)
             val lmProb = nGramModel.getProbability(cleanCand, contextWords)
 
             // 4. Normalized Edit Distance Score [0.0, 1.0]
@@ -407,13 +458,16 @@ class GboardPredictionEngine(private val context: Context) {
                             (0.20f * lmProb) +
                             (0.15f * freqScore)
 
-            // Rule & Source-Specific Boosts
+            // Dynamic Signal Boosts
             if (isExactMatch) posterior += 0.20f
-            if (isKnownWord) posterior += 0.15f
+            if (isKnownWord) posterior += 0.25f
+            if (isTfLiteMatch) posterior += 0.50f
+            if (symSpellMatch != null) posterior += (0.30f * (1.0f - (symSpellMatch.distance / 2.5f).coerceIn(0f, 1f)))
+            if (nGramPredictions.contains(cleanCand)) posterior += 0.25f
             if (isGrammarFix) posterior += 0.60f
             if (phraseMatches.contains(cleanCand) || phraseMatches.contains(cand)) posterior += 0.50f
-            if (commonTypoLookup.containsKey(lower) && commonTypoLookup[lower] == cleanCand) posterior += 0.45f
-            if (contractionLookup.containsKey(lower) && contractionLookup[lower] == cand) posterior += 0.45f
+            if (commonTypoLookup.containsKey(lower) && commonTypoLookup[lower] == cleanCand) posterior += 0.55f
+            if (contractionLookup.containsKey(lower) && contractionLookup[lower] == cand) posterior += 0.55f
             if (algoCandidates.contains(cleanCand)) posterior += 0.30f
             if (cleanCand.contains(" ") && cleanCand.replace(" ", "") == lower) posterior += 0.35f
 
@@ -421,28 +475,33 @@ class GboardPredictionEngine(private val context: Context) {
             val isKnownTypo = commonTypoLookup.containsKey(lower) || contractionLookup.containsKey(lower)
             val isWholeWordHigh = posterior >= WHOLE_WORD_AUTOCORRECT_THRESHOLD && (isKnownWord || cleanCand.contains(" "))
             val confidenceTier = when {
-                isGrammarFix || isKnownTypo || isWholeWordHigh -> ConfidenceTier.HIGH
+                isGrammarFix || isKnownTypo || (isTfLiteMatch && isKnownWord) || isWholeWordHigh -> ConfidenceTier.HIGH
                 posterior >= KEY_CORRECTION_THRESHOLD -> ConfidenceTier.MEDIUM
                 else -> ConfidenceTier.LOW
             }
 
             // Autocorrect Eligibility Determination:
-            val isMediumAutocorrect = confidenceTier == ConfidenceTier.MEDIUM && posterior >= 0.40f
+            // When user types a typo/invalid word, automatically correct to top valid dictionary candidate
+            val isMediumAutocorrect = confidenceTier == ConfidenceTier.MEDIUM && posterior >= 0.35f
             val isAutocorrectEligible = when {
                 isExactMatch -> false
                 isRawCodeOrSpecial -> false
                 isGrammarFix -> true
                 isKnownTypo -> true
-                !isRawValidWord && isKnownWord && (confidenceTier == ConfidenceTier.HIGH || isMediumAutocorrect) -> true
+                isTfLiteMatch && isKnownWord -> true
+                !isRawValidWord && isKnownWord && (confidenceTier == ConfidenceTier.HIGH || isMediumAutocorrect || editDist <= 2.0f) -> true
                 isRawValidWord && contractionLookup.containsKey(lower) && contractionLookup[lower] == cand -> true
                 else -> false
             }
 
             val reason = when {
                 isExactMatch -> "Exact Typed Literal"
+                isTfLiteMatch -> "TFLite Neural Model Correction"
                 isGrammarFix -> "Grammar Agreement: ${localGrammarCorrection?.ruleCategory}"
                 isKnownTypo -> "Known Typo / Transposition Rule"
-                algoCandidates.contains(cleanCand) -> "SymSpell / Spatial Neighbor Match"
+                symSpellMatch != null -> "SymSpell Dictionary Match"
+                nGramPredictions.contains(cleanCand) -> "N-Gram Language Model Prediction"
+                algoCandidates.contains(cleanCand) -> "Spatial Neighbor Match"
                 isAutocorrectEligible -> "High-Confidence Autocorrect"
                 else -> "Candidate Suggestion"
             }
@@ -479,7 +538,11 @@ class GboardPredictionEngine(private val context: Context) {
         val scoreMargin = if (secondCandidate != null) (topCandidate.totalPosterior - secondCandidate.totalPosterior) else 1.0f
 
         // Autocorrect decision with margin enforcement:
-        val hasSufficientMargin = scoreMargin >= AUTOCORRECT_MARGIN || topCandidate.reason.contains("Rule") || topCandidate.reason.contains("Grammar")
+        val hasSufficientMargin = scoreMargin >= AUTOCORRECT_MARGIN || 
+                                  topCandidate.reason.contains("Rule") || 
+                                  topCandidate.reason.contains("Grammar") ||
+                                  topCandidate.reason.contains("Typo") ||
+                                  (!isRawValidWord && topCandidate.isAutocorrectEligible)
         val isCenterAutocorrecting = settings.autocorrectEnabled &&
                                      !isSensitiveField &&
                                      topCandidate.isAutocorrectEligible &&

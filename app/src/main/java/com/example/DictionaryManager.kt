@@ -617,17 +617,40 @@ class DictionaryManager(private val context: Context) {
         }
     }
 
+    private val commonTechnicalAndAbbreviations = setOf(
+        "json", "api", "http", "https", "sql", "html", "css", "xml", "rest", "sdk",
+        "ai", "ime", "ui", "ux", "id", "url", "ip", "jwt", "uri", "uuid", "apk", "aab",
+        "cpu", "gpu", "ram", "rom", "db", "vm", "os", "io", "cli", "gui", "ssh", "ssl",
+        "tls", "ftp", "dns", "tcp", "udp", "csv", "svg", "png", "jpg", "jpeg", "gif",
+        "pdf", "doc", "docx", "zip", "tar", "gz", "tflite", "llm", "nlp", "ocr", "stt", "tts"
+    )
+
     fun isCodeOrSpecialToken(word: String): Boolean {
         val clean = word.trim()
         if (clean.isEmpty()) return false
-        if (clean.contains("_")) return true
+        val lower = clean.lowercase()
+
+        // Technical terms & common abbreviations
+        if (commonTechnicalAndAbbreviations.contains(lower)) return true
+
+        // URLs and emails
+        if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("www.") || lower.contains("@")) return true
+
+        // Snake_case or camelCase or kebab-case
+        if (clean.contains("_") || clean.contains("-")) return true
         val hasLower = clean.any { it.isLowerCase() }
         val hasUpper = clean.any { it.isUpperCase() }
-        if (hasLower && hasUpper) return true
+        // camelCase or mixed case inside word
+        if (hasLower && hasUpper && clean.drop(1).any { it.isUpperCase() }) return true
+
+        // Alphanumeric tokens (e.g. utf8, h264, mp3)
         val hasLetters = clean.any { it.isLetter() }
         val hasDigits = clean.any { it.isDigit() }
         if (hasLetters && hasDigits) return true
+
+        // Special symbols or code syntax
         if (clean.any { it in "@#/$%^&*+=\\/[]{}<>" }) return true
+
         return false
     }
 
@@ -724,15 +747,21 @@ class DictionaryManager(private val context: Context) {
     }
 
     private val trie = TrieDictionary()
+    val wordTrie = WordTrie()
     private val phoneticIndex = HashMap<String, MutableList<String>>()
     private val commonWordsSet = HashSet<String>(1500)
     private val commonWordsFreqMap = HashMap<String, Int>(1500)
 
+    val tfLiteModel by lazy { TfLiteCorrectionModel.getInstance(context) }
     private val database = AppDatabase.getDatabase(context)
     private val learnedWordDao = database.learnedWordDao()
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    private val textServicesManager = context.getSystemService(Context.TEXT_SERVICES_MANAGER_SERVICE) as? TextServicesManager
+    private val textServicesManager: TextServicesManager? = try {
+        context.getSystemService(Context.TEXT_SERVICES_MANAGER_SERVICE) as? TextServicesManager
+    } catch (e: Throwable) {
+        null
+    }
 
     init {
         // Build local Trie index, SymSpell index, Fast Hash Set & Phonetic index from common words
@@ -741,6 +770,7 @@ class DictionaryManager(private val context: Context) {
             commonWordsSet.add(lower)
             commonWordsFreqMap[lower] = it.frequency
             trie.insert(it.word, it.frequency)
+            wordTrie.insert(it.word, it.frequency)
             gboardEngine.symSpellEngine.insertWord(it.word, it.frequency)
             val pKey = computePhoneticKey(it.word)
             if (pKey.isNotEmpty()) {
@@ -809,6 +839,8 @@ class DictionaryManager(private val context: Context) {
                                 userWords.add(clean)
                             }
                             trie.insert(clean, 40)
+                            wordTrie.insert(clean, 40)
+                            gboardEngine.symSpellEngine.insertWord(clean, 40)
                         }
                     }
                 }
@@ -816,6 +848,71 @@ class DictionaryManager(private val context: Context) {
         } catch (e: Exception) {
             // Content provider unavailable
         }
+    }
+
+    fun reloadFromDatabase() {
+        scope.launch {
+            try {
+                val dbWords = learnedWordDao.getAllWords()
+                synchronized(userWords) {
+                    dbWords.forEach {
+                        val clean = it.word.lowercase().trim()
+                        if (clean.isNotEmpty()) {
+                            userWords.add(clean)
+                            val freq = maxOf(35, it.frequency)
+                            trie.insert(clean, freq)
+                            wordTrie.insert(clean, freq)
+                            gboardEngine.symSpellEngine.insertWord(clean, freq)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
+    /**
+     * Synchronizes trending words and user-specific vocabulary into memory caches,
+     * Prefix Tries, SymSpell correction index, N-Gram Language Model, and ML Markov models.
+     */
+    fun bulkInsertTrendingAndUserVocab(
+        words: List<LearnedWord>,
+        bigrams: Map<String, List<String>> = emptyMap()
+    ) {
+        synchronized(userWords) {
+            words.forEach { item ->
+                val clean = item.word.lowercase().trim()
+                if (clean.isNotEmpty() && clean.length >= 2 && !isProfane(clean)) {
+                    userWords.add(clean)
+                    val freq = maxOf(35, item.frequency)
+                    trie.insert(clean, freq)
+                    wordTrie.insert(clean, freq)
+                    gboardEngine.symSpellEngine.insertWord(clean, freq)
+                    val pKey = computePhoneticKey(clean)
+                    if (pKey.isNotEmpty()) {
+                        phoneticIndex.getOrPut(pKey) { mutableListOf() }.add(clean)
+                    }
+                }
+            }
+        }
+
+        // Register trending & learned bigrams
+        bigrams.forEach { (prev, nextList) ->
+            val p = prev.lowercase().trim()
+            val targetList = personalizedBigrams.getOrPut(p) { mutableListOf() }
+            nextList.forEach { next ->
+                val n = next.lowercase().trim()
+                if (n.isNotEmpty() && !targetList.contains(n)) {
+                    targetList.add(0, n)
+                    if (targetList.size > 10) targetList.removeAt(targetList.size - 1)
+                }
+                mlPredictor.learnBigram(p, n)
+                nGramModel.addBigram(p, n, 2)
+            }
+        }
+
+        saveUserDictionary()
     }
 
     private fun loadWordsFromDatabase() {
@@ -826,6 +923,8 @@ class DictionaryManager(private val context: Context) {
                     dbWords.forEach {
                         userWords.add(it.word)
                         trie.insert(it.word, maxOf(30, it.frequency))
+                        wordTrie.insert(it.word, maxOf(30, it.frequency))
+                        gboardEngine.symSpellEngine.insertWord(it.word, maxOf(30, it.frequency))
                     }
                 }
             } catch (e: Exception) {
@@ -837,7 +936,11 @@ class DictionaryManager(private val context: Context) {
     private fun loadUserDictionary() {
         val loaded = prefs.getStringSet("user_words", emptySet()) ?: emptySet()
         userWords.addAll(loaded)
-        loaded.forEach { trie.insert(it, 35) }
+        loaded.forEach {
+            trie.insert(it, 35)
+            wordTrie.insert(it, 35)
+            gboardEngine.symSpellEngine.insertWord(it, 35)
+        }
         personalBlocklist.addAll(prefs.getStringSet("personal_blocklist", emptySet()) ?: emptySet())
         val bigramStr = prefs.getString("personalized_bigrams", "") ?: ""
         if (bigramStr.isNotEmpty()) {
@@ -889,6 +992,7 @@ class DictionaryManager(private val context: Context) {
                 if (!userWords.contains(clean)) {
                     userWords.add(clean)
                     trie.insert(clean, 35)
+                    wordTrie.insert(clean, 35)
                     gboardEngine.symSpellEngine.insertWord(clean, 35)
                     false
                 } else {
@@ -1283,7 +1387,13 @@ class DictionaryManager(private val context: Context) {
         // 5. SymSpell candidates
         val symSpellCandidates = gboardEngine.symSpellEngine.lookup(normalized, maxDistance = 2f).map { it.term }
 
-        val candidateList = (listOfNotNull(directTypoMatch) + missedSpaceCandidates + contractionCandidates + phoneticCandidates + trieLevenshteinCandidates + symSpellCandidates).distinct()
+        // 6. Neural TFLite correction candidate
+        val tfLiteCandidate = try {
+            val res = tfLiteModel.correctText(normalized).trim()
+            if (res.isNotEmpty() && res.lowercase() != normalized) res else null
+        } catch (_: Exception) { null }
+
+        val candidateList = (listOfNotNull(directTypoMatch, tfLiteCandidate) + missedSpaceCandidates + contractionCandidates + phoneticCandidates + trieLevenshteinCandidates + symSpellCandidates).distinct()
             .filter { !settings.profanityFilterEnabled || !isProfane(it) }
 
         if (candidateList.isEmpty()) return emptyList()
@@ -1680,10 +1790,16 @@ class DictionaryManager(private val context: Context) {
             tapGeometryScore = 0.04f * adjacentCount
         }
 
-        // --- Signal 3: Language Model Probability (w3 * lm_prob) ---
+        // --- Signal 3: Language Model Probability (N-Gram + Bigram / Trigram) ---
         var lmScore = 0.0f
         val prev1 = prevWord?.lowercase()?.trim() ?: ""
         val prev2 = prevWord2?.lowercase()?.trim() ?: ""
+        val contextList = listOfNotNull(prevWord2, prevWord)
+
+        if (contextList.isNotEmpty()) {
+            val nGramProb = nGramModel.getProbability(w2, contextList)
+            lmScore += (nGramProb * 0.25f)
+        }
 
         if (prev1.isNotEmpty()) {
             val learnedPredicted = personalizedBigrams[prev1] ?: emptyList()
@@ -1729,7 +1845,16 @@ class DictionaryManager(private val context: Context) {
             phoneticScore = 0.22f
         }
 
-        var totalConfidence = editDistScore + tapGeometryScore + lmScore + userFreqScore + unigramScore + phoneticScore
+        // --- Signal 7: Neural TFLite Agreement ---
+        var tfLiteScore = 0.0f
+        try {
+            val tfliteFix = tfLiteModel.correctText(w1).trim().lowercase()
+            if (tfliteFix.isNotEmpty() && tfliteFix == w2) {
+                tfLiteScore = 0.35f
+            }
+        } catch (_: Exception) {}
+
+        var totalConfidence = editDistScore + tapGeometryScore + lmScore + userFreqScore + unigramScore + phoneticScore + tfLiteScore
 
         // Short word penalty (only for large edit distance on short words)
         if (w1.length <= 3 && d > 1.1f) {

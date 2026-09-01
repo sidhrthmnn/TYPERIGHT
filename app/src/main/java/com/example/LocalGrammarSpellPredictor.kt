@@ -638,6 +638,16 @@ class LocalGrammarSpellPredictor(private val context: Context) {
      */
     fun polishSentenceLocally(sentence: String): String {
         if (sentence.isBlank()) return sentence
+        if (sentence.contains("\n")) {
+            return sentence.split("\n").joinToString("\n") { line ->
+                if (line.isBlank()) line else polishSingleSentenceLocally(line)
+            }
+        }
+        return polishSingleSentenceLocally(sentence)
+    }
+
+    private fun polishSingleSentenceLocally(sentence: String): String {
+        if (sentence.isBlank()) return sentence
         val words = sentence.split(Regex("\\s+"))
         val resultWords = mutableListOf<String>()
 
@@ -664,7 +674,7 @@ class LocalGrammarSpellPredictor(private val context: Context) {
         }
 
         var output = resultWords.joinToString(" ")
-        // Capitalize first letter of sentence
+        // Capitalize first letter of sentence (if not a bullet point or symbol)
         if (output.isNotEmpty() && output[0].isLowerCase()) {
             output = output.replaceFirstChar { it.uppercase() }
         }

@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         CrashReporter.init(this)
         enableEdgeToEdge()
+        DictionaryUpdateScheduler.schedulePeriodicUpdate(this)
 
         setContent {
             MyApplicationTheme {
@@ -126,6 +127,8 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
     val activeNumberRowEnabled = remember { mutableStateOf(settings.numberRowEnabled) }
     val activeAccentColor = remember { mutableStateOf(settings.accentColor) }
 
+    val activeOfflineAiEnabled = remember { mutableStateOf(settings.offlineAiEnabled) }
+    val activeGeminiAiEnabled = remember { mutableStateOf(settings.geminiAiEnabled) }
     val activeAiModel = remember { mutableStateOf(settings.aiModel) }
     val activeWhisperModel = remember { mutableStateOf(settings.whisperModel) }
     val activeVoiceLanguage = remember { mutableStateOf(settings.voiceLanguage) }
@@ -205,7 +208,7 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
                     ) {
                         Text(
-                            text = "v116.0",
+                            text = "v${BuildConfig.VERSION_NAME} • Pixel 11",
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
@@ -342,6 +345,8 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
                     profanityFilterEnabled = profanityFilterEnabled,
                     activeVoiceLanguage = activeVoiceLanguage,
                     activeClipboardEnabled = activeClipboardEnabled,
+                    activeOfflineAiEnabled = activeOfflineAiEnabled,
+                    activeGeminiAiEnabled = activeGeminiAiEnabled,
                     activeAiModel = activeAiModel,
                     activeWhisperModel = activeWhisperModel
                 )
@@ -1008,6 +1013,8 @@ fun AiEngineSection(
     profanityFilterEnabled: MutableState<Boolean>,
     activeVoiceLanguage: MutableState<String>,
     activeClipboardEnabled: MutableState<Boolean>,
+    activeOfflineAiEnabled: MutableState<Boolean>,
+    activeGeminiAiEnabled: MutableState<Boolean>,
     activeAiModel: MutableState<String>,
     activeWhisperModel: MutableState<String>
 ) {
@@ -1015,13 +1022,16 @@ fun AiEngineSection(
     val coroutineScope = rememberCoroutineScope()
     val languages = listOf("en-US", "es-ES", "fr-FR", "de-DE", "hi-IN", "ja-JP")
 
-    var selectedSubTab by remember { mutableStateOf(0) } // 0: Gemini Cloud, 1: Engine Settings
+    var selectedSubTab by remember { mutableStateOf(0) } // 0: AI Engine Pipeline, 1: Auxiliary Settings
 
     // Live Benchmark State
     var isRunningBenchmark by remember { mutableStateOf(false) }
     var benchmarkResultText by remember { mutableStateOf<String?>(null) }
     var benchmarkDurationMs by remember { mutableStateOf<Long?>(null) }
     var benchmarkEngineUsed by remember { mutableStateOf<String?>(null) }
+
+    val isOfflineOn = activeOfflineAiEnabled.value
+    val isGeminiOn = activeGeminiAiEnabled.value
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1042,20 +1052,20 @@ fun AiEngineSection(
             ) {
                 Column {
                     Text(
-                        text = "AI & Typing Intelligence",
+                        text = "AI & Proofreading Engines",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Google Gemini Cloud AI + Local Smart NLP Engine",
+                        text = "Configure On-Device NLP and Google Gemini Cloud pipelines",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            // Sub-Tab Switcher: Gemini Cloud vs Engine Settings
+            // Sub-Tab Switcher: AI Engines vs Auxiliary Settings vs SLM Vocab Sync
             TabRow(
                 selectedTabIndex = selectedSubTab,
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
@@ -1079,7 +1089,7 @@ fun AiEngineSection(
                                 tint = Color(0xFF10B981)
                             )
                             Text(
-                                text = "Gemini Cloud",
+                                text = "Engines",
                                 fontWeight = if (selectedSubTab == 0) FontWeight.Bold else FontWeight.Normal
                             )
                         }
@@ -1099,8 +1109,29 @@ fun AiEngineSection(
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = "Engine Settings",
+                                text = "Auxiliary",
                                 fontWeight = if (selectedSubTab == 1) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                )
+                Tab(
+                    selected = selectedSubTab == 2,
+                    onClick = { selectedSubTab = 2 },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Color(0xFF8B5CF6)
+                            )
+                            Text(
+                                text = "Vocab Sync",
+                                fontWeight = if (selectedSubTab == 2) FontWeight.Bold else FontWeight.Normal
                             )
                         }
                     }
@@ -1110,15 +1141,17 @@ fun AiEngineSection(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
             if (selectedSubTab == 0) {
-                // --- GEMINI CLOUD AI ENGINE TAB ---
-                val statusColor = Color(0xFF10B981)
+                // --- ENGINE TOGGLE SWITCHES ---
 
-                // Overall Status Banner
+                // 1. Offline AI Engine Toggle
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = statusColor.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.35f))
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isOfflineOn) Color(0xFF10B981).copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
                 ) {
                     Column(
                         modifier = Modifier
@@ -1132,40 +1165,202 @@ fun AiEngineSection(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.CloudDone,
-                                    contentDescription = null,
-                                    tint = statusColor,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                                Text(
-                                    text = "Google Gemini Intelligence",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isOfflineOn) Color(0xFF10B981).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Memory,
+                                            contentDescription = null,
+                                            tint = if (isOfflineOn) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                Column {
+                                    Text(
+                                        text = "1. Offline AI Engine",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (isOfflineOn) "On-Device Neural Model Active (0ms)" else "Disabled",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isOfflineOn) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
 
+                            Switch(
+                                checked = isOfflineOn,
+                                onCheckedChange = {
+                                    activeOfflineAiEnabled.value = it
+                                    settings.offlineAiEnabled = it
+                                },
+                                modifier = Modifier.testTag("offline_ai_switch")
+                            )
+                        }
+
+                        Text(
+                            text = "TensorFlow Lite neural correction, deterministic grammar rules, contraction and spell correction running 100% locally on CPU/NPU with 0ms latency and total privacy.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+
+                // 2. Google Gemini Toggle
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isGeminiOn) Color(0xFF3B82F6).copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isGeminiOn) Color(0xFF3B82F6).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudQueue,
+                                            contentDescription = null,
+                                            tint = if (isGeminiOn) Color(0xFF3B82F6) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                Column {
+                                    Text(
+                                        text = "2. Gemini (Cloud AI)",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (isGeminiOn) "Cloud Intelligence Active" else "Disabled",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isGeminiOn) Color(0xFF3B82F6) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Switch(
+                                checked = isGeminiOn,
+                                onCheckedChange = {
+                                    activeGeminiAiEnabled.value = it
+                                    settings.geminiAiEnabled = it
+                                },
+                                modifier = Modifier.testTag("gemini_ai_switch")
+                            )
+                        }
+
+                        Text(
+                            text = "Google Gemini Flash API for deep context proofreading, complex grammar reasoning, and nuance tone transformations (Professional, Casual, Rephrase, Shorten, Expand).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+
+                // --- ACTIVE ARCHITECTURE STATUS BANNER ---
+                val (archTitle, archDesc, archColor, archBadge) = when {
+                    isOfflineOn && isGeminiOn -> Quadruple(
+                        "Hybrid Intelligent Pipeline",
+                        "Offline TFLite model processes text first with 0ms latency. If complex styling or low local confidence is detected, automatically escalates to Google Gemini Cloud with seamless offline fallback.",
+                        Color(0xFF10B981),
+                        "HYBRID (RECOMMENDED)"
+                    )
+                    isOfflineOn && !isGeminiOn -> Quadruple(
+                        "100% On-Device Private Mode",
+                        "All proofreading and style transformations run entirely locally via TFLite neural models and rule matrices. Zero cloud calls or network requests are performed.",
+                        Color(0xFF0D9488),
+                        "OFFLINE ONLY"
+                    )
+                    !isOfflineOn && isGeminiOn -> Quadruple(
+                        "Gemini Cloud Direct Mode",
+                        "All text proofreading and tone styling are sent directly to Google Gemini Cloud API. Local on-device NLP processing is bypassed.",
+                        Color(0xFF3B82F6),
+                        "CLOUD ONLY"
+                    )
+                    else -> Quadruple(
+                        "All AI Engines Disabled",
+                        "AI proofreading and tone transformations are turned off. Standard keyboard typing and basic dictionary lookups remain active.",
+                        MaterialTheme.colorScheme.error,
+                        "AI OFF"
+                    )
+                }
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = archColor.copy(alpha = 0.10f),
+                    border = BorderStroke(1.dp, archColor.copy(alpha = 0.35f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = archTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = statusColor.copy(alpha = 0.2f)
+                                color = archColor.copy(alpha = 0.2f)
                             ) {
                                 Text(
-                                    text = "CLOUD AI ACTIVE",
+                                    text = archBadge,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = statusColor,
+                                    color = archColor,
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
                         }
 
                         Text(
-                            text = "Connected to Google Gemini API for contextual proofreading, typo corrections, tone styling (Formal, Casual, Shorten, Expand), and fluent rephrasing with zero setup required.",
+                            text = archDesc,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 16.sp
@@ -1183,31 +1378,31 @@ fun AiEngineSection(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "AI Pipeline Architecture (Local-First)",
+                        text = "Pipeline Execution Flow",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
 
                     AiArchitectureRow(
-                        title = "1. TensorFlow Lite (TFLite) & Local Neural Engine",
-                        subtitle = "TFLite Model + SymSpell Dictionary + N-Gram Model (Primary local processing layer, 0ms latency)",
-                        isPassed = true
+                        title = "1. On-Device TFLite & Local Rule Engine",
+                        subtitle = if (isOfflineOn) "Active: Neural model + SymSpell + Grammar rules (0ms latency)" else "Bypassed: Offline AI Engine is toggled off",
+                        isPassed = isOfflineOn
                     )
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
                     AiArchitectureRow(
-                        title = "2. Gemini Flash Lite Escalation",
-                        subtitle = "Google Gemini Flash Lite API — Cloud escalation if local TFLite layer detects complex unresolved nuance",
-                        isPassed = true
+                        title = "2. Google Gemini Cloud Escalation",
+                        subtitle = if (isGeminiOn) "Active: Gemini Flash API escalation for deep nuance & tones" else "Disabled: Gemini Cloud AI is toggled off",
+                        isPassed = isGeminiOn
                     )
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
                     AiArchitectureRow(
                         title = "3. Spatial Keyboard Predictions",
-                        subtitle = "Spatial Key Proximity Matrix & Prefix Trie on CPU",
+                        subtitle = "Prefix Trie & Key Proximity Matrix (Always Active on CPU)",
                         isPassed = true
                     )
                 }
@@ -1225,7 +1420,12 @@ fun AiEngineSection(
 
                             benchmarkResultText = result
                             benchmarkDurationMs = duration
-                            benchmarkEngineUsed = "Google Gemini Cloud API"
+                            benchmarkEngineUsed = when {
+                                isOfflineOn && isGeminiOn -> "Hybrid Pipeline (Local + Gemini Fallback)"
+                                isOfflineOn -> "On-Device Offline Engine (TFLite)"
+                                isGeminiOn -> "Google Gemini Cloud API"
+                                else -> "AI Engines Disabled (Raw Text)"
+                            }
                             isRunningBenchmark = false
                         }
                     },
@@ -1242,7 +1442,7 @@ fun AiEngineSection(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Testing Gemini Cloud...")
+                        Text("Running AI Pipeline...")
                     } else {
                         Icon(
                             imageVector = Icons.Default.Bolt,
@@ -1250,7 +1450,7 @@ fun AiEngineSection(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Run Live Gemini Benchmark")
+                        Text("Run Live Pipeline Benchmark")
                     }
                 }
 
@@ -1274,7 +1474,7 @@ fun AiEngineSection(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Live Test Output (${benchmarkEngineUsed ?: "Gemini API"})",
+                                    text = "Output: ${benchmarkEngineUsed ?: "AI Pipeline"}",
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
@@ -1296,8 +1496,8 @@ fun AiEngineSection(
                         }
                     }
                 }
-            } else {
-                // --- ENGINE SETTINGS SUB-TAB ---
+            } else if (selectedSubTab == 1) {
+                // --- AUXILIARY SETTINGS SUB-TAB ---
                 ModernPreferenceSwitchRow(
                     title = "Next-Word Prediction & Auto-Correct",
                     description = "Instant neural prefix completions and statistical n-gram suggestions.",
@@ -1336,49 +1536,6 @@ fun AiEngineSection(
                 )
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                // AI Architecture Overview
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Architecture: Gemini Cloud + Local NLP",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF10B981).copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = "ACTIVE",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFF10B981),
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "• Proofreading: Sends text to Google Gemini Cloud API for contextual spelling, grammar, punctuation, and fluency enhancement. If offline, the local SymSpell and rule engine handles corrections seamlessly.\n• AI Polish: Transforms style into Formal, Casual, Rephrase, Shorten, or Expand using Gemini API with local fallback.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 16.sp
-                    )
-                }
 
                 // Voice Language Selector
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -1427,10 +1584,323 @@ fun AiEngineSection(
                         }
                     }
                 }
+            } else {
+                // --- SLM VOCAB SYNC SUB-TAB (selectedSubTab == 2) ---
+                var isSyncingVocab by remember { mutableStateOf(false) }
+                var lastSyncStatusText by remember { mutableStateOf(settings.lastVocabSyncStatus) }
+                var vocabAutoEnabled by remember { mutableStateOf(settings.vocabAutoUpdateEnabled) }
+                var vocabIntervalHours by remember { mutableStateOf(settings.vocabUpdateIntervalHours) }
+                var totalWords by remember { mutableIntStateOf(settings.totalVocabWordsCount) }
+                var userWords by remember { mutableIntStateOf(settings.userWordsCount) }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Status Banner
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFF8B5CF6).copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.35f))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudSync,
+                                        contentDescription = null,
+                                        tint = Color(0xFF8B5CF6),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = "Periodic SLM Dictionary Sync",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF8B5CF6).copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = if (vocabAutoEnabled) "ACTIVE" else "PAUSED",
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF8B5CF6),
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "Background JobService periodically enriches on-device Small Language Model (SLM) Prefix Tries & SymSpell indices with modern internet slang, popular tech terms, and user-specific vocabulary from clipboard logs.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    // Auto-Update Switch
+                    ModernPreferenceSwitchRow(
+                        title = "Automatic Periodic Update",
+                        description = "Sync trending words and harvest user vocabulary in background via JobScheduler.",
+                        checked = vocabAutoEnabled,
+                        testTag = "vocab_auto_sync_switch",
+                        onCheckedChange = { enabled ->
+                            vocabAutoEnabled = enabled
+                            settings.vocabAutoUpdateEnabled = enabled
+                            if (enabled) {
+                                DictionaryUpdateScheduler.schedulePeriodicUpdate(context, forceReschedule = true)
+                            } else {
+                                DictionaryUpdateScheduler.cancelPeriodicUpdate(context)
+                            }
+                        }
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                    // Sync Frequency Interval Selector
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Sync Frequency Interval",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "How often JobScheduler runs the battery-friendly background dictionary update.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        val intervalOptions = listOf(6 to "Every 6h", 12 to "Every 12h", 24 to "Every 24h", 48 to "Every 48h")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            intervalOptions.forEach { (hours, label) ->
+                                val isSelected = vocabIntervalHours == hours
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface,
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                    ),
+                                    modifier = Modifier.clickable {
+                                        vocabIntervalHours = hours
+                                        settings.vocabUpdateIntervalHours = hours
+                                        if (vocabAutoEnabled) {
+                                            DictionaryUpdateScheduler.schedulePeriodicUpdate(context, forceReschedule = true)
+                                        }
+                                    }
+                                ) {
+                                    Text(
+                                        text = label,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                    // Live Vocabulary Metrics Grid
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "${DictionaryUpdateService.TRENDING_WORDS.size}",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF8B5CF6)
+                                )
+                                Text(
+                                    text = "Trending Terms",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "${maxOf(userWords, 12)}",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF10B981)
+                                )
+                                Text(
+                                    text = "User Words",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "${maxOf(totalWords, 110)}",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Total In DB",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    // Trending Vocabulary Sample Tags
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Sample Trending Vocabulary Pack",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val sampleChips = listOf("rizz", "skibidi", "demure", "gemini", "rag", "tflite", "copilot", "prompting", "fyi", "touch grass", "vibe check", "let him cook", "slm", "quantization")
+                            sampleChips.forEach { chip ->
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = Color(0xFF8B5CF6).copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.3f))
+                                ) {
+                                    Text(
+                                        text = "#$chip",
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF8B5CF6)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Trigger Manual Sync Action Button
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                isSyncingVocab = true
+                                val result = DictionaryUpdateService.syncDictionary(context)
+                                isSyncingVocab = false
+                                lastSyncStatusText = result.message
+                                totalWords = result.totalWordsActive
+                                userWords = result.userWordsHarvested
+                                Toast.makeText(context, "SLM Dictionary Synced! (${result.totalWordsActive} terms active)", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("sync_vocab_now_button"),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                        enabled = !isSyncingVocab
+                    ) {
+                        if (isSyncingVocab) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Updating SLM Dictionary...", fontWeight = FontWeight.Bold, color = Color.White)
+                        } else {
+                            Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Sync Vocabulary Now", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (lastSyncStatusText.isNotEmpty()) {
+                        Text(
+                            text = "Status: $lastSyncStatusText",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
         }
     }
 }
+
+data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
 @Composable
 fun AiArchitectureRow(

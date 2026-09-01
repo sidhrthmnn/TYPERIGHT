@@ -80,6 +80,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
+data class GifItem(
+    val id: String,
+    val title: String,
+    val category: String,
+    val emojiIcon: String,
+    val textToInsert: String,
+    val tags: List<String>
+)
+
+data class StickerPack(
+    val id: String,
+    val name: String,
+    val icon: String,
+    val stickers: List<String>
+)
+
 /**
  * Data representation for an Emoji Category.
  */
@@ -367,6 +383,79 @@ fun RevampedEmojiLayout(
         )
     }
 
+    val gifCategories = remember {
+        listOf("All", "🔥 Trending", "😂 Reactions", "❤️ Love", "🎉 Party", "🤦‍♂️ Oops", "👏 Applause", "💃 Dance", "🐱 Cats", "🧠 Mood", "🚀 Hype")
+    }
+    var selectedGifCategory by remember { mutableStateOf("All") }
+
+    val allGifs = remember {
+        listOf(
+            GifItem("mind_blown", "Mind Blown", "Reactions", "🤯", "🤯 Mind Blown!", listOf("mind blown", "explosion", "shock", "wow", "unbelievable")),
+            GifItem("popcorn", "Here For The Drama", "Trending", "🍿", "🍿 *eats popcorn*", listOf("popcorn", "drama", "watching", "entertaining", "tea")),
+            GifItem("mic_drop", "Mic Drop", "Trending", "🎤", "🎤⬇️ *mic drop*", listOf("mic drop", "done", "winner", "cool", "end of story")),
+            GifItem("cat_jam", "Cat Vibe Jam", "Cats", "🐱", "🐱🎧 *cat nodding to the beat*", listOf("cat", "jam", "music", "vibe", "groove")),
+            GifItem("take_my_money", "Take My Money", "Trending", "💸", "💸 Shut Up and Take My Money!", listOf("money", "buy", "pay", "shut up and take my money", "rich")),
+            GifItem("cheers", "Gatsby Cheers", "Reactions", "🥂", "🥂 Cheers to that!", listOf("cheers", "toast", "leonardo", "champagne", "celebrate")),
+            GifItem("this_is_fine", "This Is Fine", "Trending", "☕", "🔥🐶☕ *this is fine*", listOf("fire", "dog", "fine", "chaos", "this is fine", "okay")),
+            GifItem("facepalm", "Epic Facepalm", "Oops", "🤦‍♂️", "🤦‍♂️ *facepalm*", listOf("facepalm", "smh", "oops", "disbelief", "fail")),
+            GifItem("dancing", "Happy Dance", "Dance", "💃", "💃🕺 *happy dance!*", listOf("dance", "dancing", "happy", "party", "celebration", "groove")),
+            GifItem("applause", "Standing Ovation", "Applause", "👏", "👏👏👏 *applause*", listOf("clap", "applause", "bravo", "good job", "congrats")),
+            GifItem("spiderman", "Spider-Man Pointing", "Trending", "👉", "👉👈 *pointing at each other*", listOf("spiderman", "same", "identical", "twin", "look")),
+            GifItem("deal_with_it", "Deal With It", "Reactions", "😎", "😎 (⌐■_■) Deal with it.", listOf("shades", "cool", "deal with it", "boss", "sunglasses")),
+            GifItem("chefs_kiss", "Chef's Kiss", "Reactions", "🤌", "🤌✨ *chef's kiss - perfection*", listOf("chef", "perfection", "kiss", "food", "delicious")),
+            GifItem("thinking_brain", "Big Brain Move", "Mood", "🧠", "🧠👈 *big brain move*", listOf("think", "smart", "galaxy brain", "idea", "iq")),
+            GifItem("party", "Party Confetti", "Party", "🎉", "🎉🥳 Let's Celebrate! 🎊", listOf("party", "confetti", "woohoo", "celebrate", "birthday")),
+            GifItem("sending_love", "Sending Warm Hugs", "Love", "🥰", "🥰 Sending big hugs and love! ❤️✨", listOf("hug", "love", "heart", "warm", "care", "affection")),
+            GifItem("shocked", "Surprised Disbelief", "Reactions", "😮", "😮⚡ *shocked disbelief*", listOf("shock", "surprised", "omg", "what", "no way")),
+            GifItem("to_the_moon", "To The Moon!", "Hype", "🚀", "🚀🌕 TO THE MOON!", listOf("rocket", "hype", "lets go", "moon", "stonks")),
+            GifItem("straight_fire", "Straight Fire", "Hype", "🔥", "🔥🔥🔥 This is straight fire!", listOf("fire", "lit", "hot", "amazing", "banger")),
+            GifItem("salute", "Salute of Respect", "Reactions", "🫡", "🫡 *respectful salute*", listOf("salute", "respect", "honor", "yes sir", "o7")),
+            GifItem("happy_tears", "Tears of Joy", "Love", "🥹", "🥹 *so touched, crying happy tears*", listOf("cry", "tears", "joy", "wholesome", "sweet", "grateful")),
+            GifItem("high_five", "Virtual High Five", "Applause", "🙌", "🙌 Virtual High Five! ✋✨", listOf("high five", "teamwork", "slap", "yay", "partner"))
+        )
+    }
+
+    val stickerPacks = remember {
+        listOf(
+            StickerPack(
+                id = "cats",
+                name = "Kawaii Cats & Paws",
+                icon = "🐱",
+                stickers = listOf(
+                    "(=^･ω･^=)", "(=^-ω-^=)", "(=^･ｪ･^=)", "(=ＴェＴ=)",
+                    "(ﾉ*ФωФ)ﾉ", "(=ｘェｘ=)", "ଲ(ⓛ ω ⓛ)ଲ", "(ง •̀_•́)ง 🐾"
+                )
+            ),
+            StickerPack(
+                id = "teddy",
+                name = "Teddy Bear & Friends",
+                icon = "🐻",
+                stickers = listOf(
+                    "ʕ•ᴥ•ʔ", "ʕっ•ᴥ•ʔっ", "ʕง•ᴥ•ʔง", "ʕʘ̅͜ʘ̅ʔ",
+                    "ʕノ)ᴥ(ヾʔ", "ʕ≧ᴥ≦ʔ", "ʕ•̫͡•ʔ", "(｡･(ｴ)･｡)"
+                )
+            ),
+            StickerPack(
+                id = "sparkle",
+                name = "Anime & Sparkles",
+                icon = "✨",
+                stickers = listOf(
+                    "(✿◠‿◠)", "(◕‿◕✿)", "(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧", "(づ｡◕‿‿◕｡)づ",
+                    "(☆ω☆)", "(´｡• ᵕ •｡`)", "(*¯ ³¯*)♡", "(๑>ᴗ<๑)"
+                )
+            ),
+            StickerPack(
+                id = "action",
+                name = "Action & Memes",
+                icon = "💥",
+                stickers = listOf(
+                    "(╯°□°)╯︵ ┻━┻", "┬─┬ノ( º _ ºノ)", "(ง'̀-'́)ง",
+                    "(ノಠ益ಠ)ノ彡┻━┻", "(ง •̀_•́)ง", "¯\\_(ツ)_/¯"
+                )
+            )
+        )
+    }
+
     val onEmojiTapped: (String) -> Unit = { emoji ->
         onKeyClick(emoji)
         // Dynamically update recent list and prevent duplicates
@@ -594,28 +683,182 @@ fun RevampedEmojiLayout(
                     }
                 }
 
+                // GIF Tab
+                currentSubTab == EmojiSubTab.GIF -> {
+                    val filteredGifs = remember(selectedGifCategory, searchQuery) {
+                        if (searchQuery.isNotBlank()) {
+                            val q = searchQuery.lowercase().trim()
+                            allGifs.filter { gif ->
+                                gif.title.lowercase().contains(q) ||
+                                gif.tags.any { it.contains(q) } ||
+                                gif.category.lowercase().contains(q)
+                            }
+                        } else if (selectedGifCategory == "All") {
+                            allGifs
+                        } else {
+                            val cleanCat = selectedGifCategory.replace(Regex("[^a-zA-Z]"), "").trim()
+                            allGifs.filter { it.category.equals(cleanCat, ignoreCase = true) }
+                        }
+                    }
+
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // Category pill bar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Spacer(modifier = Modifier.width(2.dp))
+                            gifCategories.forEach { category ->
+                                val isSelected = selectedGifCategory == category
+                                Box(
+                                    modifier = Modifier
+                                        .height(30.dp)
+                                        .clip(RoundedCornerShape(15.dp))
+                                        .background(
+                                            if (isSelected) accentColor.copy(alpha = 0.85f)
+                                            else textColor.copy(alpha = 0.12f)
+                                        )
+                                        .clickable { selectedGifCategory = category }
+                                        .padding(horizontal = 12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = category,
+                                        color = if (isSelected) Color.White else textColor,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
+                        // GIF items grid
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(filteredGifs) { gif ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(72.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(keyColor)
+                                        .clickable {
+                                            onKeyClick(gif.textToInsert)
+                                        }
+                                        .padding(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(textColor.copy(alpha = 0.08f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = gif.emojiIcon,
+                                                fontSize = 24.sp
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                text = gif.title,
+                                                color = textColor,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = accentColor.copy(alpha = 0.15f)
+                                            ) {
+                                                Text(
+                                                    text = "GIF",
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                    color = accentColor,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Stickers Tab
-                currentSubTab == EmojiSubTab.STICKERS || currentSubTab == EmojiSubTab.GIF -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                currentSubTab == EmojiSubTab.STICKERS -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = if (currentSubTab == EmojiSubTab.GIF) "GIF Search & Clips" else "Sticker Packs & Expressive Art",
-                            color = textColor,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Select any Emoji Kitchen mashup above or emoji below to insert expressive stickers directly into your conversation.",
-                            color = textColor.copy(alpha = 0.65f),
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.Center
-                        )
+                        stickerPacks.forEach { pack ->
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "${pack.icon} ${pack.name}",
+                                        color = textColor.copy(alpha = 0.85f),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            val stickerRows = pack.stickers.chunked(2)
+                            items(stickerRows) { rowStickers ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    rowStickers.forEach { sticker ->
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(44.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(keyColor)
+                                                .clickable { onKeyClick(sticker) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = sticker,
+                                                color = textColor,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                    if (rowStickers.size < 2) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

@@ -1,10 +1,11 @@
 package com.example
 
-import java.util.PriorityQueue
+import kotlin.math.min
 
 /**
  * High-performance, memory-efficient Trie (Prefix Tree) data structure for
- * instant on-device word search, offline spell checking, and low-latency predictions.
+ * instant on-device word search, real-time prefix suggestions, and Damerau-Levenshtein
+ * fuzzy autocorrect for common typing errors.
  */
 class WordTrie {
 
@@ -16,22 +17,22 @@ class WordTrie {
         var maxSubtreeFrequency: Int = 0
     }
 
-    private val root = TrieNode()
-    private var size = 0
+    val root = TrieNode()
+    private var wordCount = 0
 
-    fun size(): Int = size
+    fun size(): Int = wordCount
 
     /**
      * Inserts a word with a frequency score into the Trie.
      */
     fun insert(word: String, frequency: Int = 1) {
-        val lower = word.lowercase().trim()
-        if (lower.isEmpty()) return
+        val clean = word.lowercase().trim()
+        if (clean.isEmpty()) return
 
         var current = root
         current.maxSubtreeFrequency = maxOf(current.maxSubtreeFrequency, frequency)
 
-        for (ch in lower) {
+        for (ch in clean) {
             current = current.children.getOrPut(ch) { TrieNode() }
             current.maxSubtreeFrequency = maxOf(current.maxSubtreeFrequency, frequency)
         }
@@ -39,7 +40,7 @@ class WordTrie {
         if (!current.isWord) {
             current.isWord = true
             current.word = word
-            size++
+            wordCount++
         }
         current.frequency = maxOf(current.frequency, frequency)
     }
@@ -48,39 +49,36 @@ class WordTrie {
      * Quickly checks if exact word exists in Trie in O(K) time complexity.
      */
     fun contains(word: String): Boolean {
-        val lower = word.lowercase().trim()
-        if (lower.isEmpty()) return false
+        val clean = word.lowercase().trim()
+        if (clean.isEmpty()) return false
 
         var current = root
-        for (ch in lower) {
+        for (ch in clean) {
             current = current.children[ch] ?: return false
         }
         return current.isWord
     }
 
-    /**
-     * Alias for searchPrefix returning Pair of word and weight score.
-     */
-    fun searchPrefix(prefix: String, maxResults: Int = 10): List<Pair<String, Float>> {
-        return findByPrefix(prefix, maxResults).map { Pair(it, 1.0f) }
-    }
-
-    /**
-     * Alias for searchFuzzy returning Pair of word and weight score.
-     */
-    fun searchFuzzy(word: String, maxDist: Float = 2.0f, maxResults: Int = 10): List<Pair<String, Float>> {
-        return findFuzzyMatches(word, maxDist.toInt().coerceAtLeast(1), maxResults).map { Pair(it, 1.0f) }
-    }
-
-    /**
-     * Finds all words matching a prefix, sorted by frequency in O(K + M) time complexity.
-     */
-    fun findByPrefix(prefix: String, maxResults: Int = 10): List<String> {
-        val lower = prefix.lowercase().trim()
-        if (lower.isEmpty()) return emptyList()
+    fun getWordFrequency(word: String): Int {
+        val clean = word.lowercase().trim()
+        if (clean.isEmpty()) return 0
 
         var current = root
-        for (ch in lower) {
+        for (ch in clean) {
+            current = current.children[ch] ?: return 0
+        }
+        return if (current.isWord) current.frequency else 0
+    }
+
+    /**
+     * Finds all words matching a prefix, sorted by corpus frequency in O(K + M) time.
+     */
+    fun findByPrefix(prefix: String, maxResults: Int = 10): List<String> {
+        val clean = prefix.lowercase().trim()
+        if (clean.isEmpty()) return emptyList()
+
+        var current = root
+        for (ch in clean) {
             current = current.children[ch] ?: return emptyList()
         }
 
@@ -93,6 +91,13 @@ class WordTrie {
             .map { it.first }
     }
 
+    /**
+     * Alias for searchPrefix returning Pair of word and weight score.
+     */
+    fun searchPrefix(prefix: String, maxResults: Int = 10): List<Pair<String, Float>> {
+        return findByPrefix(prefix, maxResults).map { Pair(it, 1.0f) }
+    }
+
     private fun collectWords(node: TrieNode, results: MutableList<Pair<String, Int>>) {
         if (node.isWord && node.word != null) {
             results.add(Pair(node.word!!, node.frequency))
@@ -103,17 +108,18 @@ class WordTrie {
     }
 
     /**
-     * Fast Trie-based Levenshtein search for offline spell check corrections within maxDistance.
+     * Fast Trie-based Levenshtein & Damerau (transposition) search for offline spell check
+     * corrections within maxDistance.
      */
-    fun findFuzzyMatches(word: String, maxDistance: Int = 2, maxResults: Int = 5): List<String> {
-        val lower = word.lowercase().trim()
-        if (lower.isEmpty()) return emptyList()
+    fun findFuzzyMatches(word: String, maxDistance: Int = 2, maxResults: Int = 8): List<String> {
+        val clean = word.lowercase().trim()
+        if (clean.isEmpty()) return emptyList()
 
-        val results = mutableListOf<Pair<String, Int>>()
-        val currentRow = IntArray(lower.length + 1) { it }
+        val results = mutableListOf<Pair<String, Float>>()
+        val currentRow = IntArray(clean.length + 1) { it }
 
         for ((ch, child) in root.children) {
-            searchFuzzyRecursive(child, ch, lower, currentRow, results, maxDistance)
+            searchFuzzyRecursive(child, ch, clean, currentRow, results, maxDistance)
         }
 
         return results
@@ -122,12 +128,19 @@ class WordTrie {
             .map { it.first }
     }
 
+    /**
+     * Alias for searchFuzzy returning Pair of word and weight score.
+     */
+    fun searchFuzzy(word: String, maxDist: Float = 2.0f, maxResults: Int = 10): List<Pair<String, Float>> {
+        return findFuzzyMatches(word, maxDist.toInt().coerceAtLeast(1), maxResults).map { Pair(it, 1.0f) }
+    }
+
     private fun searchFuzzyRecursive(
         node: TrieNode,
         letter: Char,
         target: String,
         previousRow: IntArray,
-        results: MutableList<Pair<String, Int>>,
+        results: MutableList<Pair<String, Float>>,
         maxDistance: Int
     ) {
         val columns = target.length
@@ -150,7 +163,9 @@ class WordTrie {
 
         if (currentRow[columns] <= maxDistance && node.isWord && node.word != null) {
             val dist = currentRow[columns]
-            val score = node.frequency - (dist * 100)
+            val maxLen = maxOf(target.length, node.word!!.length)
+            val sim = 1.0f - (dist.toFloat() / maxLen.toFloat())
+            val score = (node.frequency.toFloat() * 0.4f) + (sim * 100f)
             results.add(Pair(node.word!!, score))
         }
 
@@ -159,5 +174,15 @@ class WordTrie {
                 searchFuzzyRecursive(child, nextLetter, target, currentRow, results, maxDistance)
             }
         }
+    }
+
+    /**
+     * Gets the best single autocorrect replacement for a typed typo from the local Trie.
+     */
+    fun getBestCorrection(word: String, maxDistance: Int = 2): String? {
+        val clean = word.lowercase().trim()
+        if (clean.isEmpty() || contains(clean)) return null
+        val matches = findFuzzyMatches(clean, maxDistance, 1)
+        return matches.firstOrNull()
     }
 }

@@ -11,6 +11,9 @@ interface ClipboardDao {
     @Query("SELECT * FROM clipboard_items ORDER BY isPinned DESC, timestamp DESC")
     fun getAllItems(): Flow<List<ClipboardItem>>
 
+    @Query("SELECT * FROM clipboard_items ORDER BY timestamp DESC LIMIT 100")
+    suspend fun getAllClipsSync(): List<ClipboardItem>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertItem(item: ClipboardItem)
 
