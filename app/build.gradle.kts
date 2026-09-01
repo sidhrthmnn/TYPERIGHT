@@ -7,18 +7,20 @@ plugins {
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+  kotlin("kapt")
+  id("com.google.dagger.hilt.android")
 }
 
 android {
-  namespace = "com.example"
+  namespace = "com.aistudio.typeright"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
     applicationId = "com.aistudio.typeright.jkwpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 128
-    versionName = "128.0"
+    versionCode = 129
+    versionName = "129.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -42,7 +44,7 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
@@ -72,44 +74,63 @@ googleServices {
   missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN
 }
 
-
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
-  // implementation(platform(libs.firebase.bom))
-  // implementation(libs.accompanist.permissions)
+  
+  // Hilt Dependency Injection
+  implementation("com.google.dagger:hilt-android:2.51.1")
+  kapt("com.google.dagger:hilt-compiler:2.51.1")
+  implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
+  implementation("androidx.hilt:hilt-work:1.2.0")
+  kapt("androidx.hilt:hilt-compiler:1.2.0")
+  
+  // Core Android
   implementation(libs.androidx.activity.compose)
-  // implementation(libs.androidx.camera.camera2)
-  // implementation(libs.androidx.camera.core)
-  // implementation(libs.androidx.camera.lifecycle)
-  // implementation(libs.androidx.camera.view)
+  implementation(libs.androidx.core.ktx)
+  implementation(libs.androidx.lifecycle.runtime.compose)
+  implementation(libs.androidx.lifecycle.runtime.ktx)
+  implementation(libs.androidx.lifecycle.viewmodel.compose)
+  
+  // Compose
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.compose.material3)
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
-  implementation(libs.androidx.core.ktx)
-  // implementation(libs.androidx.datastore.preferences)
-  implementation(libs.androidx.lifecycle.runtime.compose)
-  implementation(libs.androidx.lifecycle.runtime.ktx)
-  implementation(libs.androidx.lifecycle.viewmodel.compose)
-  // implementation(libs.androidx.navigation.compose)
+  
+  // Database
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
-  // implementation(libs.coil.compose)
+  ksp(libs.androidx.room.compiler)
+  
+  // Security
+  implementation("androidx.security:security-crypto:1.1.0-alpha06")
+  
+  // Data Storage
+  implementation("androidx.datastore:datastore-preferences:1.0.0")
+  
+  // Networking
+  implementation(libs.retrofit)
   implementation(libs.converter.moshi)
-  // implementation(libs.firebase.ai)
-  // implementation(libs.firebase.appcheck.recaptcha)
-  implementation(libs.kotlinx.coroutines.android)
-  implementation(libs.kotlinx.coroutines.core)
+  implementation(libs.okhttp)
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
-  implementation(libs.okhttp)
-  // implementation(libs.play.services.location)
-  implementation(libs.retrofit)
+  
+  // Concurrency
+  implementation(libs.kotlinx.coroutines.android)
+  implementation(libs.kotlinx.coroutines.core)
+  
+  // Background Jobs
+  implementation("androidx.work:work-runtime-ktx:2.9.0")
+  
+  // ML/AI
   implementation(libs.tensorflow.lite)
+  
+  // Logging
+  implementation("com.jakewharton.timber:timber:5.0.1")
+  
+  // Testing
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
@@ -119,13 +140,19 @@ dependencies {
   testImplementation(libs.roborazzi)
   testImplementation(libs.roborazzi.compose)
   testImplementation(libs.roborazzi.junit.rule)
+  testImplementation("com.google.dagger:hilt-android-testing:2.51.1")
+  testImplementation("org.mockito.kotlin:mockito-kotlin:5.1.0")
+  testImplementation("org.mockito:mockito-core:5.7.0")
+  
+  // Android Testing
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
   androidTestImplementation(libs.androidx.espresso.core)
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.runner)
+  androidTestImplementation("com.google.dagger:hilt-android-testing:2.51.1")
+  kaptAndroidTest("com.google.dagger:hilt-compiler:2.51.1")
+  
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)
-  ksp(libs.androidx.room.compiler)
-  // "ksp"(libs.moshi.kotlin.codegen)
 }
