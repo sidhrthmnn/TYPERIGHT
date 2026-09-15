@@ -35,6 +35,7 @@ class KeyboardSettings(context: Context) {
         const val KEY_STRICTLY_USE_GEMINI = "strictly_use_gemini"
         const val KEY_OFFLINE_AI_ENABLED = "offline_ai_enabled"
         const val KEY_GEMINI_AI_ENABLED = "gemini_ai_enabled"
+        const val KEY_NEMOTRON_AI_ENABLED = "nemotron_ai_enabled"
         const val KEY_VOCAB_AUTO_UPDATE_ENABLED = "vocab_auto_update_enabled"
         const val KEY_VOCAB_UPDATE_INTERVAL_HOURS = "vocab_update_interval_hours"
         const val KEY_LAST_VOCAB_SYNC_TIMESTAMP = "last_vocab_sync_timestamp"
@@ -351,11 +352,21 @@ class KeyboardSettings(context: Context) {
             dataStore.updateAsync { it.setGeminiAiEnabled(value) }
         }
 
+    var nemotronAiEnabled: Boolean
+        get() = prefs.getBoolean(KEY_NEMOTRON_AI_ENABLED, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_NEMOTRON_AI_ENABLED, value).commit()
+            dataStore.updateAsync { it.setNemotronAiEnabled(value) }
+        }
+
     val activeAiEngine: ActiveAiEngine
         get() = when {
-            offlineAiEnabled && geminiAiEnabled -> ActiveAiEngine.BOTH
-            offlineAiEnabled && !geminiAiEnabled -> ActiveAiEngine.OFFLINE
-            !offlineAiEnabled && geminiAiEnabled -> ActiveAiEngine.ONLINE
+            offlineAiEnabled && geminiAiEnabled && !nemotronAiEnabled -> ActiveAiEngine.BOTH
+            offlineAiEnabled && nemotronAiEnabled && !geminiAiEnabled -> ActiveAiEngine.NEMOTRON
+            offlineAiEnabled && !geminiAiEnabled && !nemotronAiEnabled -> ActiveAiEngine.OFFLINE
+            !offlineAiEnabled && nemotronAiEnabled && !geminiAiEnabled -> ActiveAiEngine.NEMOTRON
+            !offlineAiEnabled && geminiAiEnabled && !nemotronAiEnabled -> ActiveAiEngine.ONLINE
+            offlineAiEnabled && geminiAiEnabled && nemotronAiEnabled -> ActiveAiEngine.BOTH
             else -> ActiveAiEngine.NONE
         }
 
@@ -392,18 +403,27 @@ class KeyboardSettings(context: Context) {
             ActiveAiEngine.BOTH -> {
                 offlineAiEnabled = true
                 geminiAiEnabled = true
+                nemotronAiEnabled = false
             }
             ActiveAiEngine.OFFLINE -> {
                 offlineAiEnabled = true
                 geminiAiEnabled = false
+                nemotronAiEnabled = false
             }
             ActiveAiEngine.ONLINE -> {
                 offlineAiEnabled = false
                 geminiAiEnabled = true
+                nemotronAiEnabled = false
+            }
+            ActiveAiEngine.NEMOTRON -> {
+                offlineAiEnabled = false
+                geminiAiEnabled = false
+                nemotronAiEnabled = true
             }
             ActiveAiEngine.NONE -> {
                 offlineAiEnabled = false
                 geminiAiEnabled = false
+                nemotronAiEnabled = false
             }
         }
     }
@@ -418,5 +438,6 @@ enum class ActiveAiEngine(
     BOTH("Both Engines", "Both", "⚡☁️", "Offline on-device + Online Gemini Cloud"),
     OFFLINE("Offline AI", "Offline", "⚡", "Fast on-device neural & grammar engine"),
     ONLINE("Online Gemini", "Online", "☁️", "Advanced cloud Gemini intelligence"),
+    NEMOTRON("Online Nemotron", "Nemotron", "🟢", "Advanced cloud NVIDIA Nemotron intelligence"),
     NONE("AI Off", "Off", "⚪", "AI assistants disabled")
 }

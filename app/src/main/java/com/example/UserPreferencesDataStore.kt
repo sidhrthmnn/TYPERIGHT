@@ -67,6 +67,7 @@ data class UserPreferences(
     val aiModel: String = "gemini-3.5-flash",
     val offlineAiEnabled: Boolean = true,
     val geminiAiEnabled: Boolean = true,
+    val nemotronAiEnabled: Boolean = false,
     val keyboardLanguage: String = "English",
     val aiLanguage: String = "English",
     val manglishTransliterationEnabled: Boolean = true,
@@ -128,6 +129,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
         val AI_MODEL = stringPreferencesKey(KeyboardSettings.KEY_AI_MODEL)
         val OFFLINE_AI_ENABLED = booleanPreferencesKey(KeyboardSettings.KEY_OFFLINE_AI_ENABLED)
         val GEMINI_AI_ENABLED = booleanPreferencesKey(KeyboardSettings.KEY_GEMINI_AI_ENABLED)
+        val NEMOTRON_AI_ENABLED = booleanPreferencesKey(KeyboardSettings.KEY_NEMOTRON_AI_ENABLED)
         val KEYBOARD_LANGUAGE = stringPreferencesKey(KeyboardSettings.KEY_KEYBOARD_LANGUAGE)
         val AI_LANGUAGE = stringPreferencesKey(KeyboardSettings.KEY_AI_LANGUAGE)
         val MANGLISH_TRANSLITERATION_ENABLED = booleanPreferencesKey(KeyboardSettings.KEY_MANGLISH_TRANSLITERATION_ENABLED)
@@ -201,6 +203,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
                 aiModel = prefs[PreferencesKeys.AI_MODEL] ?: "gemini-3.5-flash",
                 offlineAiEnabled = prefs[PreferencesKeys.OFFLINE_AI_ENABLED] ?: true,
                 geminiAiEnabled = prefs[PreferencesKeys.GEMINI_AI_ENABLED] ?: true,
+                nemotronAiEnabled = prefs[PreferencesKeys.NEMOTRON_AI_ENABLED] ?: false,
                 keyboardLanguage = prefs[PreferencesKeys.KEYBOARD_LANGUAGE] ?: "English",
                 aiLanguage = prefs[PreferencesKeys.AI_LANGUAGE] ?: "English",
                 manglishTransliterationEnabled = prefs[PreferencesKeys.MANGLISH_TRANSLITERATION_ENABLED] ?: true,
@@ -266,6 +269,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
 
     val offlineAiEnabledFlow: Flow<Boolean> = userPreferencesFlow.map { it.offlineAiEnabled }.distinctUntilChanged()
     val geminiAiEnabledFlow: Flow<Boolean> = userPreferencesFlow.map { it.geminiAiEnabled }.distinctUntilChanged()
+    val nemotronAiEnabledFlow: Flow<Boolean> = userPreferencesFlow.map { it.nemotronAiEnabled }.distinctUntilChanged()
 
     // --- Suspending Mutation Functions ---
 
@@ -379,6 +383,10 @@ class UserPreferencesDataStore private constructor(context: Context) {
 
     suspend fun setGeminiAiEnabled(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.GEMINI_AI_ENABLED] = enabled }
+    }
+
+    suspend fun setNemotronAiEnabled(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.NEMOTRON_AI_ENABLED] = enabled }
     }
 
     suspend fun setKeyboardLanguage(lang: String) {
@@ -511,6 +519,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
                 aiModel = sp.getString(KeyboardSettings.KEY_AI_MODEL, "gemini-3.5-flash") ?: "gemini-3.5-flash",
                 offlineAiEnabled = sp.getBoolean(KeyboardSettings.KEY_OFFLINE_AI_ENABLED, true),
                 geminiAiEnabled = sp.getBoolean(KeyboardSettings.KEY_GEMINI_AI_ENABLED, true),
+                nemotronAiEnabled = sp.getBoolean(KeyboardSettings.KEY_NEMOTRON_AI_ENABLED, false),
                 keyboardLanguage = sp.getString(KeyboardSettings.KEY_KEYBOARD_LANGUAGE, "English") ?: "English",
                 aiLanguage = sp.getString(KeyboardSettings.KEY_AI_LANGUAGE, "English") ?: "English",
                 manglishTransliterationEnabled = sp.getBoolean(KeyboardSettings.KEY_MANGLISH_TRANSLITERATION_ENABLED, true),
