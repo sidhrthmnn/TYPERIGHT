@@ -155,10 +155,29 @@ class AiPolishManager(private val context: Context) {
         val geminiEnabled = settings.geminiAiEnabled &&
                 settings.supportTier != KeyboardSettings.TIER_3 &&
                 settings.voiceInputMode != KeyboardSettings.VOICE_MODE_LOCAL
+        val nemotronEnabled = settings.nemotronAiEnabled
 
-        if (!offlineEnabled && !geminiEnabled) {
+        if (!offlineEnabled && !geminiEnabled && !nemotronEnabled) {
             emit(emptyList())
             return@flow
+        }
+
+        // Try Nemotron first
+        if (nemotronEnabled) {
+            val (formalOpt, casualOpt, rephraseOpt) = try {
+                val formal = NemotronApiClient.generatePolish(text, PolishMode.PROFESSIONAL)
+                val casual = NemotronApiClient.generatePolish(text, PolishMode.CASUAL)
+                val rephrase = NemotronApiClient.generatePolish(text, PolishMode.REPHRASE)
+                Triple(formal, casual, rephrase)
+            } catch (e: Throwable) {
+                Triple(null, null, null)
+            }
+
+            val validCloudList = listOfNotNull(formalOpt, casualOpt, rephraseOpt).filter { it.isNotBlank() }.distinct()
+            if (validCloudList.size >= 3) {
+                emit(validCloudList)
+                return@flow
+            }
         }
 
         if (geminiEnabled) {

@@ -87,8 +87,9 @@ class LocalInferenceEngine private constructor(private val context: Context) {
 
         val isOfflineEnabled = keyboardSettings.offlineAiEnabled
         val isGeminiEnabled = keyboardSettings.geminiAiEnabled
+        val isNemotronEnabled = keyboardSettings.nemotronAiEnabled
 
-        if (!isOfflineEnabled && !isGeminiEnabled) {
+        if (!isOfflineEnabled && !isGeminiEnabled && !isNemotronEnabled) {
             return@withContext AiResult(
                 text = originalText,
                 confidence = 1.0f,
@@ -97,27 +98,46 @@ class LocalInferenceEngine private constructor(private val context: Context) {
             )
         }
 
-        // Requirement: Use proofread using local small llm. Use gemini for changing format.
+        // Requirement: Use proofread using local small llm. Use cloud for changing format.
         if (mode == PolishMode.PROOFREAD || mode == PolishMode.VOICE_CLEANUP || mode == PolishMode.RAMBLE) {
-            if (!isOfflineEnabled && isGeminiEnabled) {
-                // Escalate to Gemini Cloud if offline engine is disabled
-                try {
-                    val cloudResponse = GeminiApiClient.generatePolish(originalText, mode, context)
-                    if (!cloudResponse.isNullOrBlank()) {
-                        val sanitizedCloud = AiOutputValidator.sanitize(cloudResponse, originalText)
-                        if (AiOutputValidator.isValid(originalText, sanitizedCloud, mode)) {
-                            val hasChanged = sanitizedCloud != originalText
-                            return@withContext AiResult(
-                                text = sanitizedCloud,
-                                confidence = 0.98f,
-                                changed = hasChanged,
-                                source = if (hasChanged) AiSource.CLOUD else AiSource.ORIGINAL,
-                                changes = computeEdits(originalText, sanitizedCloud)
-                            )
+            if (!isOfflineEnabled && (isGeminiEnabled || isNemotronEnabled)) {
+                // Try Nemotron first, then escalate to Gemini Cloud if offline engine is disabled
+                var cloudResponse: String? = null
+                var usedNemotron = false
+                
+                // Try Nemotron first
+                if (isNemotronEnabled) {
+                    try {
+                        cloudResponse = NemotronApiClient.generatePolish(originalText, mode, context)
+                        if (!cloudResponse.isNullOrBlank()) {
+                            usedNemotron = true
                         }
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "Nemotron cloud proofreading failed: ${e.message}")
                     }
-                } catch (e: Throwable) {
-                    Log.w(TAG, "Gemini cloud proofreading failed: ${e.message}")
+                }
+                
+                // Fallback to Gemini if Nemotron failed or not enabled
+                if (cloudResponse.isNullOrBlank() && isGeminiEnabled) {
+                    try {
+                        cloudResponse = GeminiApiClient.generatePolish(originalText, mode, context)
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "Gemini cloud proofreading failed: ${e.message}")
+                    }
+                }
+                
+                if (!cloudResponse.isNullOrBlank()) {
+                    val sanitizedCloud = AiOutputValidator.sanitize(cloudResponse, originalText)
+                    if (AiOutputValidator.isValid(originalText, sanitizedCloud, mode)) {
+                        val hasChanged = sanitizedCloud != originalText
+                        return@withContext AiResult(
+                            text = sanitizedCloud,
+                            confidence = 0.98f,
+                            changed = hasChanged,
+                            source = if (hasChanged) (if (usedNemotron) AiSource.NEON else AiSource.CLOUD) else AiSource.ORIGINAL,
+                            changes = computeEdits(originalText, sanitizedCloud)
+                        )
+                    }
                 }
                 return@withContext AiResult(
                     text = originalText,
@@ -154,24 +174,43 @@ class LocalInferenceEngine private constructor(private val context: Context) {
                 changes = computeEdits(originalText, finalText)
             )
         } else {
-            // Gemini Processing for Format/Style Changes
-            try {
-                val cloudResponse = GeminiApiClient.generatePolish(originalText, mode, context)
-                if (!cloudResponse.isNullOrBlank()) {
-                    val sanitizedCloud = AiOutputValidator.sanitize(cloudResponse, originalText)
-                    if (AiOutputValidator.isValid(originalText, sanitizedCloud, mode)) {
-                        val hasChanged = sanitizedCloud != originalText
-                        return@withContext AiResult(
-                            text = sanitizedCloud,
-                            confidence = 0.98f,
-                            changed = hasChanged,
-                            source = if (hasChanged) AiSource.CLOUD else AiSource.ORIGINAL,
-                            changes = computeEdits(originalText, sanitizedCloud)
-                        )
+            // Cloud Processing for Format/Style Changes - Try Nemotron first, then Gemini
+            var cloudResponse: String? = null
+            var usedNemotron = false
+            
+            // Try Nemotron first if enabled
+            if (isNemotronEnabled) {
+                try {
+                    cloudResponse = NemotronApiClient.generatePolish(originalText, mode, context)
+                    if (!cloudResponse.isNullOrBlank()) {
+                        usedNemotron = true
                     }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Nemotron cloud inference failed: ${e.message}.")
                 }
-            } catch (e: Throwable) {
-                Log.w(TAG, "Gemini cloud inference failed: ${e.message}.")
+            }
+            
+            // Fallback to Gemini if Nemotron failed or not enabled
+            if (cloudResponse.isNullOrBlank() && isGeminiEnabled) {
+                try {
+                    cloudResponse = GeminiApiClient.generatePolish(originalText, mode, context)
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Gemini cloud inference failed: ${e.message}.")
+                }
+            }
+            
+            if (!cloudResponse.isNullOrBlank()) {
+                val sanitizedCloud = AiOutputValidator.sanitize(cloudResponse, originalText)
+                if (AiOutputValidator.isValid(originalText, sanitizedCloud, mode)) {
+                    val hasChanged = sanitizedCloud != originalText
+                    return@withContext AiResult(
+                        text = sanitizedCloud,
+                        confidence = 0.98f,
+                        changed = hasChanged,
+                        source = if (hasChanged) (if (usedNemotron) AiSource.NEON else AiSource.CLOUD) else AiSource.ORIGINAL,
+                        changes = computeEdits(originalText, sanitizedCloud)
+                    )
+                }
             }
             
             // Fallback to local rules if Gemini fails

@@ -40,6 +40,7 @@ enum class AiSource {
     LOCAL_RULES,    // Fast deterministic rule-based engine / Room grammar rules
     LOCAL_MODEL,    // On-device TFLite / local statistical NLP engine
     CLOUD,          // Cloud Gemini API (Flash Lite)
+    NEON,           // NVIDIA Nemotron Cloud API
     ORIGINAL        // Text was already correct or returned unchanged as fallback
 }
 
