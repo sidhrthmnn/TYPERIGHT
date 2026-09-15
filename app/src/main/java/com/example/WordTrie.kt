@@ -92,10 +92,25 @@ class WordTrie {
     }
 
     /**
-     * Alias for searchPrefix returning Pair of word and weight score.
+     * Alias for searchPrefix returning Pair of word and weight score based on corpus frequency.
      */
     fun searchPrefix(prefix: String, maxResults: Int = 10): List<Pair<String, Float>> {
-        return findByPrefix(prefix, maxResults).map { Pair(it, 1.0f) }
+        val clean = prefix.lowercase().trim()
+        if (clean.isEmpty()) return emptyList()
+
+        var current = root
+        for (ch in clean) {
+            current = current.children[ch] ?: return emptyList()
+        }
+
+        val results = mutableListOf<Pair<String, Int>>()
+        collectWords(current, results)
+
+        val maxFreq = results.maxOfOrNull { it.second } ?: 1
+        return results
+            .sortedByDescending { it.second }
+            .take(maxResults)
+            .map { Pair(it.first, (it.second.toFloat() / maxFreq.coerceAtLeast(1)).coerceIn(0.1f, 1.0f)) }
     }
 
     private fun collectWords(node: TrieNode, results: MutableList<Pair<String, Int>>) {

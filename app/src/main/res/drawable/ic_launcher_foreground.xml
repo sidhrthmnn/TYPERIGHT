@@ -1,9 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="108dp"
-        android:height="108dp"
-        android:drawable="@drawable/app_drawer_logo_1786472046700"
-        android:gravity="center" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 1. Ambient drop shadow under the 3D mechanical keycap -->
+    <path
+        android:fillColor="#381D1409"
+        android:pathData="M38,36 h32 c5,0 9,4 9,9 v28 c0,5 -4,9 -9,9 h-32 c-5,0 -9,-4 -9,-9 v-28 c0,-5 4,-9 9,-9 z" />
+
+    <!-- 2. Stepped mechanical keycap skirt (bottom base) -->
+    <path
+        android:fillColor="#9C8F7C"
+        android:pathData="M38,32 h32 c4.5,0 8,3.5 8,8 v30 c0,4.5 -3.5,8 -8,8 h-32 c-4.5,0 -8,-3.5 -8,-8 v-30 c0,-4.5 3.5,-8 8,-8 z" />
+
+    <!-- 3. Front angled facet (receiving bottom ambient reflection) -->
+    <path
+        android:fillColor="#B8AB98"
+        android:pathData="M30,64 c0,4.5 3.5,8 8,8 h32 c4.5,0 8,-3.5 8,-8 l-5,-6 h-38 z" />
+
+    <!-- 4. Left angled side facet -->
+    <path
+        android:fillColor="#A89A87"
+        android:pathData="M30,40 c0,-4.5 3.5,-8 8,-8 l-3,6 v20 l-5,6 z" />
+
+    <!-- 5. Right angled side facet -->
+    <path
+        android:fillColor="#B0A290"
+        android:pathData="M78,40 c0,-4.5 -3.5,-8 -8,-8 l3,6 v20 l5,6 z" />
+
+    <!-- 6. Top Dish (Concave eggshell vintage keycap typing face) -->
+    <path
+        android:fillColor="#FBF7F0"
+        android:pathData="M39.5,34.5 h29 c3.5,0 6,2.5 6,6 v19 c0,3.5 -2.5,6 -6,6 h-29 c-3.5,0 -6,-2.5 -6,-6 v-19 c0,-3.5 2.5,-6 6,-6 z" />
+
+    <!-- 7. Specular highlight along top rim -->
+    <path
+        android:strokeColor="#99FFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:pathData="M40,35.5 h28" />
+
+    <!-- 8. Subtle inner dish border -->
+    <path
+        android:strokeColor="#18000000"
+        android:strokeWidth="0.6"
+        android:pathData="M39.5,34.5 h29 c3.5,0 6,2.5 6,6 v19 c0,3.5 -2.5,6 -6,6 h-29 c-3.5,0 -6,-2.5 -6,-6 v-19 c0,-3.5 2.5,-6 6,-6 z" />
+
+    <!-- 9. Retro Monospace "T" in deep typewriter charcoal -->
+    <!-- Top slab-serif bar -->
+    <path
+        android:fillColor="#241E17"
+        android:pathData="M45,40.5 h18 v3.5 h-18 z" />
+    <path
+        android:fillColor="#241E17"
+        android:pathData="M45,40.5 h2.4 v4.5 h-2.4 z" />
+    <path
+        android:fillColor="#241E17"
+        android:pathData="M60.6,40.5 h2.4 v4.5 h-2.4 z" />
+    <!-- Vertical stem with bottom slab serif -->
+    <path
+        android:fillColor="#241E17"
+        android:pathData="M52.2,44 h3.6 v8 h-3.6 z" />
+    <path
+        android:fillColor="#241E17"
+        android:pathData="M49.5,50.8 h9 v2.4 h-9 z" />
+
+    <!-- 10. Burnt Orange Terminal Cursor "_" (Retro prompt accent) -->
+    <path
+        android:fillColor="#D9532F"
+        android:pathData="M46.5,56 h15 v2.6 h-15 z" />
+</vector>
 

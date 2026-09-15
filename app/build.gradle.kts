@@ -7,31 +7,37 @@ plugins {
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
-  kotlin("kapt")
-  id("com.google.dagger.hilt.android")
 }
 
 android {
-  namespace = "com.aistudio.typeright"
+  namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
     applicationId = "com.aistudio.typeright.jkwpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 129
-    versionName = "129.0"
+    versionCode = 136
+    versionName = "136.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      val customKeystorePath = System.getenv("KEYSTORE_PATH")
+      val uploadKey = if (customKeystorePath != null) file(customKeystorePath) else file("${rootDir}/my-upload-key.jks")
+      if (uploadKey.exists()) {
+        storeFile = uploadKey
+        storePassword = System.getenv("STORE_PASSWORD")
+        keyAlias = "upload"
+        keyPassword = System.getenv("KEY_PASSWORD")
+      } else {
+        storeFile = file("${rootDir}/debug.keystore")
+        storePassword = "android"
+        keyAlias = "androiddebugkey"
+        keyPassword = "android"
+      }
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
@@ -44,7 +50,7 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = true
+      isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
@@ -77,13 +83,6 @@ googleServices {
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
   
-  // Hilt Dependency Injection
-  implementation("com.google.dagger:hilt-android:2.51.1")
-  kapt("com.google.dagger:hilt-compiler:2.51.1")
-  implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
-  implementation("androidx.hilt:hilt-work:1.2.0")
-  kapt("androidx.hilt:hilt-compiler:1.2.0")
-  
   // Core Android
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.core.ktx)
@@ -104,11 +103,8 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   ksp(libs.androidx.room.compiler)
   
-  // Security
-  implementation("androidx.security:security-crypto:1.1.0-alpha06")
-  
   // Data Storage
-  implementation("androidx.datastore:datastore-preferences:1.0.0")
+  implementation(libs.androidx.datastore.preferences)
   
   // Networking
   implementation(libs.retrofit)
@@ -121,14 +117,7 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   
-  // Background Jobs
-  implementation("androidx.work:work-runtime-ktx:2.9.0")
-  
-  // ML/AI
-  implementation(libs.tensorflow.lite)
-  
-  // Logging
-  implementation("com.jakewharton.timber:timber:5.0.1")
+  // ML/AI (Replaced legacy TensorFlow Lite with high-speed on-device Neural NLP Engine)
   
   // Testing
   testImplementation(libs.androidx.compose.ui.test.junit4)
@@ -140,9 +129,6 @@ dependencies {
   testImplementation(libs.roborazzi)
   testImplementation(libs.roborazzi.compose)
   testImplementation(libs.roborazzi.junit.rule)
-  testImplementation("com.google.dagger:hilt-android-testing:2.51.1")
-  testImplementation("org.mockito.kotlin:mockito-kotlin:5.1.0")
-  testImplementation("org.mockito:mockito-core:5.7.0")
   
   // Android Testing
   androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -150,8 +136,6 @@ dependencies {
   androidTestImplementation(libs.androidx.espresso.core)
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.runner)
-  androidTestImplementation("com.google.dagger:hilt-android-testing:2.51.1")
-  kaptAndroidTest("com.google.dagger:hilt-compiler:2.51.1")
   
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)

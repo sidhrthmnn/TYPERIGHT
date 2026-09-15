@@ -27,7 +27,7 @@ data class VocabSyncResult(
 )
 
 /**
- * Background Service that periodically updates the local Small Language Model's (SLM)
+ * Background Service that periodically updates the local keyboard and AICore
  * dictionary with popular trending words, contemporary slang, modern tech vocabulary,
  * and user-specific typing & clipboard vocabulary.
  */
@@ -47,7 +47,7 @@ class DictionaryUpdateService : Service() {
         serviceScope.launch {
             try {
                 val result = syncDictionary(applicationContext)
-                Log.i(TAG, "Periodic SLM dictionary update completed: ${result.message}")
+                Log.i(TAG, "Periodic keyboard & AICore dictionary update completed: ${result.message}")
             } catch (e: Exception) {
                 Log.e(TAG, "Error in DictionaryUpdateService background execution", e)
             } finally {

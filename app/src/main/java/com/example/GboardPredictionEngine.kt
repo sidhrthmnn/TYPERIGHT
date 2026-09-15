@@ -153,7 +153,7 @@ class GboardPredictionEngine(private val context: Context) {
         "fomr" to "from", "frm" to "from", "somthing" to "something", "anyting" to "anything",
         "evning" to "evening", "mornign" to "morning", "computre" to "computer",
         "applicatoin" to "application", "messgae" to "message", "quetion" to "question"
-    )
+    ) + ComprehensiveLexicon.TYPOS
 
     // Contraction expansions (apostrophe restoration)
     val contractionLookup: Map<String, String> = mapOf(
@@ -168,7 +168,7 @@ class GboardPredictionEngine(private val context: Context) {
         "hadnt" to "hadn't", "wouldnt" to "wouldn't", "shouldnt" to "shouldn't", "couldnt" to "couldn't",
         "thats" to "that's", "whats" to "what's", "heres" to "here's", "theres" to "there's",
         "wheres" to "where's", "hows" to "how's", "lets" to "let's"
-    )
+    ) + ComprehensiveLexicon.UNPUNCTUATED_CONTRACTIONS
 
     // Emoji shortcut predictions
     val emojiIntentMap: Map<String, String> = mapOf(
@@ -307,12 +307,17 @@ class GboardPredictionEngine(private val context: Context) {
             combinedPool.addAll(nGramNextPredictions)
             combinedPool.addAll(mlTrigram)
             combinedPool.addAll(mlBigram)
-            combinedPool.addAll(listOf("the", "I", "to"))
+
+            if (contextWords.isEmpty()) {
+                combinedPool.addAll(listOf("I", "The", "How", "What", "Hi", "Thanks"))
+            } else {
+                combinedPool.addAll(listOf("the", "to", "and", "you", "it"))
+            }
 
             val top3 = combinedPool.distinct().take(3)
-            val left = top3.getOrElse(0) { "the" }
-            val center = top3.getOrElse(1) { "to" }
-            val right = top3.getOrElse(2) { "and" }
+            val left = top3.getOrElse(0) { if (contextWords.isEmpty()) "I" else "the" }
+            val center = top3.getOrElse(1) { if (contextWords.isEmpty()) "The" else "to" }
+            val right = top3.getOrElse(2) { if (contextWords.isEmpty()) "How" else "and" }
 
             return GboardSuggestionResult(
                 leftCandidate = left,
@@ -385,6 +390,11 @@ class GboardPredictionEngine(private val context: Context) {
         // 5. Direct typo & Contraction lookups
         commonTypoLookup[lower]?.let { candidatePool.add(it) }
         contractionLookup[lower]?.let { candidatePool.add(it) }
+        SlmProofreadEngine.COMMON_TYPOS_MAP[lower]?.let { candidatePool.add(it) }
+        SlmProofreadEngine.CONTRACTION_MAP[lower]?.let { candidatePool.add(it) }
+        if (lower == "i") {
+            candidatePool.add("I")
+        }
 
         // 6. Algorithmic Candidates (Transpositions, insertions, deletions)
         val algoCandidates = generateAlgorithmicCandidates(lower, dictionaryManager)
@@ -468,11 +478,15 @@ class GboardPredictionEngine(private val context: Context) {
             if (phraseMatches.contains(cleanCand) || phraseMatches.contains(cand)) posterior += 0.50f
             if (commonTypoLookup.containsKey(lower) && commonTypoLookup[lower] == cleanCand) posterior += 0.55f
             if (contractionLookup.containsKey(lower) && contractionLookup[lower] == cand) posterior += 0.55f
+            if (SlmProofreadEngine.COMMON_TYPOS_MAP.containsKey(lower) && SlmProofreadEngine.COMMON_TYPOS_MAP[lower]?.lowercase() == cleanCand) posterior += 0.55f
+            if (SlmProofreadEngine.CONTRACTION_MAP.containsKey(lower) && SlmProofreadEngine.CONTRACTION_MAP[lower]?.lowercase() == cleanCand) posterior += 0.55f
+            if (lower == "i" && cand == "I") posterior += 0.60f
             if (algoCandidates.contains(cleanCand)) posterior += 0.30f
             if (cleanCand.contains(" ") && cleanCand.replace(" ", "") == lower) posterior += 0.35f
 
             // Confidence Tier Assignment based on decoupled thresholds
-            val isKnownTypo = commonTypoLookup.containsKey(lower) || contractionLookup.containsKey(lower)
+            val isKnownTypo = commonTypoLookup.containsKey(lower) || contractionLookup.containsKey(lower) ||
+                SlmProofreadEngine.COMMON_TYPOS_MAP.containsKey(lower) || SlmProofreadEngine.CONTRACTION_MAP.containsKey(lower)
             val isWholeWordHigh = posterior >= WHOLE_WORD_AUTOCORRECT_THRESHOLD && (isKnownWord || cleanCand.contains(" "))
             val confidenceTier = when {
                 isGrammarFix || isKnownTypo || (isTfLiteMatch && isKnownWord) || isWholeWordHigh -> ConfidenceTier.HIGH
@@ -549,21 +563,25 @@ class GboardPredictionEngine(private val context: Context) {
                                      hasSufficientMargin &&
                                      topCandidate.word.lowercase() != lower
 
-        val centerSlotWord = if (isCenterAutocorrecting) topCandidate.word else (if (lower == "i") "I" else trimmed)
-
-        // Left Slot: Literal typed string (if middle is autocorrecting) or 2nd best candidate
-        val leftSlotWord = if (isCenterAutocorrecting) {
-            trimmed
-        } else {
-            sortedCandidates.firstOrNull { it.word.lowercase() != centerSlotWord.lowercase() }?.word ?: trimmed
+        val centerSlotWord = when {
+            isCenterAutocorrecting -> topCandidate.word
+            lower == "i" -> "I"
+            topCandidate.word.isNotEmpty() -> topCandidate.word
+            else -> trimmed
         }
 
-        // Right Slot: Semantic emoji or 3rd best candidate
+        // Left Slot: Literal typed string if center differs, otherwise 2nd best candidate
+        val leftSlotWord = when {
+            centerSlotWord.lowercase() != lower -> trimmed
+            else -> sortedCandidates.firstOrNull { it.word.lowercase() != centerSlotWord.lowercase() }?.word ?: trimmed
+        }
+
+        // Right Slot: Semantic emoji or next best candidate
         val emojiMatch = emojiIntentMap[lower]
         val rightSlotWord = emojiMatch ?: (
             sortedCandidates.firstOrNull {
                 it.word.lowercase() != centerSlotWord.lowercase() && it.word.lowercase() != leftSlotWord.lowercase()
-            }?.word ?: "and"
+            }?.word ?: sortedCandidates.getOrNull(1)?.word ?: "and"
         )
 
         val decisionReason = if (isCenterAutocorrecting) {

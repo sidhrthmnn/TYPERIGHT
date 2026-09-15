@@ -1,6 +1,6 @@
 {
   "name": "Type Right",
-  "description": "Gboard-styled AI keyboard for Pixel featuring local SLM proofreading, intent-driven Ramble voice dictation, Material You theming, and offline machine learning.",
+  "description": "Gboard-replicated smart keyboard with Wispr Flow continuous AI voice dictation, real-time waveform visualization, vocal disfluency stripping, self-correction repair, and on-device SLM proofreading.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

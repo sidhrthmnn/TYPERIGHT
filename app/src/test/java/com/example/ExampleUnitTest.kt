@@ -436,5 +436,150 @@ class ExampleUnitTest {
     assertTrue(result3.contains("Good morning") || result3.contains("apologize") || result3.contains("running behind schedule"))
     assertFalse(result3.contains("send this to my boss formally"))
   }
+
+  @Test
+  fun testOnDeviceProofreadingEngine() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val proofreader = OnDeviceProofreadEngine.getInstance(context)
+
+    // Test Subject-Verb agreement & typo corrections
+    val sample1 = "i went to teh stor and he have a apple"
+    val result1 = proofreader.proofread(sample1)
+    assertTrue("Should fix 'teh' to 'the': $result1", result1.contains("the"))
+    assertTrue("Should fix 'he have' to 'he has': $result1", result1.contains("he has"))
+    assertTrue("Should fix 'a apple' to 'an apple': $result1", result1.contains("an apple"))
+    assertTrue("Should capitalize first letter 'I': $result1", result1.startsWith("I"))
+
+    // Test Modal Agreement & Contraction Restoration
+    val sample2 = "they was suppose to come but they could of told me"
+    val result2 = proofreader.proofread(sample2)
+    assertTrue("Should fix 'they was' to 'they were': $result2", result2.contains("They were") || result2.contains("they were"))
+    assertTrue("Should fix 'could of' to 'could have': $result2", result2.contains("could have"))
+    assertTrue("Should fix 'suppose to' to 'supposed to': $result2", result2.contains("supposed to"))
+
+    // Test Common Typos and deduplication
+    val sample3 = "this is definately the the best experiance"
+    val result3 = proofreader.proofread(sample3)
+    assertTrue("Should fix 'definately' to 'definitely': $result3", result3.contains("definitely"))
+    assertTrue("Should remove repeated 'the the': $result3", result3.contains("the best") && !result3.contains("the the"))
+    assertTrue("Should fix 'experiance' to 'experience': $result3", result3.contains("experience"))
+  }
+
+  @Test
+  fun testWisprFlowEngineModes() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val engine = WisprFlowEngine.getInstance(context)
+
+    // 1. AUTO Mode: removes fillers, cleans stutters, and fixes self-corrections
+    val autoInput = "um uh so yeah let's schedule the product sync for Tuesday—wait no, Wednesday at 2 PM"
+    val autoRes = engine.processVoiceTranscript(autoInput, WisprFlowMode.AUTO)
+    assertFalse("Should remove vocal fillers", autoRes.polishedText.contains("um", ignoreCase = true))
+    assertFalse("Should remove vocal fillers", autoRes.polishedText.contains("uh", ignoreCase = true))
+    assertTrue("Should resolve self-correction to Wednesday: ${autoRes.polishedText}", autoRes.polishedText.contains("Wednesday at 2 PM"))
+    assertTrue(autoRes.removedFillersCount > 0)
+    assertTrue(autoRes.selfCorrectionsCount > 0)
+
+    // 2. SPOKEN PUNCTUATION & EMOJIS
+    val punctInput = "can we meet question mark thumbs up emoji"
+    val punctRes = engine.processVoiceTranscript(punctInput, WisprFlowMode.AUTO)
+    assertTrue("Should replace 'question mark' with '?': ${punctRes.polishedText}", punctRes.polishedText.contains("?"))
+    assertTrue("Should replace 'thumbs up emoji' with '👍': ${punctRes.polishedText}", punctRes.polishedText.contains("👍"))
+
+    // 3. EXECUTIVE Mode: business phrasing
+    val execInput = "i gotta send this draft cause we gonna launch soon"
+    val execRes = engine.processVoiceTranscript(execInput, WisprFlowMode.EXECUTIVE)
+    assertTrue("Should convert 'gotta' to 'need to': ${execRes.polishedText}", execRes.polishedText.contains("need to"))
+    assertTrue("Should convert 'gonna' to 'going to': ${execRes.polishedText}", execRes.polishedText.contains("going to"))
+
+    // 4. BULLETS Mode: action items
+    val bulletInput = "first update the keyboard layout then test voice typing finally release update"
+    val bulletRes = engine.processVoiceTranscript(bulletInput, WisprFlowMode.BULLETS)
+    assertTrue("Should format bullets: ${bulletRes.polishedText}", bulletRes.polishedText.contains("•"))
+
+    // 5. VERBATIM Mode: keeps words verbatim
+    val verbInput = "um actually we want this exactly as said"
+    val verbRes = engine.processVoiceTranscript(verbInput, WisprFlowMode.VERBATIM)
+    assertTrue("Should keep original content: ${verbRes.polishedText}", verbRes.polishedText.contains("actually we want this exactly as said"))
+  }
+
+  @Test
+  fun testOnDeviceNeuralPolishEngine() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val engine = OnDeviceNeuralPolishEngine.getInstance(context)
+
+    // 1. Proofreading and typo fixes
+    val typos = "teh app definately has to recieve an update"
+    val proofread = engine.polish(typos, "Proofread")
+    assertTrue("Should fix 'teh': ${proofread.polishedText}", proofread.polishedText.contains("the", ignoreCase = true))
+    assertTrue("Should fix 'definately': ${proofread.polishedText}", proofread.polishedText.contains("definitely", ignoreCase = true))
+    assertTrue("Should fix 'recieve': ${proofread.polishedText}", proofread.polishedText.contains("receive", ignoreCase = true))
+
+    // 2. Homophone disambiguation
+    val homophones = "their going to there house with they're car"
+    val homophoneFix = engine.polish(homophones, "Proofread")
+    assertTrue("Should fix 'their going': ${homophoneFix.polishedText}", homophoneFix.polishedText.contains("they're going", ignoreCase = true))
+    assertTrue("Should fix 'they're car': ${homophoneFix.polishedText}", homophoneFix.polishedText.contains("their car", ignoreCase = true))
+
+    // 3. Formal Tone
+    val casualText = "thanks can you please check this asap"
+    val formal = engine.polish(casualText, "Formal")
+    assertTrue("Should use formal language: ${formal.polishedText}", formal.polishedText.contains("thank you", ignoreCase = true) || formal.polishedText.contains("earliest convenience", ignoreCase = true))
+
+    // 4. Eloquent Tone
+    val basicText = "good work and big progress"
+    val eloquent = engine.polish(basicText, "Eloquent")
+    assertTrue("Should use eloquent language: ${eloquent.polishedText}", eloquent.polishedText.isNotEmpty())
+
+    // 5. Bullets Mode
+    val listText = "first prepare presentation second test keyboard third deploy"
+    val bullets = engine.polish(listText, "Bullets")
+    assertTrue("Should format bullets: ${bullets.polishedText}", bullets.polishedText.contains("•"))
+
+    // 6. Comprehensive Lexicon verification
+    assertTrue("Lexicon must contain rich vocabulary", ComprehensiveLexicon.WORDS.size > 200)
+    assertTrue("Lexicon must contain extensive typos", ComprehensiveLexicon.TYPOS.containsKey("teh"))
+    assertTrue("Lexicon must contain contractions", ComprehensiveLexicon.UNPUNCTUATED_CONTRACTIONS.containsKey("dont"))
+  }
+
+  @Test
+  fun testVoiceTranscriptionFormatter() {
+    // 1. Spoken punctuation & formatting
+    val rawWithPunctuation = "hello comma can we meet tomorrow question mark new line thanks exclamation mark"
+    val formattedPunct = VoiceTranscriptionFormatter.formatTranscription(rawWithPunctuation, TranscriptionFormatStyle.SMART_CLEAN)
+    assertTrue("Should convert 'comma' to ',': $formattedPunct", formattedPunct.contains(","))
+    assertTrue("Should convert 'question mark' to '?': $formattedPunct", formattedPunct.contains("?"))
+    assertTrue("Should convert 'new line' to newline: $formattedPunct", formattedPunct.contains("\n"))
+    assertTrue("Should convert 'exclamation mark' to '!': $formattedPunct", formattedPunct.contains("!"))
+
+    // 2. Self-correction resolution
+    val selfCorrection = "let us meet Tuesday wait no Wednesday at three thirty pm"
+    val formattedCorrection = VoiceTranscriptionFormatter.formatTranscription(selfCorrection, TranscriptionFormatStyle.SMART_CLEAN)
+    assertTrue("Should resolve 'wait no Wednesday': $formattedCorrection", formattedCorrection.contains("Wednesday"))
+    assertFalse("Should discard retracted 'Tuesday': $formattedCorrection", formattedCorrection.contains("Tuesday"))
+    assertTrue("Should format time to 3:30 PM: $formattedCorrection", formattedCorrection.contains("3:30 PM"))
+
+    // 3. Spoken currencies & numbers
+    val rawMoney = "that costs twenty dollars and fifty cents or five euros"
+    val formattedMoney = VoiceTranscriptionFormatter.formatTranscription(rawMoney, TranscriptionFormatStyle.SMART_CLEAN)
+    assertTrue("Should format $ and €: $formattedMoney", formattedMoney.contains("$") || formattedMoney.contains("20"))
+
+    // 4. Bullets formatting mode
+    val rawList = "first gather requirements second write code third ship the app"
+    val bullets = VoiceTranscriptionFormatter.formatTranscription(rawList, TranscriptionFormatStyle.BULLETS)
+    assertTrue("Should format bullets with bullet points: $bullets", bullets.contains("•"))
+
+    // 5. Numbered list formatting mode
+    val numbered = VoiceTranscriptionFormatter.formatTranscription(rawList, TranscriptionFormatStyle.NUMBERED)
+    assertTrue("Should format numbered list: $numbered", numbered.contains("1.") && numbered.contains("2."))
+
+    // 6. Checklist mode
+    val checklist = VoiceTranscriptionFormatter.formatTranscription(rawList, TranscriptionFormatStyle.CHECKLIST)
+    assertTrue("Should format checklist with checkboxes: $checklist", checklist.contains("☐"))
+
+    // 7. Email format mode
+    val emailText = "hi team please review the pull request by tomorrow thanks john"
+    val email = VoiceTranscriptionFormatter.formatTranscription(emailText, TranscriptionFormatStyle.EMAIL)
+    assertTrue("Should format email with greetings and sign-off: $email", email.contains("Hi") && email.contains("\n"))
+  }
 }
 

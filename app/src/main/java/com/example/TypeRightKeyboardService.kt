@@ -20,9 +20,13 @@ import android.view.KeyEvent
 import android.media.MediaRecorder
 import java.io.File
 import android.view.View
+import android.view.Window
+import android.view.ViewGroup
+import android.view.Gravity
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.UnderlineSpan
@@ -40,12 +44,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -128,6 +134,8 @@ class TypeRightKeyboardService : KeyboardService() {
     private lateinit var aiPolishManager: AiPolishManager
     private lateinit var clipboardRepository: ClipboardRepository
     private val localPredictor by lazy { LocalGrammarSpellPredictor(this) }
+    private val googleAiCoreService by lazy { GoogleAiCoreService.getInstance(this) }
+    private val manglishEngine by lazy { ManglishTransliterationEngine.getInstance(this) }
 
     private enum class FeedbackType {
         Standard, Space, Delete, Enter
@@ -176,6 +184,7 @@ class TypeRightKeyboardService : KeyboardService() {
     private val isMicPermissionGranted = mutableStateOf(false)
     private val showVoicePolishPrompt = mutableStateOf(false)
     private val pendingVoiceTranscript = mutableStateOf("")
+    private var lastCommittedVoiceLength = 0
 
     // Ramble Mode states (Intent-based AI dictation)
     private val isRambleRecording = mutableStateOf(false)
@@ -251,6 +260,17 @@ class TypeRightKeyboardService : KeyboardService() {
             textBufferFlow
                 .debounce(30L)
                 .collectLatest { bufferState ->
+                    val isMalayalamKeyboard = settings.keyboardLanguage.contains("Malayalam", ignoreCase = true)
+                    val isManglishEnabled = settings.manglishTransliterationEnabled
+
+                    val manglishCandidates = withContext(Dispatchers.Default) {
+                        if (bufferState.activePrefix.isNotEmpty() && (isMalayalamKeyboard || isManglishEnabled)) {
+                            manglishEngine.getTransliterationCandidates(bufferState.activePrefix)
+                        } else {
+                            emptyList()
+                        }
+                    }
+
                     val gboard = withContext(Dispatchers.Default) {
                         dictionaryManager.getGboardPredictions(
                             rawTyped = bufferState.activePrefix,
@@ -261,7 +281,30 @@ class TypeRightKeyboardService : KeyboardService() {
                     }
 
                     val suggestionsList = withContext(Dispatchers.Default) {
-                        if (bufferState.isUrl || bufferState.isEmail || bufferState.isSensitive) {
+                        if (isMalayalamKeyboard && manglishCandidates.isNotEmpty()) {
+                            if (manglishCandidates.size >= 2) {
+                                listOf(manglishCandidates[1], manglishCandidates[0], manglishCandidates.getOrElse(2) { gboard.rightCandidate })
+                            } else {
+                                listOf(bufferState.activePrefix, manglishCandidates[0], gboard.rightCandidate)
+                            }
+                        } else if (isManglishEnabled && manglishCandidates.isNotEmpty()) {
+                            val baseList = if (bufferState.isUrl || bufferState.isEmail || bufferState.isSensitive) {
+                                dictionaryManager.getSuggestionsForPrefix(
+                                    prefix = bufferState.activePrefix,
+                                    prevWord = bufferState.previousWord,
+                                    isUrlField = bufferState.isUrl,
+                                    isEmailField = bufferState.isEmail,
+                                    isSensitiveField = bufferState.isSensitive,
+                                    previousWords = bufferState.previousWords
+                                )
+                            } else {
+                                listOf(gboard.leftCandidate, gboard.centerCandidate, gboard.rightCandidate)
+                            }
+                            // Insert Malayalam candidate in the third or center slot
+                            if (manglishCandidates[0] != bufferState.activePrefix) {
+                                listOf(baseList.getOrElse(0) { "" }, baseList.getOrElse(1) { "" }, manglishCandidates[0])
+                            } else baseList
+                        } else if (bufferState.isUrl || bufferState.isEmail || bufferState.isSensitive) {
                             dictionaryManager.getSuggestionsForPrefix(
                                 prefix = bufferState.activePrefix,
                                 prevWord = bufferState.previousWord,
@@ -284,14 +327,36 @@ class TypeRightKeyboardService : KeyboardService() {
                         } else emptyList()
                     }
 
+                    val finalGboard = if (isMalayalamKeyboard && manglishCandidates.isNotEmpty()) {
+                        gboard.copy(
+                            leftCandidate = manglishCandidates.getOrElse(1) { bufferState.activePrefix },
+                            centerCandidate = manglishCandidates[0],
+                            rightCandidate = manglishCandidates.getOrElse(2) { gboard.rightCandidate },
+                            isCenterAutocorrecting = true
+                        )
+                    } else gboard
+
                     withContext(Dispatchers.Main) {
                         asyncPredictionsState.value = AsyncKeyboardPredictions(
-                            gboardResult = gboard,
+                            gboardResult = finalGboard,
                             suggestions = suggestionsList,
                             aiPhraseCompletions = phrases
                         )
                     }
                 }
+        }
+    }
+
+    override fun onConfigureWindow(win: Window, isFullscreen: Boolean, isCandidatesOnly: Boolean) {
+        super.onConfigureWindow(win, isFullscreen, isCandidatesOnly)
+        try {
+            win.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            win.setGravity(Gravity.BOTTOM)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                win.isNavigationBarContrastEnforced = false
+            }
+        } catch (e: Exception) {
+            Log.w("TypeRight", "onConfigureWindow note: ${e.message}")
         }
     }
 
@@ -532,8 +597,9 @@ class TypeRightKeyboardService : KeyboardService() {
         )
 
         composeView.setContent {
-            val isDark = settings.isDarkMode
-            val isDynamic = settings.dynamicThemeEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            val userPrefs by settings.dataStore.userPreferencesFlow.collectAsState(initial = settings.dataStore.currentSnapshot())
+            val isDark = userPrefs.isDarkMode
+            val isDynamic = userPrefs.dynamicThemeEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             val colorScheme = if (isDynamic) {
                 if (isDark) dynamicDarkColorScheme(this@TypeRightKeyboardService) else dynamicLightColorScheme(this@TypeRightKeyboardService)
             } else {
@@ -602,12 +668,20 @@ class TypeRightKeyboardService : KeyboardService() {
                         showVoicePolishPrompt.value = false
                         val textToPolish = pendingVoiceTranscript.value
                         if (textToPolish.isNotBlank()) {
-                            polishAndPresentVoiceResult(textToPolish)
+                            polishAndPresentVoiceResult(textToPolish, TranscriptionFormatStyle.SMART_CLEAN)
+                        }
+                    },
+                    onFormatVoice = { style ->
+                        showVoicePolishPrompt.value = false
+                        val textToPolish = pendingVoiceTranscript.value
+                        if (textToPolish.isNotBlank()) {
+                            polishAndPresentVoiceResult(textToPolish, style)
                         }
                     },
                     onRejectVoicePolish = {
                         showVoicePolishPrompt.value = false
                         pendingVoiceTranscript.value = ""
+                        lastCommittedVoiceLength = 0
                     }
                 )
             }
@@ -695,6 +769,17 @@ class TypeRightKeyboardService : KeyboardService() {
             return gboardResult.centerCandidate
         }
 
+        // 4. Fallback on-device typo & SymSpell correction for unrecognized words
+        if (!dictionaryManager.isValidOrKnownWord(lower) && prefix.length >= 2) {
+            val typo = dictionaryManager.gboardEngine.commonTypoLookup[lower]
+            val symSpell = dictionaryManager.gboardEngine.symSpellEngine.lookup(lower, maxDistance = 2.0f).firstOrNull()?.term
+            val trie = dictionaryManager.wordTrie.getBestCorrection(lower, maxDistance = 2)
+            val best = typo ?: symSpell ?: trie
+            if (best != null && best.lowercase() != lower) {
+                return restoreCasing(prefix, best)
+            }
+        }
+
         return null
     }
 
@@ -704,7 +789,29 @@ class TypeRightKeyboardService : KeyboardService() {
         trailingText: String = ""
     ) {
         val lower = prefix.lowercase().trim()
-        if (!settings.autocorrectEnabled || prefix.isEmpty() || isSensitiveField()) {
+        if (prefix.isEmpty() || isSensitiveField()) {
+            ic.commitText(prefix + trailingText, 1)
+            learnWordAndContext(prefix)
+            return
+        }
+
+        // 0. Malayalam transliteration mode
+        val isMalayalamKeyboard = settings.keyboardLanguage.contains("Malayalam", ignoreCase = true)
+        if (isMalayalamKeyboard) {
+            val candidates = manglishEngine.getTransliterationCandidates(prefix)
+            if (candidates.isNotEmpty()) {
+                val malayalamWord = candidates[0]
+                ic.commitText(malayalamWord + trailingText, 1)
+                lastOriginalWord = prefix
+                lastCorrectedWord = malayalamWord
+                justAutocorrected = true
+                lastCorrectedWasSpace = trailingText == " "
+                learnWordAndContext(malayalamWord)
+                return
+            }
+        }
+
+        if (!settings.autocorrectEnabled) {
             ic.commitText(prefix + trailingText, 1)
             learnWordAndContext(prefix)
             return
@@ -818,11 +925,14 @@ class TypeRightKeyboardService : KeyboardService() {
             return
         }
 
-        // 4. Local Trie Dictionary-based Autocorrect Fallback for straightforward typos
-        if (!dictionaryManager.isValidOrKnownWord(lower)) {
-            val trieCorrection = dictionaryManager.wordTrie.getBestCorrection(lower, maxDistance = 2)
-            if (trieCorrection != null && trieCorrection.lowercase() != lower) {
-                val corrected = restoreCasing(prefix, trieCorrection)
+        // 4. Local SymSpell, Typo & Trie Dictionary-based Autocorrect Fallback for straightforward typos
+        if (!dictionaryManager.isValidOrKnownWord(lower) && prefix.length >= 2) {
+            val typo = dictionaryManager.gboardEngine.commonTypoLookup[lower]
+            val symSpell = dictionaryManager.gboardEngine.symSpellEngine.lookup(lower, maxDistance = 2.0f).firstOrNull()?.term
+            val trie = dictionaryManager.wordTrie.getBestCorrection(lower, maxDistance = 2)
+            val best = typo ?: symSpell ?: trie
+            if (best != null && best.lowercase() != lower) {
+                val corrected = restoreCasing(prefix, best)
                 ic.commitText(corrected + trailingText, 1)
                 lastOriginalWord = prefix
                 lastCorrectedWord = corrected
@@ -1264,9 +1374,10 @@ class TypeRightKeyboardService : KeyboardService() {
         
         val rawTyped = currentTypedWord.value
         val isComposing = rawTyped.isNotEmpty() || (lastComposedStart != -1 && lastComposedEnd != -1)
+        val isExplicitRawAccept = rawTyped.isNotEmpty() && word.lowercase() == rawTyped.lowercase()
         
         // If user selected their exact typed word (e.g. Left Slot), suppress auto-correction & save to local memory
-        if (rawTyped.isNotEmpty() && word.lowercase() == rawTyped.lowercase()) {
+        if (isExplicitRawAccept) {
             val autoCorrect = getAutoCorrectedWord(rawTyped)
             if (autoCorrect != null) {
                 dictionaryManager.suppressCorrection(rawTyped, autoCorrect)
@@ -1307,7 +1418,7 @@ class TypeRightKeyboardService : KeyboardService() {
             ic.commitText("$word ", 1)
         }
         
-        learnWordAndContext(word)
+        learnWordAndContext(word, explicit = isExplicitRawAccept)
 
         justAutocorrected = false
         currentTypedWord.value = ""
@@ -1315,10 +1426,10 @@ class TypeRightKeyboardService : KeyboardService() {
         updatePreviousWord()
     }
 
-    private fun learnWordAndContext(word: String) {
+    private fun learnWordAndContext(word: String, explicit: Boolean = false) {
         if (!isSensitiveField() && word.isNotEmpty() && !word[0].isSurrogate()) {
             dictionaryManager.recordAcceptedWord(word)
-            dictionaryManager.learnWord(word)
+            dictionaryManager.learnWord(word, explicit = explicit)
             val prevWords = previousWords.value
             val prev1 = prevWords.lastOrNull()
             val prev2 = if (prevWords.size >= 2) prevWords[prevWords.size - 2] else null
@@ -1346,10 +1457,14 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     /**
-     * Toggles Voice Dictation via Ramble Mode (100% offline, intent-based stream-of-thought processing)
+     * Toggles Voice Typing: captures voice, transcribes it, and in the end asks user if it needs polish.
      */
     private fun toggleVoiceTyping() {
-        toggleRambleMode()
+        if (isVoiceTypingActive.value) {
+            stopVoiceTyping(shouldPolish = false)
+        } else {
+            startVoiceTyping()
+        }
     }
 
     private var recordingJob: Job? = null
@@ -1399,59 +1514,56 @@ class TypeRightKeyboardService : KeyboardService() {
                 if (cleanRaw.isNotEmpty()) {
                     currentInputConnection?.commitText(cleanRaw, 1)
                     pendingVoiceTranscript.value = cleanRaw
+                    lastCommittedVoiceLength = cleanRaw.length
                     showVoicePolishPrompt.value = true
                 } else {
                     currentInputConnection?.finishComposingText()
                     voiceTranscript.value = ""
+                    lastCommittedVoiceLength = 0
                 }
             }
         )
     }
 
     /**
-     * Polishes collected raw voice typing text using AI system (Gemini API / Local AI model)
-     * removing fillers, stutters, and formatting into clean proper sentences.
+     * Formats collected raw voice typing text into clean, structured output
+     * according to the user's selected style (Smart Clean, Bullets, Numbered, Email, etc.).
      */
-    private fun polishAndPresentVoiceResult(rawText: String) {
+    private fun polishAndPresentVoiceResult(
+        rawText: String,
+        formatStyle: TranscriptionFormatStyle = TranscriptionFormatStyle.SMART_CLEAN
+    ) {
         val ic = currentInputConnection ?: return
         val requestId = ++currentAiRequestId
         currentAiJob?.cancel()
         currentAiJob = serviceScope.launch {
             isAiPolishing.value = true
-            voiceTranscript.value = "AI Polishing..."
+            voiceTranscript.value = "Formatting..."
 
-            val polishedText = try {
-                aiPolishManager.cleanupVoiceText(rawText)
+            val formattedText = try {
+                VoiceTranscriptionFormatter.formatTranscription(rawText, formatStyle)
             } catch (e: Exception) {
-                Log.e("TypeRight", "Voice AI polish error: ${e.message}")
+                Log.e("TypeRight", "Voice formatting error: ${e.message}")
                 WhisperCppBrain.whisperCleanAndPolish(rawText)
             }
 
             if (requestId != currentAiRequestId) return@launch
 
-            val finalOutput = if (polishedText.isNotBlank()) polishedText.trim() else rawText.trim()
+            val finalOutput = if (formattedText.isNotBlank()) formattedText.trim() else rawText.trim()
 
-            if (rawText.isNotEmpty()) {
+            if (lastCommittedVoiceLength > 0) {
+                ic.deleteSurroundingText(lastCommittedVoiceLength, 0)
+            } else if (rawText.isNotEmpty()) {
                 ic.deleteSurroundingText(rawText.length, 0)
             }
 
-            // Present the polished output word-by-word into the composing field
-            val words = finalOutput.split(" ")
-            val currentBuild = StringBuilder()
-            for (i in words.indices) {
-                if (requestId != currentAiRequestId) return@launch
-                if (i > 0) currentBuild.append(" ")
-                currentBuild.append(words[i])
-                ic.setComposingText(currentBuild.toString(), 1)
-                delay(30)
-            }
+            // Commit final formatted text with newlines and structural spacing preserved
+            ic.commitText(finalOutput, 1)
 
-            if (requestId == currentAiRequestId) {
-                ic.finishComposingText()
-            }
             isAiPolishing.value = false
             voiceTranscript.value = ""
             pendingVoiceTranscript.value = ""
+            lastCommittedVoiceLength = 0
             showVoicePolishPrompt.value = false
         }
     }
@@ -1622,20 +1734,16 @@ class TypeRightKeyboardService : KeyboardService() {
 
             try {
                 val proofreadResult = withContext(Dispatchers.Default) {
-                    val textContext = TextContext(
-                        textBeforeCursor = before,
-                        textAfterCursor = after,
-                        selectedText = selectedText,
-                        mode = PolishMode.PROOFREAD
-                    )
-                    aiPolishManager.proofreadText(textToProofread, textContext)
+                    DeviceAiCoreEngine.getInstance(applicationContext).proofread(textToProofread, "Proofread").correctedText
                 }
 
                 if (requestId != currentAiRequestId) return@launch
 
                 withContext(Dispatchers.Main) {
                     if (requestId != currentAiRequestId) return@withContext
-                    if (proofreadResult.isNotBlank() && proofreadResult != textToProofread) {
+                    ic.beginBatchEdit()
+                    try {
+                        ic.finishComposingText()
                         if (isSelection) {
                             ic.commitText(proofreadResult, 1)
                         } else {
@@ -1646,11 +1754,16 @@ class TypeRightKeyboardService : KeyboardService() {
                             }
                             ic.commitText(proofreadResult, 1)
                         }
-                        currentTypedWord.value = ""
-                        wordUnderCursor.value = ""
-                        updatePreviousWord()
+                    } finally {
+                        ic.endBatchEdit()
+                    }
+                    currentTypedWord.value = ""
+                    wordUnderCursor.value = ""
+                    updatePreviousWord()
+                    if (proofreadResult != textToProofread) {
+                        android.widget.Toast.makeText(applicationContext, "⚡ Fixed with On-Device AICore", android.widget.Toast.LENGTH_SHORT).show()
                     } else {
-                        android.widget.Toast.makeText(applicationContext, "Text is already proofread & well formatted!", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(applicationContext, "⚡ Checked with On-Device AICore (No errors)", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
@@ -1736,11 +1849,12 @@ class TypeRightKeyboardService : KeyboardService() {
             if (settings.hapticEnabled) {
                 val vib = vibrator
                 if (vib != null && vib.hasVibrator()) {
+                    val duration = if (settings.mechanicalSoundEnabled) 22L else 18L
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        vib.vibrate(VibrationEffect.createOneShot(18, VibrationEffect.DEFAULT_AMPLITUDE))
+                        vib.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
                     } else {
                         @Suppress("DEPRECATION")
-                        vib.vibrate(18)
+                        vib.vibrate(duration)
                     }
                 }
             }
@@ -1762,7 +1876,13 @@ data class KeyboardStyle(
     val keyBorder: BorderStroke?,
     val showPressPopup: Boolean,
     val scaleOnPress: Boolean,
-    val pressAnimationSpec: AnimationSpec<Float>?
+    val pressAnimationSpec: AnimationSpec<Float>?,
+    val keyBevelColor: Color = Color.Transparent,
+    val isRetro: Boolean = false,
+    val isMonospace: Boolean = false,
+    val spacebarLineColor: Color = Color.Transparent,
+    val toolbarBgColor: Color = backgroundColor,
+    val chassisBorderColor: Color = keyTextColor.copy(alpha = 0.2f)
 )
 
 val LocalKeyboardStyle = staticCompositionLocalOf<KeyboardStyle> {
@@ -1832,7 +1952,7 @@ fun VoiceWaveformVisualizer(
 }
 
 private enum class KeyboardLayer {
-    Qwerty, Symbols, Emojis, Clipboard, Assistant, ToolsDrawer, Proofread, TextEditing
+    Qwerty, Symbols, Emojis, Clipboard, Assistant, ToolsDrawer, Proofread, TextEditing, WisprVoice
 }
 
 /**
@@ -1895,6 +2015,7 @@ fun KeyboardLayout(
     onRedo: () -> Unit = {},
     showVoicePolishPrompt: Boolean = false,
     onAcceptVoicePolish: () -> Unit = {},
+    onFormatVoice: (TranscriptionFormatStyle) -> Unit = {},
     onRejectVoicePolish: () -> Unit = {}
 ) {
     val vibrator = remember(context) { context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator }
@@ -1906,7 +2027,14 @@ fun KeyboardLayout(
     var accentColorHexState by remember { mutableStateOf(settings.accentColor) }
     var keyboardHeightState by remember { mutableStateOf(settings.height) }
     var numberRowEnabledState by remember { mutableStateOf(settings.numberRowEnabled) }
-    
+    var keyboardLanguageState by remember { mutableStateOf(settings.keyboardLanguage) }
+    var keyBordersState by remember { mutableStateOf(settings.keyBordersEnabled) }
+    var popupKeypressState by remember { mutableStateOf(settings.popupOnKeypress) }
+    var oneHandedModeState by remember { mutableStateOf(settings.oneHandedMode) }
+    var emojiSuggestionsState by remember { mutableStateOf(settings.emojiSuggestionsEnabled) }
+    var spaceSwipeState by remember { mutableStateOf(settings.spaceSwipeEnabled) }
+    var navBarClearanceState by remember { mutableStateOf(settings.navBarClearance) }
+
     DisposableEffect(sharedPrefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
@@ -1916,12 +2044,29 @@ fun KeyboardLayout(
                 KeyboardSettings.KEY_ACCENT_COLOR -> accentColorHexState = settings.accentColor
                 KeyboardSettings.KEY_HEIGHT -> keyboardHeightState = settings.height
                 KeyboardSettings.KEY_NUMBER_ROW_ENABLED -> numberRowEnabledState = settings.numberRowEnabled
+                KeyboardSettings.KEY_KEYBOARD_LANGUAGE -> keyboardLanguageState = settings.keyboardLanguage
+                KeyboardSettings.KEY_KEY_BORDERS_ENABLED -> keyBordersState = settings.keyBordersEnabled
+                KeyboardSettings.KEY_POPUP_ON_KEYPRESS -> popupKeypressState = settings.popupOnKeypress
+                KeyboardSettings.KEY_ONE_HANDED_MODE -> oneHandedModeState = settings.oneHandedMode
+                KeyboardSettings.KEY_EMOJI_SUGGESTIONS -> emojiSuggestionsState = settings.emojiSuggestionsEnabled
+                KeyboardSettings.KEY_SPACE_SWIPE_ENABLED -> spaceSwipeState = settings.spaceSwipeEnabled
+                KeyboardSettings.KEY_NAV_BAR_CLEARANCE -> navBarClearanceState = settings.navBarClearance
             }
         }
         sharedPrefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose {
             sharedPrefs.unregisterOnSharedPreferenceChangeListener(listener)
         }
+    }
+
+    val isMalayalamKeyboard = keyboardLanguageState.contains("Malayalam", ignoreCase = true)
+    val spacebarLabel = if (isMalayalamKeyboard) "മലയാളം (Manglish)" else "English"
+    val onToggleLanguage: () -> Unit = {
+        val next = if (isMalayalamKeyboard) "English" else "മലയാളം (Manglish)"
+        settings.keyboardLanguage = next
+        keyboardLanguageState = next
+        (context as? TypeRightKeyboardService)?.notifyTextBufferChanged()
+        Unit
     }
 
     val parsedAccentColor = remember(accentColorHexState) {
@@ -1932,92 +2077,288 @@ fun KeyboardLayout(
         }
     }
 
-    val style = remember(themeState, isDarkState, dynamicThemeState, parsedAccentColor) {
+    val style = remember(themeState, isDarkState, dynamicThemeState, parsedAccentColor, keyBordersState, popupKeypressState) {
         val isDark = isDarkState
         val isDynamic = dynamicThemeState && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
         val dynamicScheme = if (isDynamic) {
             if (isDark) androidx.compose.material3.dynamicDarkColorScheme(context) else androidx.compose.material3.dynamicLightColorScheme(context)
         } else null
 
-        if (dynamicScheme != null) {
-            // Material You Dynamic Palette (Adapts to system wallpaper & Material You tokens)
-            val bg = dynamicScheme.surface
-            val normalBg = dynamicScheme.surfaceVariant
-            val specialBg = dynamicScheme.secondaryContainer
-            val textColor = dynamicScheme.onSurface
-            val enterBg = dynamicScheme.primary
-            val enterTextColor = dynamicScheme.onPrimary
-            val accent = dynamicScheme.primary
-            val shape = RoundedCornerShape(8.5.dp)
+        val currentKeyBorder = if (keyBordersState) {
+            BorderStroke(1.dp, if (isDark) Color(0x35FFFFFF) else Color(0x22000000))
+        } else null
 
-            KeyboardStyle(
-                theme = if (isDark) "Material You Dark" else "Material You Light",
-                isDark = isDark,
-                backgroundColor = bg,
-                normalKeyBg = normalBg,
-                specialKeyBg = specialBg,
-                keyTextColor = textColor,
-                accentColor = accent,
-                enterKeyBg = enterBg,
-                enterKeyTextColor = enterTextColor,
-                keyShape = shape,
-                keyBorder = null,
-                showPressPopup = true,
-                scaleOnPress = true,
-                pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh)
-            )
-        } else if (isDark) {
-            // Modern Minimal Dark Theme
-            val bg = Color(0xFF17181A)
-            val normalBg = Color(0xFF2C2E33)
-            val specialBg = Color(0xFF212326)
-            val textColor = Color(0xFFF1F3F5)
-            val enterBg = parsedAccentColor
-            val enterTextColor = Color(0xFFFFFFFF)
-            val shape = RoundedCornerShape(8.5.dp)
+        when {
+            // 1. Dynamic Material You
+            dynamicScheme != null -> {
+                val bg = dynamicScheme.surface
+                val normalBg = dynamicScheme.surfaceVariant
+                val specialBg = dynamicScheme.secondaryContainer
+                val textColor = dynamicScheme.onSurface
+                val enterBg = dynamicScheme.primary
+                val enterTextColor = dynamicScheme.onPrimary
+                val accent = dynamicScheme.primary
+                val shape = RoundedCornerShape(8.dp)
 
-            KeyboardStyle(
-                theme = KeyboardSettings.THEME_DARK,
-                isDark = true,
-                backgroundColor = bg,
-                normalKeyBg = normalBg,
-                specialKeyBg = specialBg,
-                keyTextColor = textColor,
-                accentColor = parsedAccentColor,
-                enterKeyBg = enterBg,
-                enterKeyTextColor = enterTextColor,
-                keyShape = shape,
-                keyBorder = null,
-                showPressPopup = true,
-                scaleOnPress = true,
-                pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh)
-            )
-        } else {
-            // Modern Minimal Light Theme
-            val bg = Color(0xFFECEFF2)
-            val normalBg = Color(0xFFFFFFFF)
-            val specialBg = Color(0xFFD6DBE0)
-            val textColor = Color(0xFF1D2024)
-            val enterBg = parsedAccentColor
-            val enterTextColor = Color(0xFFFFFFFF)
-            val shape = RoundedCornerShape(8.5.dp)
+                KeyboardStyle(
+                    theme = if (isDark) "Material You Dark" else "Material You Light",
+                    isDark = isDark,
+                    isRetro = false,
+                    backgroundColor = bg,
+                    normalKeyBg = normalBg,
+                    specialKeyBg = specialBg,
+                    keyTextColor = textColor,
+                    accentColor = accent,
+                    enterKeyBg = enterBg,
+                    enterKeyTextColor = enterTextColor,
+                    keyShape = shape,
+                    keyBorder = currentKeyBorder,
+                    showPressPopup = popupKeypressState,
+                    scaleOnPress = true,
+                    pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh),
+                    keyBevelColor = Color.Transparent,
+                    isMonospace = false
+                )
+            }
 
-            KeyboardStyle(
-                theme = KeyboardSettings.THEME_LIGHT,
-                isDark = false,
-                backgroundColor = bg,
-                normalKeyBg = normalBg,
-                specialKeyBg = specialBg,
-                keyTextColor = textColor,
-                accentColor = parsedAccentColor,
-                enterKeyBg = enterBg,
-                enterKeyTextColor = enterTextColor,
-                keyShape = shape,
-                keyBorder = null,
-                showPressPopup = true,
-                scaleOnPress = true,
-                pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh)
-            )
+            // 2. Retro Beige (IBM Model M / Classic 1984) - DEFAULT RETRO THEME
+            themeState == KeyboardSettings.THEME_RETRO_BEIGE || themeState == KeyboardSettings.THEME_LIGHT -> {
+                val bg = Color(0xFFDDD4C4) // Classic 1980s computer chassis putty/beige
+                val normalBg = Color(0xFFF7F2EC) // Cream/eggshell alpha keys
+                val specialBg = Color(0xFFC7BDAC) // Warm battleship gray modifier keys
+                val textColor = Color(0xFF2B251D) // Deep vintage charcoal ink
+                val enterBg = Color(0xFFD9532F) // Burnt orange terminal enter key
+                val enterTextColor = Color(0xFFFFFFFF)
+                val accent = Color(0xFFD9532F)
+                val bevel = Color(0xFFA59A88) // Mechanical keycap bottom drop shadow
+                val shape = RoundedCornerShape(6.dp)
+
+                KeyboardStyle(
+                    theme = KeyboardSettings.THEME_RETRO_BEIGE,
+                    isDark = false,
+                    isRetro = true,
+                    backgroundColor = bg,
+                    normalKeyBg = normalBg,
+                    specialKeyBg = specialBg,
+                    keyTextColor = textColor,
+                    accentColor = accent,
+                    enterKeyBg = enterBg,
+                    enterKeyTextColor = enterTextColor,
+                    keyShape = shape,
+                    keyBorder = currentKeyBorder ?: BorderStroke(0.7.dp, Color(0x28000000)),
+                    showPressPopup = popupKeypressState,
+                    scaleOnPress = true,
+                    pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
+                    keyBevelColor = bevel,
+                    isMonospace = true,
+                    spacebarLineColor = Color(0x25000000),
+                    toolbarBgColor = Color(0xFFD3C9B8),
+                    chassisBorderColor = Color(0xFFB5A996)
+                )
+            }
+
+            // 3. Retro CRT Terminal (Phosphor Green)
+            themeState == KeyboardSettings.THEME_RETRO_CRT_GREEN || (isDark && themeState == KeyboardSettings.THEME_RETRO_BEIGE) -> {
+                val bg = Color(0xFF0F1411) // Deep mainframe chassis
+                val normalBg = Color(0xFF19241C) // Deep dark phosphor alpha keycap
+                val specialBg = Color(0xFF121A14) // Darker modifier keycap
+                val textColor = Color(0xFF39FF14) // Phosphor green
+                val enterBg = Color(0xFF00E676)
+                val enterTextColor = Color(0xFF002910)
+                val accent = Color(0xFF39FF14)
+                val bevel = Color(0xFF080D09)
+                val shape = RoundedCornerShape(5.dp)
+
+                KeyboardStyle(
+                    theme = KeyboardSettings.THEME_RETRO_CRT_GREEN,
+                    isDark = true,
+                    isRetro = true,
+                    backgroundColor = bg,
+                    normalKeyBg = normalBg,
+                    specialKeyBg = specialBg,
+                    keyTextColor = textColor,
+                    accentColor = accent,
+                    enterKeyBg = enterBg,
+                    enterKeyTextColor = enterTextColor,
+                    keyShape = shape,
+                    keyBorder = currentKeyBorder ?: BorderStroke(0.8.dp, Color(0x3539FF14)),
+                    showPressPopup = popupKeypressState,
+                    scaleOnPress = true,
+                    pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
+                    keyBevelColor = bevel,
+                    isMonospace = true,
+                    spacebarLineColor = Color(0x3039FF14),
+                    toolbarBgColor = Color(0xFF0C100E),
+                    chassisBorderColor = Color(0x4039FF14)
+                )
+            }
+
+            // 4. Retro Amber Terminal
+            themeState == KeyboardSettings.THEME_RETRO_AMBER -> {
+                val bg = Color(0xFF16120C)
+                val normalBg = Color(0xFF241D14)
+                val specialBg = Color(0xFF1B150E)
+                val textColor = Color(0xFFFFB000) // CRT Amber
+                val enterBg = Color(0xFFFF9100)
+                val enterTextColor = Color(0xFF261300)
+                val accent = Color(0xFFFFB000)
+                val bevel = Color(0xFF0D0A06)
+                val shape = RoundedCornerShape(5.dp)
+
+                KeyboardStyle(
+                    theme = KeyboardSettings.THEME_RETRO_AMBER,
+                    isDark = true,
+                    isRetro = true,
+                    backgroundColor = bg,
+                    normalKeyBg = normalBg,
+                    specialKeyBg = specialBg,
+                    keyTextColor = textColor,
+                    accentColor = accent,
+                    enterKeyBg = enterBg,
+                    enterKeyTextColor = enterTextColor,
+                    keyShape = shape,
+                    keyBorder = currentKeyBorder ?: BorderStroke(0.8.dp, Color(0x35FFB000)),
+                    showPressPopup = popupKeypressState,
+                    scaleOnPress = true,
+                    pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
+                    keyBevelColor = bevel,
+                    isMonospace = true,
+                    spacebarLineColor = Color(0x30FFB000),
+                    toolbarBgColor = Color(0xFF120E09),
+                    chassisBorderColor = Color(0x40FFB000)
+                )
+            }
+
+            // 5. Retro 1984 Macintosh
+            themeState == KeyboardSettings.THEME_RETRO_MAC1984 -> {
+                val bg = Color(0xFFD2D5D6) // Platinum chassis
+                val normalBg = Color(0xFFF1F3F4)
+                val specialBg = Color(0xFFBCC0C3)
+                val textColor = Color(0xFF1D2022)
+                val enterBg = Color(0xFF5A6672)
+                val enterTextColor = Color(0xFFFFFFFF)
+                val accent = Color(0xFF2B6CB0)
+                val bevel = Color(0xFF9EA3A7)
+                val shape = RoundedCornerShape(6.dp)
+
+                KeyboardStyle(
+                    theme = KeyboardSettings.THEME_RETRO_MAC1984,
+                    isDark = false,
+                    isRetro = true,
+                    backgroundColor = bg,
+                    normalKeyBg = normalBg,
+                    specialKeyBg = specialBg,
+                    keyTextColor = textColor,
+                    accentColor = accent,
+                    enterKeyBg = enterBg,
+                    enterKeyTextColor = enterTextColor,
+                    keyShape = shape,
+                    keyBorder = currentKeyBorder ?: BorderStroke(0.7.dp, Color(0x28000000)),
+                    showPressPopup = popupKeypressState,
+                    scaleOnPress = true,
+                    pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
+                    keyBevelColor = bevel,
+                    isMonospace = true,
+                    spacebarLineColor = Color(0x22000000),
+                    toolbarBgColor = Color(0xFFC7CBCC),
+                    chassisBorderColor = Color(0xFFABB0B3)
+                )
+            }
+
+            // 6. Retro 80s Synthwave
+            themeState == KeyboardSettings.THEME_RETRO_SYNTHWAVE -> {
+                val bg = Color(0xFF140C24)
+                val normalBg = Color(0xFF24153E)
+                val specialBg = Color(0xFF1C0E32)
+                val textColor = Color(0xFF00F0FF) // Neon Cyan
+                val enterBg = Color(0xFFFF007F) // Neon Magenta
+                val enterTextColor = Color(0xFFFFFFFF)
+                val accent = Color(0xFFFF007F)
+                val bevel = Color(0xFF0B0515)
+                val shape = RoundedCornerShape(6.dp)
+
+                KeyboardStyle(
+                    theme = KeyboardSettings.THEME_RETRO_SYNTHWAVE,
+                    isDark = true,
+                    isRetro = true,
+                    backgroundColor = bg,
+                    normalKeyBg = normalBg,
+                    specialKeyBg = specialBg,
+                    keyTextColor = textColor,
+                    accentColor = accent,
+                    enterKeyBg = enterBg,
+                    enterKeyTextColor = enterTextColor,
+                    keyShape = shape,
+                    keyBorder = currentKeyBorder ?: BorderStroke(0.8.dp, Color(0x4000F0FF)),
+                    showPressPopup = popupKeypressState,
+                    scaleOnPress = true,
+                    pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
+                    keyBevelColor = bevel,
+                    isMonospace = true,
+                    spacebarLineColor = Color(0x3500F0FF),
+                    toolbarBgColor = Color(0xFF0E071A),
+                    chassisBorderColor = Color(0x45FF007F)
+                )
+            }
+
+            // 7. Dark Fallback
+            isDark || themeState == KeyboardSettings.THEME_DARK || themeState == KeyboardSettings.THEME_AMOLED -> {
+                val isOled = themeState == KeyboardSettings.THEME_AMOLED
+                val bg = if (isOled) Color(0xFF000000) else Color(0xFF1E1F23)
+                val normalBg = if (isOled) Color(0xFF121212) else Color(0xFF2B2D33)
+                val specialBg = if (isOled) Color(0xFF1A1A1A) else Color(0xFF23252A)
+                val textColor = Color(0xFFF1F3F5)
+                val enterBg = parsedAccentColor
+                val enterTextColor = Color(0xFF041E49)
+                val shape = RoundedCornerShape(7.dp)
+
+                KeyboardStyle(
+                    theme = themeState,
+                    isDark = true,
+                    isRetro = false,
+                    backgroundColor = bg,
+                    normalKeyBg = normalBg,
+                    specialKeyBg = specialBg,
+                    keyTextColor = textColor,
+                    accentColor = parsedAccentColor,
+                    enterKeyBg = enterBg,
+                    enterKeyTextColor = enterTextColor,
+                    keyShape = shape,
+                    keyBorder = currentKeyBorder,
+                    showPressPopup = popupKeypressState,
+                    scaleOnPress = true,
+                    pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh)
+                )
+            }
+
+            // 8. Light Fallback
+            else -> {
+                val bg = Color(0xFFECEFF2)
+                val normalBg = Color(0xFFFFFFFF)
+                val specialBg = Color(0xFFDCE1E6)
+                val textColor = Color(0xFF1D2024)
+                val enterBg = parsedAccentColor
+                val enterTextColor = Color(0xFFFFFFFF)
+                val shape = RoundedCornerShape(7.dp)
+
+                KeyboardStyle(
+                    theme = themeState,
+                    isDark = false,
+                    isRetro = false,
+                    backgroundColor = bg,
+                    normalKeyBg = normalBg,
+                    specialKeyBg = specialBg,
+                    keyTextColor = textColor,
+                    accentColor = parsedAccentColor,
+                    enterKeyBg = enterBg,
+                    enterKeyTextColor = enterTextColor,
+                    keyShape = shape,
+                    keyBorder = currentKeyBorder,
+                    showPressPopup = popupKeypressState,
+                    scaleOnPress = true,
+                    pressAnimationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh)
+                )
+            }
         }
     }
 
@@ -2035,19 +2376,45 @@ fun KeyboardLayout(
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val screenHeight = configuration.screenHeightDp
 
-    // Minimal and well-structured height calculation: less taller buttons, balanced key proportions
+    // Spacious key container height with comfortable proportions matching Gboard standard
     val keysHeight = when {
         isLandscape -> (screenHeight * 0.44f).coerceIn(135f, 170f).dp
-        keyboardHeightState == KeyboardSettings.HEIGHT_SHORT -> (screenHeight * 0.23f).coerceIn(175f, 195f).dp
-        keyboardHeightState == KeyboardSettings.HEIGHT_TALL -> (screenHeight * 0.30f).coerceIn(225f, 250f).dp
-        else -> (screenHeight * 0.265f).coerceIn(195f, 218f).dp
+        keyboardHeightState == KeyboardSettings.HEIGHT_SHORT -> (screenHeight * 0.25f).coerceIn(200f, 220f).dp
+        keyboardHeightState == KeyboardSettings.HEIGHT_TALL -> (screenHeight * 0.32f).coerceIn(250f, 280f).dp
+        else -> (screenHeight * 0.285f).coerceIn(220f, 245f).dp
     }
 
     val navBarsInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val systemBottomPadding = if (navBarsInset > 0.dp) {
-        navBarsInset.coerceAtLeast(if (isLandscape) 4.dp else 12.dp)
-    } else {
-        if (isLandscape) 4.dp else 16.dp
+
+    val resourceNavHeight = remember(context) {
+        try {
+            val resId = context.resources.getIdentifier("navigation_bar_height", "dimen", "android")
+            if (resId > 0) {
+                val px = context.resources.getDimensionPixelSize(resId)
+                val density = context.resources.displayMetrics.density
+                if (density > 0 && px > 0) (px / density).dp else 48.dp
+            } else {
+                48.dp
+            }
+        } catch (_: Exception) {
+            48.dp
+        }
+    }
+
+    // Default smart clearance elevated to at least 48dp so the keys never collide with the system nav bar / gesture bar / IME switcher
+    val smartAutoClearance = remember(resourceNavHeight, navBarsInset) {
+        val detected = maxOf(navBarsInset, resourceNavHeight)
+        if (detected >= 44.dp) detected.coerceAtMost(64.dp) else 48.dp
+    }
+
+    val bottomClearanceHeight = when {
+        isLandscape -> 12.dp
+        navBarClearanceState == "extra" -> 64.dp
+        navBarClearanceState == "3button" -> 56.dp
+        navBarClearanceState == "gesture" -> 48.dp
+        navBarClearanceState == "compact" -> 32.dp
+        navBarClearanceState == "none" -> 16.dp
+        else -> smartAutoClearance // "auto" default: 48.dp to 54.dp
     }
 
     val activePrefix = if (currentTypedWord.isNotEmpty()) currentTypedWord else wordUnderCursor
@@ -2089,6 +2456,7 @@ fun KeyboardLayout(
     var isToolsDrawerOpen by remember { mutableStateOf(false) }
     var isProofreadSheetOpen by remember { mutableStateOf(false) }
     var isTextEditingOpen by remember { mutableStateOf(false) }
+    var isWisprVoiceOpen by remember { mutableStateOf(false) }
     var activeAiEngineState by remember { mutableStateOf(settings.activeAiEngine) }
 
     DisposableEffect(Unit) {
@@ -2114,8 +2482,7 @@ fun KeyboardLayout(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(backgroundColor)
-                .padding(bottom = systemBottomPadding),
+                .background(backgroundColor),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -2189,84 +2556,91 @@ fun KeyboardLayout(
                             }
                         }
                         1 -> {
+                            val formatScrollState = rememberScrollState()
                             Row(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(horizontal = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .horizontalScroll(formatScrollState),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoFixHigh,
-                                        contentDescription = "Polish Prompt",
-                                        tint = accentColor,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = "Polish?",
-                                        color = keyTextColor,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    // YES BUTTON
                                     Surface(
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = accentColor,
-                                        modifier = Modifier
-                                            .clickable { onAcceptVoicePolish() }
-                                            .testTag("voice_polish_yes_button")
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = accentColor.copy(alpha = 0.15f),
+                                        modifier = Modifier.padding(end = 2.dp)
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = null,
-                                                tint = Color.White,
-                                                modifier = Modifier.size(12.dp)
+                                                imageVector = Icons.Default.AutoFixHigh,
+                                                contentDescription = "Format Transcription",
+                                                tint = accentColor,
+                                                modifier = Modifier.size(14.dp)
                                             )
                                             Text(
-                                                text = "Yes",
-                                                color = Color.White,
+                                                text = "Format:",
+                                                color = keyTextColor,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         }
                                     }
 
-                                    // NO BUTTON
-                                    Surface(
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = keyTextColor.copy(alpha = 0.12f),
-                                        border = BorderStroke(0.5.dp, keyTextColor.copy(alpha = 0.2f)),
-                                        modifier = Modifier
-                                            .clickable { onRejectVoicePolish() }
-                                            .testTag("voice_polish_no_button")
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                    // Format Style Action Chips
+                                    val formatChips = listOf(
+                                        Triple("✨ Polish", TranscriptionFormatStyle.SMART_CLEAN, "voice_format_clean"),
+                                        Triple("• Bullets", TranscriptionFormatStyle.BULLETS, "voice_format_bullets"),
+                                        Triple("1. Steps", TranscriptionFormatStyle.NUMBERED, "voice_format_numbered"),
+                                        Triple("✉️ Email", TranscriptionFormatStyle.EMAIL, "voice_format_email"),
+                                        Triple("👔 Formal", TranscriptionFormatStyle.EXECUTIVE, "voice_format_formal"),
+                                        Triple("✂️ Concise", TranscriptionFormatStyle.CONCISE, "voice_format_concise"),
+                                        Triple("☐ Checklist", TranscriptionFormatStyle.CHECKLIST, "voice_format_checklist")
+                                    )
+
+                                    formatChips.forEach { (label, style, tag) ->
+                                        Surface(
+                                            shape = RoundedCornerShape(14.dp),
+                                            color = if (style == TranscriptionFormatStyle.SMART_CLEAN) accentColor else keyTextColor.copy(alpha = 0.1f),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .clickable {
+                                                    onFormatVoice(style)
+                                                }
+                                                .testTag(tag)
                                         ) {
                                             Text(
-                                                text = "No",
-                                                color = keyTextColor.copy(alpha = 0.85f),
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Medium
+                                                text = label,
+                                                color = if (style == TranscriptionFormatStyle.SMART_CLEAN) Color.White else keyTextColor,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                             )
                                         }
                                     }
+                                }
+
+                                // Dismiss button
+                                IconButton(
+                                    onClick = onRejectVoicePolish,
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .testTag("voice_polish_no_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Dismiss",
+                                        tint = keyTextColor.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                 }
                             }
                         }
@@ -2613,148 +2987,387 @@ fun KeyboardLayout(
                                         label = "toolbar_mode_transition"
                                     ) { showSuggestions ->
                                         if (showSuggestions) {
-                                            // SUGGESTIONS MODE inside toolbar
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(horizontal = 4.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                IconButton(
-                                                    onClick = {
-                                                        isToolsDrawerOpen = !isToolsDrawerOpen
-                                                        isProofreadSheetOpen = false
-                                                        isTextEditingOpen = false
-                                                    },
-                                                    modifier = Modifier.size(32.dp).testTag("expand_toolbar_options_button")
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Apps,
-                                                        contentDescription = "Gboard Quick Tools",
-                                                        tint = if (isToolsDrawerOpen) accentColor else keyTextColor.copy(alpha = 0.8f),
-                                                        modifier = Modifier.size(19.dp)
-                                                    )
-                                                }
-                                                
-                                                // Suggestions list with smooth animated morphing
+                                            if (activePrefix.isNotEmpty() || suggestions.any { it.isNotBlank() }) {
+                                                // SUGGESTIONS MODE inside toolbar when typing
                                                 Row(
-                                                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
-                                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(horizontal = 4.dp),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    suggestions.take(3).forEachIndexed { index, word ->
-                                                        val middleWord = suggestions.getOrNull(1) ?: ""
-                                                        val isMiddleAutoCorrecting = gboardResult.isCenterAutocorrecting || (
-                                                            activePrefix.isNotEmpty() &&
-                                                            middleWord.isNotEmpty() &&
-                                                            middleWord.lowercase() != activePrefix.lowercase()
+                                                    IconButton(
+                                                        onClick = {
+                                                            isToolsDrawerOpen = !isToolsDrawerOpen
+                                                            isProofreadSheetOpen = false
+                                                            isTextEditingOpen = false
+                                                        },
+                                                        modifier = Modifier.size(32.dp).testTag("expand_toolbar_options_button")
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Apps,
+                                                            contentDescription = "Gboard Quick Tools",
+                                                            tint = if (isToolsDrawerOpen) accentColor else keyTextColor.copy(alpha = 0.8f),
+                                                            modifier = Modifier.size(19.dp)
                                                         )
+                                                    }
+                                                    
+                                                    // Suggestions list with smooth animated morphing
+                                                    Row(
+                                                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                                                        horizontalArrangement = Arrangement.SpaceEvenly,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        suggestions.take(3).forEachIndexed { index, word ->
+                                                            val middleWord = suggestions.getOrNull(1) ?: ""
+                                                            val isMiddleAutoCorrecting = gboardResult.isCenterAutocorrecting || (
+                                                                activePrefix.isNotEmpty() &&
+                                                                middleWord.isNotEmpty() &&
+                                                                middleWord.lowercase() != activePrefix.lowercase()
+                                                            )
 
-                                                        val isCorrectionActive = activePrefix.isNotEmpty() && (
-                                                            (index == 1 && (isMiddleAutoCorrecting || suggestions.size == 1)) ||
-                                                            (index == 1 && dictionaryManager.isSpellingCorrection(activePrefix, word, previousWord)) ||
-                                                            (activePrefix.lowercase() == "i" && word == "I" && index == 1)
-                                                        )
+                                                            val isCorrectionActive = activePrefix.isNotEmpty() && (
+                                                                (index == 1 && (isMiddleAutoCorrecting || suggestions.size == 1)) ||
+                                                                (index == 1 && dictionaryManager.isSpellingCorrection(activePrefix, word, previousWord)) ||
+                                                                (activePrefix.lowercase() == "i" && word == "I" && index == 1)
+                                                            )
 
-                                                        val isLiteralRawTyped = index == 0 &&
-                                                            currentTypedWord.isNotEmpty() &&
-                                                            word.lowercase() == currentTypedWord.lowercase()
+                                                            val isLiteralRawTyped = index == 0 &&
+                                                                currentTypedWord.isNotEmpty() &&
+                                                                word.lowercase() == currentTypedWord.lowercase()
 
-                                                        val textWeight = if (isCorrectionActive) FontWeight.Bold else FontWeight.Medium
-                                                        val textColorValue = if (isCorrectionActive) Color.White else keyTextColor
+                                                            val textWeight = if (isCorrectionActive) FontWeight.Bold else FontWeight.Medium
+                                                            val textColorValue = if (isCorrectionActive) Color.White else keyTextColor
 
-                                                        val chipInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                                                        val chipPressed by chipInteraction.collectIsPressedAsState()
-                                                        val chipScale by animateFloatAsState(
-                                                            targetValue = if (chipPressed) 0.93f else 1.0f,
-                                                            animationSpec = tween(60, easing = FastOutSlowInEasing),
-                                                            label = "chip_press_scale"
-                                                        )
-                                                        val chipBgColor by animateColorAsState(
-                                                            targetValue = if (isCorrectionActive) accentColor
-                                                                else if (chipPressed) keyTextColor.copy(alpha = 0.12f)
-                                                                else keyTextColor.copy(alpha = 0.05f),
-                                                            animationSpec = tween(120),
-                                                            label = "chip_bg_color"
-                                                        )
-                                                        val chipBorderColor by animateColorAsState(
-                                                            targetValue = if (isCorrectionActive) accentColor.copy(alpha = 0.85f)
-                                                                else keyTextColor.copy(alpha = 0.12f),
-                                                            animationSpec = tween(120),
-                                                            label = "chip_border_color"
-                                                        )
+                                                            val chipInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                                            val chipPressed by chipInteraction.collectIsPressedAsState()
+                                                            val chipScale by animateFloatAsState(
+                                                                targetValue = if (chipPressed) 0.93f else 1.0f,
+                                                                animationSpec = tween(60, easing = FastOutSlowInEasing),
+                                                                label = "chip_press_scale"
+                                                            )
+                                                            val chipBgColor by animateColorAsState(
+                                                                targetValue = if (isCorrectionActive) accentColor
+                                                                    else if (chipPressed) keyTextColor.copy(alpha = 0.12f)
+                                                                    else keyTextColor.copy(alpha = 0.05f),
+                                                                animationSpec = tween(120),
+                                                                label = "chip_bg_color"
+                                                            )
+                                                            val chipBorderColor by animateColorAsState(
+                                                                targetValue = if (isCorrectionActive) accentColor.copy(alpha = 0.85f)
+                                                                    else keyTextColor.copy(alpha = 0.12f),
+                                                                animationSpec = tween(120),
+                                                                label = "chip_border_color"
+                                                            )
 
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .weight(1f)
-                                                                .padding(horizontal = 4.dp)
-                                                                .graphicsLayer {
-                                                                    scaleX = chipScale
-                                                                    scaleY = chipScale
-                                                                }
-                                                                .clip(RoundedCornerShape(20.dp))
-                                                                .background(chipBgColor)
-                                                                .border(
-                                                                    border = androidx.compose.foundation.BorderStroke(
-                                                                        width = if (isCorrectionActive) 1.5.dp else 0.5.dp,
-                                                                        color = chipBorderColor
-                                                                    ),
-                                                                    shape = RoundedCornerShape(20.dp)
-                                                                )
-                                                                .clickable(
-                                                                    interactionSource = chipInteraction,
-                                                                    indication = null
-                                                                ) {
-                                                                    onSuggestionClick(word)
-                                                                }
-                                                                .padding(horizontal = 6.dp, vertical = 6.dp)
-                                                                .testTag("suggestion_item_$word"),
-                                                            contentAlignment = Alignment.Center
-                                                        ) {
-                                                            Row(
-                                                                verticalAlignment = Alignment.CenterVertically,
-                                                                horizontalArrangement = Arrangement.Center
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .padding(horizontal = 4.dp)
+                                                                    .graphicsLayer {
+                                                                        scaleX = chipScale
+                                                                        scaleY = chipScale
+                                                                    }
+                                                                    .clip(if (style.isRetro) RoundedCornerShape(5.dp) else RoundedCornerShape(20.dp))
+                                                                    .background(chipBgColor)
+                                                                    .border(
+                                                                        border = androidx.compose.foundation.BorderStroke(
+                                                                            width = if (isCorrectionActive) 1.5.dp else (if (style.isRetro) 0.8.dp else 0.5.dp),
+                                                                            color = chipBorderColor
+                                                                        ),
+                                                                        shape = if (style.isRetro) RoundedCornerShape(5.dp) else RoundedCornerShape(20.dp)
+                                                                    )
+                                                                    .clickable(
+                                                                        interactionSource = chipInteraction,
+                                                                        indication = null
+                                                                    ) {
+                                                                        onSuggestionClick(word)
+                                                                    }
+                                                                    .padding(horizontal = 6.dp, vertical = 6.dp)
+                                                                    .testTag("suggestion_item_$word"),
+                                                                contentAlignment = Alignment.Center
                                                             ) {
-                                                                if (isCorrectionActive) {
-                                                                    Icon(
-                                                                        imageVector = Icons.Default.AutoFixHigh,
-                                                                        contentDescription = "Auto-correct suggestion",
-                                                                        tint = Color.White,
-                                                                        modifier = Modifier.size(12.dp).padding(end = 2.dp)
-                                                                    )
+                                                                Row(
+                                                                    verticalAlignment = Alignment.CenterVertically,
+                                                                    horizontalArrangement = Arrangement.Center
+                                                                ) {
+                                                                    if (isCorrectionActive) {
+                                                                        Icon(
+                                                                            imageVector = Icons.Default.AutoFixHigh,
+                                                                            contentDescription = "Auto-correct suggestion",
+                                                                            tint = Color.White,
+                                                                            modifier = Modifier.size(12.dp).padding(end = 2.dp)
+                                                                        )
+                                                                    }
+                                                                    AnimatedContent(
+                                                                        targetState = if (isLiteralRawTyped) "\"$word\"" else word,
+                                                                        transitionSpec = {
+                                                                            fadeIn(animationSpec = tween(110, easing = LinearOutSlowInEasing)) togetherWith
+                                                                            fadeOut(animationSpec = tween(70, easing = FastOutLinearInEasing))
+                                                                        },
+                                                                        label = "suggestion_word_anim"
+                                                                    ) { displayWord ->
+                                                                        Text(
+                                                                            text = displayWord,
+                                                                            color = textColorValue,
+                                                                            fontSize = 13.sp,
+                                                                            fontWeight = textWeight,
+                                                                            fontFamily = if (style.isMonospace) FontFamily.Monospace else FontFamily.SansSerif,
+                                                                            textAlign = TextAlign.Center,
+                                                                            maxLines = 1
+                                                                        )
+                                                                    }
                                                                 }
-                                                                AnimatedContent(
-                                                                    targetState = if (isLiteralRawTyped) "\"$word\"" else word,
-                                                                    transitionSpec = {
-                                                                        fadeIn(animationSpec = tween(110, easing = LinearOutSlowInEasing)) togetherWith
-                                                                        fadeOut(animationSpec = tween(70, easing = FastOutLinearInEasing))
-                                                                    },
-                                                                    label = "suggestion_word_anim"
-                                                                ) { displayWord ->
-                                                                    Text(
-                                                                        text = displayWord,
-                                                                        color = textColorValue,
-                                                                        fontSize = 13.sp,
-                                                                        fontWeight = textWeight,
-                                                                        textAlign = TextAlign.Center,
-                                                                        maxLines = 1
-                                                                    )
+                                                            }
+                                                        }
+
+                                                        if (emojiSuggestionsState && activePrefix.isNotEmpty()) {
+                                                            val smartEmoji = when (activePrefix.lowercase().trim()) {
+                                                                "love" -> "❤️"
+                                                                "fire", "lit" -> "🔥"
+                                                                "happy", "smile" -> "😊"
+                                                                "laugh", "lol", "haha" -> "😂"
+                                                                "cool" -> "😎"
+                                                                "sad", "cry" -> "😢"
+                                                                "party" -> "🎉"
+                                                                "clap" -> "👏"
+                                                                "ok", "okay" -> "👍"
+                                                                "coffee", "tea" -> "☕"
+                                                                "car" -> "🚗"
+                                                                "heart" -> "💖"
+                                                                "dog" -> "🐶"
+                                                                "cat" -> "🐱"
+                                                                "star" -> "⭐"
+                                                                "yes", "check" -> "✅"
+                                                                "no" -> "❌"
+                                                                "pray", "thanks" -> "🙏"
+                                                                "100", "hundred" -> "💯"
+                                                                else -> null
+                                                            }
+                                                            if (smartEmoji != null) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .padding(horizontal = 3.dp)
+                                                                        .clip(RoundedCornerShape(18.dp))
+                                                                        .background(accentColor.copy(alpha = 0.16f))
+                                                                        .clickable { onSuggestionClick(smartEmoji) }
+                                                                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                                                                        .testTag("smart_emoji_suggestion"),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    Text(text = smartEmoji, fontSize = 16.sp)
                                                                 }
                                                             }
                                                         }
                                                     }
+                                                    
+                                                    IconButton(
+                                                        onClick = {
+                                                            onVoiceTypingToggle()
+                                                        },
+                                                        modifier = Modifier.size(36.dp).testTag("mic_button")
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Mic,
+                                                            contentDescription = "Voice Dictation",
+                                                            tint = if (isVoiceTyping) Color.Red else keyTextColor.copy(alpha = 0.75f),
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
                                                 }
-                                                
-                                                IconButton(
-                                                    onClick = onRambleToggle,
-                                                    modifier = Modifier.size(36.dp).testTag("mic_button")
+                                            } else {
+                                                // IDLE QUICK TOOLS TOOLBAR (Image 2 style: 6 evenly spaced tools or smart clipboard paste)
+                                                val clipManager = remember(context) { context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager }
+                                                val recentClipText = remember(clipManager, isClipboard) {
+                                                    try {
+                                                        if (clipManager?.hasPrimaryClip() == true) {
+                                                            val txt = clipManager.primaryClip?.getItemAt(0)?.text?.toString()?.trim() ?: ""
+                                                            if (txt.isNotBlank() && txt.length <= 120) txt else null
+                                                        } else null
+                                                    } catch (e: Exception) { null }
+                                                }
+
+                                                if (recentClipText != null) {
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .padding(horizontal = 6.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        IconButton(
+                                                            onClick = {
+                                                                isToolsDrawerOpen = !isToolsDrawerOpen
+                                                                isProofreadSheetOpen = false
+                                                                isTextEditingOpen = false
+                                                            },
+                                                            modifier = Modifier.size(36.dp).testTag("expand_toolbar_options_button")
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Apps,
+                                                                contentDescription = "Gboard Quick Tools",
+                                                                tint = if (isToolsDrawerOpen) accentColor else keyTextColor.copy(alpha = 0.8f),
+                                                                modifier = Modifier.size(20.dp)
+                                                            )
+                                                        }
+
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .padding(horizontal = 6.dp)
+                                                                .clip(RoundedCornerShape(18.dp))
+                                                                .background(accentColor.copy(alpha = 0.18f))
+                                                                .border(0.5.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(18.dp))
+                                                                .clickable {
+                                                                    (context as? TypeRightKeyboardService)?.currentInputConnection?.commitText(recentClipText, 1)
+                                                                }
+                                                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                                                                .testTag("toolbar_quick_paste_chip"),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.ContentPaste,
+                                                                    contentDescription = "Quick Paste",
+                                                                    tint = accentColor,
+                                                                    modifier = Modifier.size(15.dp)
+                                                                )
+                                                                Text(
+                                                                    text = "Paste: \"${if (recentClipText.length > 20) recentClipText.take(18) + "..." else recentClipText}\"",
+                                                                    color = keyTextColor,
+                                                                    fontSize = 12.sp,
+                                                                    fontWeight = FontWeight.Medium,
+                                                                    maxLines = 1
+                                                                )
+                                                            }
+                                                        }
+
+                                                        IconButton(
+                                                            onClick = onVoiceTypingToggle,
+                                                            modifier = Modifier.size(36.dp).testTag("mic_button")
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Mic,
+                                                                contentDescription = "Voice Dictation",
+                                                                tint = if (isVoiceTyping) Color.Red else keyTextColor.copy(alpha = 0.8f),
+                                                                modifier = Modifier.size(20.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                } else {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(horizontal = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
                                                 ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Mic,
-                                                        contentDescription = "Ramble Voice Dictation",
-                                                        tint = if (isRambleRecording) Color(0xFFE53935) else keyTextColor.copy(alpha = 0.75f),
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
+                                                    // 1. Apps / Grid menu
+                                                    IconButton(
+                                                        onClick = {
+                                                            isToolsDrawerOpen = !isToolsDrawerOpen
+                                                            isProofreadSheetOpen = false
+                                                            isTextEditingOpen = false
+                                                        },
+                                                        modifier = Modifier.size(36.dp).testTag("expand_toolbar_options_button")
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Apps,
+                                                            contentDescription = "Gboard Quick Tools",
+                                                            tint = if (isToolsDrawerOpen) accentColor else keyTextColor.copy(alpha = 0.8f),
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+
+                                                    // 2. Clipboard
+                                                    IconButton(
+                                                        onClick = onClipboardToggle,
+                                                        modifier = Modifier.size(36.dp).testTag("clipboard_button")
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.ContentPaste,
+                                                            contentDescription = "Clipboard history",
+                                                            tint = if (isClipboard) accentColor else keyTextColor.copy(alpha = 0.8f),
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+
+                                                    // 3. AI Proofread / Polish Pill button
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(18.dp))
+                                                            .background(accentColor.copy(alpha = 0.22f))
+                                                            .clickable {
+                                                                isProofreadSheetOpen = true
+                                                                isToolsDrawerOpen = false
+                                                            }
+                                                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                                                            .testTag("toolbar_proofread_pill"),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.AutoFixHigh,
+                                                                contentDescription = "AI Proofread",
+                                                                tint = accentColor,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                            Text(
+                                                                text = "Proofread",
+                                                                color = accentColor,
+                                                                fontSize = 11.5.sp,
+                                                                fontWeight = FontWeight.SemiBold
+                                                            )
+                                                        }
+                                                    }
+
+                                                    // 4. GIF badge / button
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(36.dp)
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .clickable { onEmojiToggle() }
+                                                            .testTag("toolbar_gif_button"),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            text = "GIF",
+                                                            color = keyTextColor.copy(alpha = 0.8f),
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+
+                                                    // 5. Translate / AI Rephrase
+                                                    IconButton(
+                                                        onClick = { onAiPolishClick() },
+                                                        modifier = Modifier.size(36.dp).testTag("ai_polish_button")
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Translate,
+                                                            contentDescription = "Translate & Polish",
+                                                            tint = if (isAssistant) accentColor else keyTextColor.copy(alpha = 0.8f),
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+
+                                                    // 6. Mic Voice Dictation
+                                                    IconButton(
+                                                        onClick = onVoiceTypingToggle,
+                                                        modifier = Modifier.size(36.dp).testTag("mic_button")
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Mic,
+                                                            contentDescription = "Voice Dictation",
+                                                            tint = if (isVoiceTyping) Color.Red else keyTextColor.copy(alpha = 0.8f),
+                                                            modifier = Modifier.size(20.dp)
+                                                        )
+                                                    }
+                                                }
                                                 }
                                             }
                                         } else {
@@ -2847,15 +3460,15 @@ fun KeyboardLayout(
                                                 }
 
                                                 IconButton(
-                                                    onClick = onRambleToggle,
+                                                    onClick = onVoiceTypingToggle,
                                                     modifier = Modifier
                                                         .size(34.dp)
                                                         .testTag("mic_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Mic,
-                                                        contentDescription = "Ramble Voice Dictation",
-                                                        tint = if (isRambleRecording) Color(0xFFE53935) else keyTextColor.copy(alpha = 0.85f),
+                                                        contentDescription = "Voice Dictation",
+                                                        tint = if (isVoiceTyping) Color.Red else keyTextColor.copy(alpha = 0.85f),
                                                         modifier = Modifier.size(20.dp)
                                                     )
                                                 }
@@ -2917,6 +3530,7 @@ fun KeyboardLayout(
 
         // --- KEYBOARD KEYS CONTAINER ---
         val currentLayer = when {
+            isWisprVoiceOpen -> KeyboardLayer.WisprVoice
             isProofreadSheetOpen -> KeyboardLayer.Proofread
             isToolsDrawerOpen -> KeyboardLayer.ToolsDrawer
             isTextEditingOpen -> KeyboardLayer.TextEditing
@@ -2927,226 +3541,383 @@ fun KeyboardLayout(
             else -> KeyboardLayer.Qwerty
         }
 
-        Box(
+        val isOneHanded = oneHandedModeState != "off" &&
+                currentLayer != KeyboardLayer.WisprVoice &&
+                currentLayer != KeyboardLayer.ToolsDrawer
+
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(effectiveKeysHeight)
-                .padding(start = 2.dp, end = 2.dp, top = 2.dp, bottom = 4.dp)
+                .padding(horizontal = 2.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            AnimatedContent(
-                targetState = currentLayer,
-                transitionSpec = {
-                    (fadeIn(animationSpec = tween(180, easing = LinearOutSlowInEasing)) +
-                     scaleIn(initialScale = 0.97f, animationSpec = tween(180, easing = FastOutSlowInEasing))) togetherWith
-                    (fadeOut(animationSpec = tween(140, easing = FastOutLinearInEasing)) +
-                     scaleOut(targetScale = 1.02f, animationSpec = tween(140)))
-                },
-                label = "keyboard_layer_transition",
-                modifier = Modifier.fillMaxSize()
-            ) { layer ->
-                Column(
+            if (isOneHanded && oneHandedModeState == "right") {
+                OneHandedSideRail(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 4.dp),
-                    verticalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    when (layer) {
-                        KeyboardLayer.Proofread -> {
-                            GboardProofreadPanel(
-                                keyTextColor = keyTextColor,
-                                accentColor = accentColor,
-                                keyColor = normalKeyBg,
-                                onApplyText = { appliedText ->
-                                    val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
-                                    if (ic != null) {
+                        .weight(0.14f)
+                        .fillMaxHeight(),
+                    keyTextColor = keyTextColor,
+                    accentColor = accentColor,
+                    keyColor = specialKeyBg,
+                    currentMode = "right",
+                    onSwitchSide = {
+                        settings.oneHandedMode = "left"
+                        oneHandedModeState = "left"
+                    },
+                    onExpand = {
+                        settings.oneHandedMode = "off"
+                        oneHandedModeState = "off"
+                    },
+                    onSettings = onOpenSettings
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(if (isOneHanded) 0.86f else 1.0f)
+                    .fillMaxHeight()
+            ) {
+                AnimatedContent(
+                    targetState = currentLayer,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = tween(180, easing = LinearOutSlowInEasing)) +
+                         scaleIn(initialScale = 0.97f, animationSpec = tween(180, easing = FastOutSlowInEasing))) togetherWith
+                        (fadeOut(animationSpec = tween(140, easing = FastOutLinearInEasing)) +
+                         scaleOut(targetScale = 1.02f, animationSpec = tween(140)))
+                    },
+                    label = "keyboard_layer_transition",
+                    modifier = Modifier.fillMaxSize()
+                ) { layer ->
+                when (layer) {
+                    KeyboardLayer.WisprVoice -> {
+                        var polishedText by remember(rambleTranscript) { mutableStateOf("") }
+                        val wisprEngine = remember { WisprFlowEngine.getInstance(context) }
+                        var activeWisprMode by remember { mutableStateOf(settings.wisprFlowMode) }
+
+                        LaunchedEffect(rambleTranscript, activeWisprMode) {
+                            if (rambleTranscript.isNotBlank()) {
+                                val res = wisprEngine.processVoiceTranscript(rambleTranscript, activeWisprMode)
+                                polishedText = res.polishedText
+                            } else {
+                                polishedText = ""
+                            }
+                        }
+
+                        WisprFlowVoicePanel(
+                            isRecording = isRambleRecording,
+                            audioLevel = rambleAudioLevel,
+                            rawTranscript = rambleTranscript,
+                            polishedTranscript = polishedText,
+                            currentMode = activeWisprMode,
+                            accentColor = accentColor,
+                            keyTextColor = keyTextColor,
+                            keyColor = normalKeyBg,
+                            onModeSelect = { mode ->
+                                activeWisprMode = mode
+                                settings.wisprFlowMode = mode
+                            },
+                            onToggleRecording = onRambleToggle,
+                            onCommitText = { textToCommit ->
+                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+                                ic?.commitText(textToCommit, 1)
+                                isWisprVoiceOpen = false
+                                onCancelRamble()
+                            },
+                            onCancel = {
+                                onCancelRamble()
+                                isWisprVoiceOpen = false
+                            },
+                            onSwitchToKeyboard = {
+                                isWisprVoiceOpen = false
+                            }
+                        )
+                    }
+                    KeyboardLayer.Proofread -> {
+                        GboardProofreadPanel(
+                            keyTextColor = keyTextColor,
+                            accentColor = accentColor,
+                            keyColor = normalKeyBg,
+                            onApplyText = { appliedText ->
+                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+                                if (ic != null) {
+                                    ic.beginBatchEdit()
+                                    try {
+                                        ic.finishComposingText()
                                         val selected = ic.getSelectedText(0)?.toString()
                                         if (!selected.isNullOrEmpty()) {
                                             ic.commitText(appliedText, 1)
                                         } else {
-                                            val before = ic.getTextBeforeCursor(1000, 0)?.toString() ?: ""
-                                            val after = ic.getTextAfterCursor(1000, 0)?.toString() ?: ""
+                                            val before = ic.getTextBeforeCursor(2000, 0)?.toString() ?: ""
+                                            val after = ic.getTextAfterCursor(2000, 0)?.toString() ?: ""
                                             if (before.isNotEmpty() || after.isNotEmpty()) {
                                                 ic.deleteSurroundingText(before.length, after.length)
                                             }
                                             ic.commitText(appliedText, 1)
                                         }
+                                    } finally {
+                                        ic.endBatchEdit()
                                     }
-                                    isProofreadSheetOpen = false
-                                },
-                                onClose = { isProofreadSheetOpen = false }
-                            )
-                        }
-                        KeyboardLayer.ToolsDrawer -> {
-                            GboardToolsDrawer(
-                                keyTextColor = keyTextColor,
-                                accentColor = accentColor,
-                                keyColor = normalKeyBg,
-                                onToolClick = { tool ->
-                                    when (tool) {
-                                        GboardTool.PROOFREAD -> {
-                                            isToolsDrawerOpen = false
-                                            isProofreadSheetOpen = true
-                                        }
-                                        GboardTool.RAMBLE -> {
-                                            isToolsDrawerOpen = false
-                                            onRambleToggle()
-                                        }
-                                        GboardTool.CLIPBOARD -> {
-                                            isToolsDrawerOpen = false
-                                            onClipboardToggle()
-                                        }
-                                        GboardTool.THEMES -> {
-                                            val nextTheme = if (isDark) KeyboardSettings.THEME_LIGHT else KeyboardSettings.THEME_DARK
-                                            settings.theme = nextTheme
-                                        }
-                                        GboardTool.TRANSLATE -> {
-                                            isToolsDrawerOpen = false
-                                            onAiPolishClick()
-                                        }
-                                        GboardTool.TEXT_EDIT -> {
-                                            isToolsDrawerOpen = false
-                                            isTextEditingOpen = true
-                                        }
-                                        GboardTool.ONE_HANDED -> {
-                                            // Toggle height or compact mode
-                                            val nextHeight = if (settings.height == KeyboardSettings.HEIGHT_SHORT) KeyboardSettings.HEIGHT_NORMAL else KeyboardSettings.HEIGHT_SHORT
-                                            settings.height = nextHeight
-                                        }
-                                        GboardTool.SETTINGS -> {
-                                            onOpenSettings()
-                                        }
-                                    }
-                                },
-                                onClose = { isToolsDrawerOpen = false }
-                            )
-                        }
-                        KeyboardLayer.TextEditing -> {
-                            TextEditingPanel(
-                                keyTextColor = keyTextColor,
-                                accentColor = accentColor,
-                                keyColor = normalKeyBg,
-                                specialKeyBg = specialKeyBg,
-                                onNavigate = { keyCode ->
-                                    val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
-                                    ic?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
-                                    ic?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
-                                },
-                                onSelectAll = {
-                                    val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
-                                    ic?.performContextMenuAction(android.R.id.selectAll)
-                                },
-                                onCut = {
-                                    val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
-                                    ic?.performContextMenuAction(android.R.id.cut)
-                                },
-                                onCopy = {
-                                    val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
-                                    ic?.performContextMenuAction(android.R.id.copy)
-                                },
-                                onPaste = {
-                                    val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
-                                    ic?.performContextMenuAction(android.R.id.paste)
-                                },
-                                onClose = { isTextEditingOpen = false }
-                            )
-                        }
-                        KeyboardLayer.Assistant -> {
-                            AiAssistantPanel(
-                                initialMode = currentAiMode,
-                                keyTextColor = keyTextColor,
-                                accentColor = accentColor,
-                                keyColor = normalKeyBg,
-                                onApplyText = { appliedText, isSelection ->
-                                    val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
-                                    if (ic != null) {
-                                        if (isSelection) {
-                                            ic.commitText(appliedText, 1)
-                                        } else {
-                                            val before = ic.getTextBeforeCursor(1000, 0)?.toString() ?: ""
-                                            val after = ic.getTextAfterCursor(1000, 0)?.toString() ?: ""
-                                            if (before.isNotEmpty() || after.isNotEmpty()) {
-                                                ic.deleteSurroundingText(before.length, after.length)
-                                            }
-                                            ic.commitText(appliedText, 1)
-                                        }
-                                    }
-                                    onAssistantToggle()
-                                },
-                                onClose = onAssistantToggle
-                            )
-                        }
-                        KeyboardLayer.Clipboard -> {
-                            ClipboardPanel(
-                                clipboardRepository = clipboardRepository,
-                                keyTextColor = keyTextColor,
-                                accentColor = accentColor,
-                                keyColor = normalKeyBg,
-                                onPasteText = { pastedText ->
-                                    val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
-                                    ic?.commitText(pastedText, 1)
-                                },
-                                onClose = onClipboardToggle
-                            )
-                        }
-                        KeyboardLayer.Emojis -> {
-                            RevampedEmojiLayout(
-                                keyColor = normalKeyBg,
-                                textColor = keyTextColor,
-                                accentColor = accentColor,
-                                onKeyClick = onKeyClick,
-                                onEmojiToggle = onEmojiToggle,
-                                onDelete = onDelete
-                            )
-                        }
-                        KeyboardLayer.Symbols -> {
-                            SymbolLayout(
-                                keyColor = normalKeyBg,
-                                textColor = keyTextColor,
-                                accentColor = accentColor,
-                                specialKeyBg = specialKeyBg,
-                                enterKeyBg = enterKeyBg,
-                                enterKeyTextColor = enterKeyTextColor,
-                                enterIcon = enterIcon,
-                                onKeyClick = onKeyClick,
-                                onDelete = onDelete,
-                                onDeleteWord = onDeleteWord,
-                                onSymbolsToggle = onSymbolsToggle,
-                                onSpaceClick = onSpace,
-                                onEnterClick = onEnter,
-                                onVoiceTypingToggle = onVoiceTypingToggle,
-                                onSpaceSwipeLeft = onSpaceSwipeLeft,
-                                onSpaceSwipeRight = onSpaceSwipeRight
-                            )
-                        }
-                        KeyboardLayer.Qwerty -> {
-                            QwertyLayout(
-                                keyColor = normalKeyBg,
-                                textColor = keyTextColor,
-                                accentColor = accentColor,
-                                specialKeyBg = specialKeyBg,
-                                enterKeyBg = enterKeyBg,
-                                enterKeyTextColor = enterKeyTextColor,
-                                enterIcon = enterIcon,
-                                isShift = isShift,
-                                isCapsLock = isCapsLock,
-                                showNumberRow = numberRowEnabledState,
-                                onKeyClick = onKeyClick,
-                                onDelete = onDelete,
-                                onDeleteWord = onDeleteWord,
-                                onShiftToggle = onShiftToggle,
-                                onSymbolsToggle = onSymbolsToggle,
-                                onEmojiToggle = onEmojiToggle,
-                                onSpaceClick = onSpace,
-                                onEnterClick = onEnter,
-                                onSwipeWord = onSuggestionClick,
-                                dictionaryManager = dictionaryManager,
-                                onVoiceTypingToggle = onVoiceTypingToggle,
-                                onTapCoordinates = onTapCoordinates,
-                                onSpaceSwipeLeft = onSpaceSwipeLeft,
-                                onSpaceSwipeRight = onSpaceSwipeRight
-                            )
-                        }
+                                }
+                                isProofreadSheetOpen = false
+                            },
+                            onClose = { isProofreadSheetOpen = false }
+                        )
                     }
+                    KeyboardLayer.ToolsDrawer -> {
+                        GboardToolsDrawer(
+                            keyTextColor = keyTextColor,
+                            accentColor = accentColor,
+                            keyColor = normalKeyBg,
+                            onToolClick = { tool ->
+                                when (tool) {
+                                    GboardTool.PROOFREAD -> {
+                                        isToolsDrawerOpen = false
+                                        isProofreadSheetOpen = true
+                                    }
+                                    GboardTool.RAMBLE -> {
+                                        isToolsDrawerOpen = false
+                                        onVoiceTypingToggle()
+                                    }
+                                    GboardTool.CLIPBOARD -> {
+                                        isToolsDrawerOpen = false
+                                        onClipboardToggle()
+                                    }
+                                    GboardTool.THEMES -> {
+                                        val nextTheme = if (isDark) KeyboardSettings.THEME_LIGHT else KeyboardSettings.THEME_DARK
+                                        settings.theme = nextTheme
+                                    }
+                                    GboardTool.TRANSLATE -> {
+                                        isToolsDrawerOpen = false
+                                        onAiPolishClick()
+                                    }
+                                    GboardTool.TEXT_EDIT -> {
+                                        isToolsDrawerOpen = false
+                                        isTextEditingOpen = true
+                                    }
+                                    GboardTool.ONE_HANDED -> {
+                                        val nextMode = when (oneHandedModeState) {
+                                            "off" -> "right"
+                                            "right" -> "left"
+                                            else -> "off"
+                                        }
+                                        settings.oneHandedMode = nextMode
+                                        oneHandedModeState = nextMode
+                                        isToolsDrawerOpen = false
+                                    }
+                                    GboardTool.SETTINGS -> {
+                                        onOpenSettings()
+                                    }
+                                    GboardTool.LANGUAGE -> {
+                                        isToolsDrawerOpen = false
+                                        onToggleLanguage()
+                                    }
+                                }
+                            },
+                            onClose = { isToolsDrawerOpen = false }
+                        )
+                    }
+                    KeyboardLayer.TextEditing -> {
+                        TextEditingPanel(
+                            keyTextColor = keyTextColor,
+                            accentColor = accentColor,
+                            keyColor = normalKeyBg,
+                            specialKeyBg = specialKeyBg,
+                            onNavigate = { keyCode ->
+                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+                                ic?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+                                ic?.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+                            },
+                            onSelectAll = {
+                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+                                ic?.performContextMenuAction(android.R.id.selectAll)
+                            },
+                            onCut = {
+                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+                                ic?.performContextMenuAction(android.R.id.cut)
+                            },
+                            onCopy = {
+                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+                                ic?.performContextMenuAction(android.R.id.copy)
+                            },
+                            onPaste = {
+                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+                                ic?.performContextMenuAction(android.R.id.paste)
+                            },
+                            onClose = { isTextEditingOpen = false }
+                        )
+                    }
+                    KeyboardLayer.Assistant -> {
+                        AiAssistantPanel(
+                            initialMode = currentAiMode,
+                            keyTextColor = keyTextColor,
+                            accentColor = accentColor,
+                            keyColor = normalKeyBg,
+                            onApplyText = { appliedText, isSelection ->
+                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+                                if (ic != null) {
+                                    if (isSelection) {
+                                        ic.commitText(appliedText, 1)
+                                    } else {
+                                        val before = ic.getTextBeforeCursor(1000, 0)?.toString() ?: ""
+                                        val after = ic.getTextAfterCursor(1000, 0)?.toString() ?: ""
+                                        if (before.isNotEmpty() || after.isNotEmpty()) {
+                                            ic.deleteSurroundingText(before.length, after.length)
+                                        }
+                                        ic.commitText(appliedText, 1)
+                                    }
+                                }
+                                onAssistantToggle()
+                            },
+                            onClose = onAssistantToggle
+                        )
+                    }
+                    KeyboardLayer.Clipboard -> {
+                        ClipboardPanel(
+                            clipboardRepository = clipboardRepository,
+                            keyTextColor = keyTextColor,
+                            accentColor = accentColor,
+                            keyColor = normalKeyBg,
+                            onPasteText = { pastedText ->
+                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+                                ic?.commitText(pastedText, 1)
+                            },
+                            onClose = onClipboardToggle
+                        )
+                    }
+                    KeyboardLayer.Emojis -> {
+                        RevampedEmojiLayout(
+                            keyColor = normalKeyBg,
+                            textColor = keyTextColor,
+                            accentColor = accentColor,
+                            onKeyClick = onKeyClick,
+                            onEmojiToggle = onEmojiToggle,
+                            onDelete = onDelete
+                        )
+                    }
+                    KeyboardLayer.Symbols -> {
+                        SymbolLayout(
+                            keyColor = normalKeyBg,
+                            textColor = keyTextColor,
+                            accentColor = accentColor,
+                            specialKeyBg = specialKeyBg,
+                            enterKeyBg = enterKeyBg,
+                            enterKeyTextColor = enterKeyTextColor,
+                            enterIcon = enterIcon,
+                            onKeyClick = onKeyClick,
+                            onDelete = onDelete,
+                            onDeleteWord = onDeleteWord,
+                            onSymbolsToggle = onSymbolsToggle,
+                            onSpaceClick = onSpace,
+                            onEnterClick = onEnter,
+                            onVoiceTypingToggle = onVoiceTypingToggle,
+                            onSpaceSwipeLeft = onSpaceSwipeLeft,
+                            onSpaceSwipeRight = onSpaceSwipeRight,
+                            spacebarLabel = spacebarLabel,
+                            onSpaceLongClick = onToggleLanguage
+                        )
+                    }
+                    KeyboardLayer.Qwerty -> {
+                        QwertyLayout(
+                            keyColor = normalKeyBg,
+                            textColor = keyTextColor,
+                            accentColor = accentColor,
+                            specialKeyBg = specialKeyBg,
+                            enterKeyBg = enterKeyBg,
+                            enterKeyTextColor = enterKeyTextColor,
+                            enterIcon = enterIcon,
+                            isShift = isShift,
+                            isCapsLock = isCapsLock,
+                            showNumberRow = numberRowEnabledState,
+                            onKeyClick = onKeyClick,
+                            onDelete = onDelete,
+                            onDeleteWord = onDeleteWord,
+                            onShiftToggle = onShiftToggle,
+                            onSymbolsToggle = onSymbolsToggle,
+                            onEmojiToggle = onEmojiToggle,
+                            onSpaceClick = onSpace,
+                            onEnterClick = onEnter,
+                            onSwipeWord = onSuggestionClick,
+                            dictionaryManager = dictionaryManager,
+                            onVoiceTypingToggle = onVoiceTypingToggle,
+                            onTapCoordinates = onTapCoordinates,
+                            onSpaceSwipeLeft = onSpaceSwipeLeft,
+                            onSpaceSwipeRight = onSpaceSwipeRight,
+                            spacebarLabel = spacebarLabel,
+                            onSpaceLongClick = onToggleLanguage
+                        )
+                    }
+                }
+            }
+        }
+
+            if (isOneHanded && oneHandedModeState == "left") {
+                OneHandedSideRail(
+                    modifier = Modifier
+                        .weight(0.14f)
+                        .fillMaxHeight(),
+                    keyTextColor = keyTextColor,
+                    accentColor = accentColor,
+                    keyColor = specialKeyBg,
+                    currentMode = "left",
+                    onSwitchSide = {
+                        settings.oneHandedMode = "right"
+                        oneHandedModeState = "right"
+                    },
+                    onExpand = {
+                        settings.oneHandedMode = "off"
+                        oneHandedModeState = "off"
+                    },
+                    onSettings = onOpenSettings
+                )
+            }
+        }
+
+        // --- DEDICATED SYSTEM NAVIGATION CLEARANCE LAYER ---
+        // Lifts the keys above the Android gesture navigation handle and IME switcher
+        if (bottomClearanceHeight > 0.dp) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(bottomClearanceHeight)
+                    .background(backgroundColor),
+                contentAlignment = Alignment.Center
+            ) {
+                HorizontalDivider(
+                    color = keyTextColor.copy(alpha = 0.08f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Left side: Dismiss / Collapse Keyboard button
+                    IconButton(
+                        onClick = {
+                            (context as? InputMethodService)?.requestHideSelf(0)
+                        },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("dismiss_keyboard_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Dismiss Keyboard",
+                            tint = keyTextColor.copy(alpha = 0.5f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Center: Spacious clearance for Android system navigation gesture bar / 3-button pill
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // Right side: Dedicated clearance for Android system IME switcher button (the globe icon)
+                    Spacer(modifier = Modifier.width(42.dp))
                 }
             }
         }
@@ -3183,7 +3954,9 @@ fun QwertyLayout(
     onTapCoordinates: (Float, Float) -> Unit = { _, _ -> },
     onSpaceSwipeLeft: (() -> Unit)? = null,
     onSpaceSwipeRight: (() -> Unit)? = null,
-    showNumberRow: Boolean = false
+    showNumberRow: Boolean = false,
+    spacebarLabel: String = "English",
+    onSpaceLongClick: (() -> Unit)? = null
 ) {
     val numberRow = listOf('1', '2', '3', '4', '5', '6', '7', '8', '9', '0')
     val row1 = listOf('q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p')
@@ -3346,14 +4119,14 @@ fun QwertyLayout(
                         }
                     }
                 },
-            verticalArrangement = Arrangement.spacedBy(3.dp)
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
         if (showNumberRow) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(0.85f),
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 numberRow.forEach { char ->
                     KeyButton(
@@ -3374,7 +4147,7 @@ fun QwertyLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             row1.forEach { char ->
                 val dispChar = if (isShift) char.uppercaseChar() else char
@@ -3387,7 +4160,7 @@ fun QwertyLayout(
                     textColor = textColor,
                     onLongClick = if (secChar != null) { { onKeyClick(secChar.toString()) } } else null
                 ) {
-                    onKeyClick(char.toString())
+                    onKeyClick(dispChar.toString())
                 }
             }
         }
@@ -3397,7 +4170,7 @@ fun QwertyLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Spacer(modifier = Modifier.weight(0.5f))
             row2.forEach { char ->
@@ -3409,7 +4182,7 @@ fun QwertyLayout(
                     textColor = textColor,
                     onLongClick = { secondaryMap[char]?.let { sec -> onKeyClick(sec.toString()) } }
                 ) {
-                    onKeyClick(char.toString())
+                    onKeyClick(dispChar.toString())
                 }
             }
             Spacer(modifier = Modifier.weight(0.5f))
@@ -3420,14 +4193,14 @@ fun QwertyLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Shift Key
             val shiftIconColor = if (isCapsLock) accentColor else if (isShift) accentColor.copy(alpha = 0.85f) else textColor
             IconButtonKey(
                 icon = Icons.Default.ArrowUpward,
-                modifier = Modifier.weight(1.35f),
+                modifier = Modifier.weight(1.4f),
                 keyBg = if (isCapsLock || isShift) accentColor.copy(alpha = 0.2f) else specialKeyBg,
                 tint = shiftIconColor,
                 onClick = onShiftToggle
@@ -3442,7 +4215,7 @@ fun QwertyLayout(
                     textColor = textColor,
                     onLongClick = { secondaryMap[char]?.let { sec -> onKeyClick(sec.toString()) } }
                 ) {
-                    onKeyClick(char.toString())
+                    onKeyClick(dispChar.toString())
                 }
             }
 
@@ -3450,21 +4223,22 @@ fun QwertyLayout(
             IconButtonKey(
                 icon = Icons.Default.Backspace,
                 modifier = Modifier
-                    .weight(1.35f)
+                    .weight(1.4f)
                     .testTag("delete_key"),
                 keyBg = specialKeyBg,
                 tint = textColor,
                 onClick = onDelete,
-                onHold = onDeleteWord
+                onHold = onDeleteWord,
+                onSwipeLeft = onDeleteWord
             )
         }
 
-        // Row 4: Minimal, spacious, ergonomic bottom row (?123, Emoji, Spacebar, Period, Enter)
+        // Row 4: Minimal, spacious, ergonomic bottom row (?123, Comma, Emoji, Spacebar, Period, Enter)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 1. ?123 Symbol Toggle
@@ -3477,7 +4251,19 @@ fun QwertyLayout(
                 onSymbolsToggle()
             }
 
-            // 2. Emoji Key (with long-press for comma)
+            // 2. Comma "," Key
+            KeyButton(
+                text = ",",
+                secondaryText = "!",
+                modifier = Modifier.weight(1.0f),
+                keyBg = specialKeyBg,
+                textColor = textColor,
+                onLongClick = { onKeyClick("!") }
+            ) {
+                onKeyClick(",")
+            }
+
+            // 3. Emoji Key
             IconButtonKey(
                 icon = Icons.Default.Mood,
                 modifier = Modifier
@@ -3488,33 +4274,34 @@ fun QwertyLayout(
                 onClick = onEmojiToggle
             )
 
-            // 3. Spacious English Spacebar (Flawless thumb reach & smooth swipe glide)
+            // 4. Spacious Spacebar (Flawless thumb reach & smooth swipe glide)
             KeyButton(
-                text = "English",
+                text = spacebarLabel,
                 modifier = Modifier
-                    .weight(5.3f)
+                    .weight(4.8f)
                     .testTag("space_key"),
                 keyBg = keyColor,
-                textColor = textColor.copy(alpha = 0.6f),
+                textColor = textColor.copy(alpha = 0.65f),
+                onLongClick = onSpaceLongClick,
                 onSwipeLeft = onSpaceSwipeLeft,
                 onSwipeRight = onSpaceSwipeRight
             ) {
                 onSpaceClick()
             }
 
-            // 4. Period "." Key (with secondary comma hint & long-press)
+            // 5. Period "." Key (with secondary question hint & long-press)
             KeyButton(
                 text = ".",
-                secondaryText = ",",
+                secondaryText = "?",
                 modifier = Modifier.weight(1.0f),
                 keyBg = specialKeyBg,
                 textColor = textColor,
-                onLongClick = { onKeyClick(",") }
+                onLongClick = { onKeyClick("?") }
             ) {
                 onKeyClick(".")
             }
 
-            // 5. Enter / Action Key (Themed action capsule)
+            // 6. Enter / Action Key (Themed action capsule)
             IconButtonKey(
                 icon = enterIcon,
                 modifier = Modifier
@@ -3621,7 +4408,9 @@ fun SymbolLayout(
     onEnterClick: () -> Unit,
     onVoiceTypingToggle: () -> Unit,
     onSpaceSwipeLeft: (() -> Unit)? = null,
-    onSpaceSwipeRight: (() -> Unit)? = null
+    onSpaceSwipeRight: (() -> Unit)? = null,
+    spacebarLabel: String = "English",
+    onSpaceLongClick: (() -> Unit)? = null
 ) {
     var isSecondarySymbols by remember { mutableStateOf(false) }
 
@@ -3643,14 +4432,14 @@ fun SymbolLayout(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 2.dp, vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         // Row 1
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             activeRow1.forEach { char ->
                 KeyButton(text = char, modifier = Modifier.weight(1.0f), keyBg = keyColor, textColor = textColor) {
@@ -3664,7 +4453,7 @@ fun SymbolLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             activeRow2.forEach { char ->
                 KeyButton(text = char, modifier = Modifier.weight(1.0f), keyBg = keyColor, textColor = textColor) {
@@ -3678,12 +4467,12 @@ fun SymbolLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             KeyButton(
                 text = if (isSecondarySymbols) "1/2" else "=\\<",
-                modifier = Modifier.weight(1.35f),
+                modifier = Modifier.weight(1.4f),
                 keyBg = if (isSecondarySymbols) accentColor.copy(alpha = 0.18f) else specialKeyBg,
                 textColor = if (isSecondarySymbols) accentColor else textColor
             ) {
@@ -3698,20 +4487,21 @@ fun SymbolLayout(
 
             IconButtonKey(
                 icon = Icons.Default.Backspace,
-                modifier = Modifier.weight(1.35f),
+                modifier = Modifier.weight(1.4f),
                 keyBg = specialKeyBg,
                 tint = textColor,
                 onClick = onDelete,
-                onHold = onDeleteWord
+                onHold = onDeleteWord,
+                onSwipeLeft = onDeleteWord
             )
         }
 
-        // Row 4 (ABC, Emoji, English Spacebar, Period, Enter)
+        // Row 4 (ABC, Comma, Emoji, English Spacebar, Period, Enter)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             KeyButton(text = "ABC", modifier = Modifier.weight(1.35f), keyBg = specialKeyBg, textColor = textColor) {
@@ -3729,11 +4519,22 @@ fun SymbolLayout(
                 onKeyClick(",")
             }
 
+            IconButtonKey(
+                icon = Icons.Default.Mood,
+                modifier = Modifier
+                    .weight(1.0f)
+                    .testTag("symbol_bottom_emoji_button"),
+                keyBg = specialKeyBg,
+                tint = textColor.copy(alpha = 0.85f),
+                onClick = onSymbolsToggle
+            )
+
             KeyButton(
-                text = "English",
-                modifier = Modifier.weight(5.3f),
+                text = spacebarLabel,
+                modifier = Modifier.weight(4.8f),
                 keyBg = keyColor,
-                textColor = textColor.copy(alpha = 0.6f),
+                textColor = textColor.copy(alpha = 0.65f),
+                onLongClick = onSpaceLongClick,
                 onSwipeLeft = onSpaceSwipeLeft,
                 onSwipeRight = onSpaceSwipeRight
             ) {
@@ -3789,20 +4590,31 @@ fun RowScope.KeyButton(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val swipeThresholdPx = with(density) { 14.dp.toPx() }
 
+    val hasBevel = style.isRetro && style.keyBevelColor != Color.Transparent && keyBg != Color.Transparent
+
     val baseModifier = modifier
-        .padding(vertical = 1.5.dp, horizontal = 0.5.dp)
+        .padding(vertical = 1.dp, horizontal = 0.5.dp)
         .fillMaxHeight()
         .graphicsLayer {
             scaleX = pressScale
             scaleY = pressScale
         }
         .shadow(
-            elevation = if (keyBg != Color.Transparent) 0.8.dp else 0.dp,
+            elevation = if (keyBg != Color.Transparent) (if (hasBevel) 1.5.dp else 0.8.dp) else 0.dp,
             shape = currentShape,
             clip = false
         )
         .clip(currentShape)
-        .background(effectiveKeyBg)
+        .background(if (hasBevel) style.keyBevelColor else effectiveKeyBg)
+        .run {
+            if (hasBevel) {
+                this.padding(bottom = if (isPressed) 0.8.dp else 2.5.dp)
+                    .clip(currentShape)
+                    .background(effectiveKeyBg)
+            } else {
+                this
+            }
+        }
         .run {
             val subtleBorder = currentBorder ?: if (keyBg != Color.Transparent) {
                 BorderStroke(0.5.dp, if (style.isDark) Color(0x1AFFFFFF) else Color(0x14000000))
@@ -3886,18 +4698,25 @@ fun RowScope.KeyButton(
                     modifier = Modifier
                         .shadow(elevation = 8.dp, shape = RoundedCornerShape(12.dp), clip = false)
                         .background(
-                            if (style.isDark) Color(0xFF2E2E33) else Color(0xFFFFFFFF),
-                            RoundedCornerShape(12.dp)
+                            if (style.isRetro) (if (style.isDark) Color(0xFF18221B) else Color(0xFFF7F2EC))
+                            else if (style.isDark) Color(0xFF2E2E33) else Color(0xFFFFFFFF),
+                            RoundedCornerShape(10.dp)
                         )
-                        .border(0.5.dp, if (style.isDark) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                        .border(
+                            1.dp,
+                            if (style.isRetro) style.accentColor.copy(alpha = 0.6f)
+                            else if (style.isDark) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.12f),
+                            RoundedCornerShape(10.dp)
+                        )
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = text,
-                        color = if (style.isDark) Color.White else Color(0xFF1D2024),
+                        color = if (style.isRetro) style.keyTextColor else if (style.isDark) Color.White else Color(0xFF1D2024),
                         fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = if (style.isMonospace) FontFamily.Monospace else FontFamily.SansSerif
                     )
                 }
             }
@@ -3909,9 +4728,21 @@ fun RowScope.KeyButton(
                 color = effectiveTextColor.copy(alpha = 0.38f),
                 fontSize = 8.5.sp,
                 fontWeight = FontWeight.SemiBold,
+                fontFamily = if (style.isMonospace) FontFamily.Monospace else FontFamily.SansSerif,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 1.5.dp, end = 3.dp)
+            )
+        }
+
+        if (style.isRetro && style.spacebarLineColor != Color.Transparent && (text.contains("English") || text.contains("Manglish"))) {
+            Box(
+                modifier = Modifier
+                    .width(42.dp)
+                    .height(2.dp)
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(style.spacebarLineColor)
             )
         }
 
@@ -3919,9 +4750,9 @@ fun RowScope.KeyButton(
         Text(
             text = text,
             color = effectiveTextColor,
-            fontSize = if (isMultiChar) 12.5.sp else 18.sp,
-            fontWeight = if (isMultiChar) FontWeight.Medium else FontWeight.Normal,
-            fontFamily = FontFamily.SansSerif,
+            fontSize = if (isMultiChar) 13.5.sp else 21.sp,
+            fontWeight = if (isMultiChar) FontWeight.Medium else (if (style.isRetro) FontWeight.Bold else FontWeight.Normal),
+            fontFamily = if (style.isMonospace) FontFamily.Monospace else FontFamily.SansSerif,
             maxLines = 1,
             softWrap = false,
             overflow = androidx.compose.ui.text.style.TextOverflow.Clip
@@ -3991,7 +4822,8 @@ fun RowScope.IconButtonKey(
     keyBg: Color,
     tint: Color,
     onClick: () -> Unit,
-    onHold: (() -> Unit)? = null
+    onHold: (() -> Unit)? = null,
+    onSwipeLeft: (() -> Unit)? = null
 ) {
     val style = LocalKeyboardStyle.current
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -4009,20 +4841,31 @@ fun RowScope.IconButtonKey(
     val currentShape = style.keyShape
     val currentBorder = style.keyBorder
 
+    val hasBevel = style.isRetro && style.keyBevelColor != Color.Transparent && keyBg != Color.Transparent
+
     val baseModifier = modifier
-        .padding(vertical = 1.5.dp, horizontal = 0.5.dp)
+        .padding(vertical = 1.dp, horizontal = 0.5.dp)
         .fillMaxHeight()
         .graphicsLayer {
             scaleX = pressScale
             scaleY = pressScale
         }
         .shadow(
-            elevation = if (keyBg != Color.Transparent) 0.8.dp else 0.dp,
+            elevation = if (keyBg != Color.Transparent) (if (hasBevel) 1.5.dp else 0.8.dp) else 0.dp,
             shape = currentShape,
             clip = false
         )
         .clip(currentShape)
-        .background(effectiveKeyBg)
+        .background(if (hasBevel) style.keyBevelColor else effectiveKeyBg)
+        .run {
+            if (hasBevel) {
+                this.padding(bottom = if (isPressed) 0.8.dp else 2.5.dp)
+                    .clip(currentShape)
+                    .background(effectiveKeyBg)
+            } else {
+                this
+            }
+        }
         .run {
             val subtleBorder = currentBorder ?: if (keyBg != Color.Transparent) {
                 BorderStroke(0.5.dp, if (style.isDark) Color(0x1AFFFFFF) else Color(0x14000000))
@@ -4035,14 +4878,30 @@ fun RowScope.IconButtonKey(
             }
         }
 
+    val gestureModifier = if (onSwipeLeft != null) {
+        baseModifier.pointerInput(Unit) {
+            detectHorizontalDragGestures(
+                onDragEnd = {},
+                onHorizontalDrag = { change, dragAmount ->
+                    if (dragAmount < -15f) {
+                        change.consume()
+                        onSwipeLeft()
+                    }
+                }
+            )
+        }
+    } else {
+        baseModifier
+    }
+
     val finalModifier = if (onHold != null) {
-        baseModifier.repeatingClickable(
+        gestureModifier.repeatingClickable(
             interactionSource = interactionSource,
             onClick = onClick,
             onHold = onHold
         )
     } else {
-        baseModifier.clickable(
+        gestureModifier.clickable(
             interactionSource = interactionSource,
             indication = androidx.compose.foundation.LocalIndication.current
         ) { onClick() }
@@ -4056,7 +4915,7 @@ fun RowScope.IconButtonKey(
             imageVector = icon,
             contentDescription = null,
             tint = effectiveTint,
-            modifier = Modifier.size(19.dp)
+            modifier = Modifier.size(21.dp)
         )
     }
 }
@@ -4679,11 +5538,77 @@ fun AiEngineIndicatorBadge(
     }
 }
 
+@Composable
+fun OneHandedSideRail(
+    modifier: Modifier = Modifier,
+    keyTextColor: Color,
+    accentColor: Color,
+    keyColor: Color,
+    currentMode: String,
+    onSwitchSide: () -> Unit,
+    onExpand: () -> Unit,
+    onSettings: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .padding(horizontal = 4.dp, vertical = 6.dp)
+            .fillMaxHeight(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceEvenly
+    ) {
+        androidx.compose.material3.FilledTonalIconButton(
+            onClick = onSwitchSide,
+            modifier = Modifier.size(42.dp),
+            colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = keyColor,
+                contentColor = keyTextColor
+            )
+        ) {
+            Icon(
+                imageVector = if (currentMode == "left") Icons.AutoMirrored.Filled.ArrowForward else Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Switch Hand",
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        androidx.compose.material3.FilledTonalIconButton(
+            onClick = onExpand,
+            modifier = Modifier.size(42.dp),
+            colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = keyColor,
+                contentColor = keyTextColor
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Fullscreen,
+                contentDescription = "Expand to Full Width",
+                modifier = Modifier.size(22.dp)
+            )
+        }
+
+        androidx.compose.material3.FilledTonalIconButton(
+            onClick = onSettings,
+            modifier = Modifier.size(42.dp),
+            colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = keyColor,
+                contentColor = keyTextColor
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = "Settings",
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
 enum class GboardTool(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     PROOFREAD("Proofread", Icons.Default.AutoAwesome),
     RAMBLE("Ramble Voice", Icons.Default.Mic),
     CLIPBOARD("Clipboard", Icons.Default.ContentPaste),
     THEMES("Theme", Icons.Default.Palette),
+    LANGUAGE("Language", Icons.Default.Language),
     TRANSLATE("Translate", Icons.Default.Translate),
     TEXT_EDIT("Text Editing", Icons.Default.Keyboard),
     ONE_HANDED("One-Handed", Icons.Default.PhoneAndroid),
@@ -4821,6 +5746,10 @@ fun GboardProofreadPanel(
     
     var originalText by remember { mutableStateOf("") }
     var correctedText by remember { mutableStateOf("") }
+    var slmResult by remember { mutableStateOf<SlmProofreadEngine.SlmProofreadResult?>(null) }
+    var neuralResult by remember { mutableStateOf<OnDeviceNeuralPolishEngine.NeuralPolishResult?>(null) }
+    var selectedEngineIndex by remember { mutableStateOf(0) }
+    val engines = listOf("⚡ Neural Polish", "🧠 AICore Nano", "🤖 SLM Syntactic")
     var isLoading by remember { mutableStateOf(true) }
     var selectedTone by remember { mutableStateOf("Proofread") }
 
@@ -4829,10 +5758,11 @@ fun GboardProofreadPanel(
         "Formal" to "👔 Professional",
         "Casual" to "💬 Casual",
         "Concise" to "⚡ Concise",
+        "Eloquent" to "🌟 Eloquent",
         "Bullets" to "📝 Bullets"
     )
 
-    fun runCorrection(text: String, tone: String) {
+    fun runCorrection(text: String, tone: String, engineIdx: Int = selectedEngineIndex) {
         if (text.isBlank()) {
             isLoading = false
             return
@@ -4840,15 +5770,31 @@ fun GboardProofreadPanel(
         isLoading = true
         coroutineScope.launch {
             try {
-                val polishMode = when (tone) {
-                    "Formal" -> PolishMode.PROFESSIONAL
-                    "Casual" -> PolishMode.CASUAL
-                    "Concise" -> PolishMode.SHORTEN
-                    "Bullets" -> PolishMode.SHORTEN
-                    else -> PolishMode.PROOFREAD
+                when (engineIdx) {
+                    0 -> { // ⚡ Neural Polish (On-Device)
+                        val engine = OnDeviceNeuralPolishEngine.getInstance(context)
+                        val res = engine.polish(text, tone)
+                        neuralResult = res
+                        correctedText = res.polishedText
+                    }
+                    1 -> { // 🧠 AICore (Gemini Nano)
+                        val slmEngine = SlmProofreadEngine.getInstance(context)
+                        val detailed = slmEngine.proofread(text, tone)
+                        slmResult = detailed
+                        if (tone.equals("Proofread", ignoreCase = true)) {
+                            correctedText = detailed.proofreadText
+                        } else {
+                            val result = DeviceAiCoreEngine.getInstance(context).proofread(detailed.proofreadText, tone)
+                            correctedText = result.correctedText
+                        }
+                    }
+                    else -> { // 🤖 SLM Syntactic
+                        val slmEngine = SlmProofreadEngine.getInstance(context)
+                        val detailed = slmEngine.proofread(text, tone)
+                        slmResult = detailed
+                        correctedText = detailed.proofreadText
+                    }
                 }
-                val result = AiPolishManager(context).polishText(text, polishMode, TextContext(mode = polishMode))
-                correctedText = result
             } catch (e: Exception) {
                 correctedText = text
             } finally {
@@ -4858,16 +5804,17 @@ fun GboardProofreadPanel(
     }
 
     LaunchedEffect(Unit) {
+        ic?.finishComposingText()
         val selected = ic?.getSelectedText(0)?.toString()
         if (!selected.isNullOrEmpty()) {
             originalText = selected
         } else {
-            val before = ic?.getTextBeforeCursor(300, 0)?.toString() ?: ""
-            val after = ic?.getTextAfterCursor(300, 0)?.toString() ?: ""
+            val before = ic?.getTextBeforeCursor(2000, 0)?.toString() ?: ""
+            val after = ic?.getTextAfterCursor(2000, 0)?.toString() ?: ""
             originalText = (before + after).trim()
         }
         if (originalText.isNotEmpty()) {
-            runCorrection(originalText, "Proofread")
+            runCorrection(originalText, "Proofread", 0)
         } else {
             isLoading = false
         }
@@ -4897,7 +5844,7 @@ fun GboardProofreadPanel(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "Pixel Proofread",
+                    text = "AI Polish",
                     color = keyTextColor,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
@@ -4905,14 +5852,18 @@ fun GboardProofreadPanel(
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = Color(0xFF10B981).copy(alpha = 0.15f),
-                    border = BorderStroke(0.5.dp, Color(0xFF10B981).copy(alpha = 0.4f))
+                    border = BorderStroke(0.5.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
+                    modifier = Modifier.clickable {
+                        selectedEngineIndex = (selectedEngineIndex + 1) % engines.size
+                        runCorrection(originalText, selectedTone, selectedEngineIndex)
+                    }
                 ) {
                     Text(
-                        text = "100% On-Device",
+                        text = engines[selectedEngineIndex] + " ▾",
                         color = Color(0xFF10B981),
-                        fontSize = 9.sp,
+                        fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }
@@ -4948,7 +5899,7 @@ fun GboardProofreadPanel(
                     modifier = Modifier
                         .clickable {
                             selectedTone = toneId
-                            runCorrection(originalText, toneId)
+                            runCorrection(originalText, toneId, selectedEngineIndex)
                         }
                         .testTag("proofread_tone_$toneId")
                 ) {
@@ -4980,7 +5931,7 @@ fun GboardProofreadPanel(
                     ) {
                         CircularProgressIndicator(color = accentColor, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Text(
-                            text = "Analyzing with on-device SLM...",
+                            text = "Analyzing with ${engines[selectedEngineIndex]}...",
                             color = keyTextColor.copy(alpha = 0.7f),
                             fontSize = 12.sp
                         )
@@ -5006,6 +5957,94 @@ fun GboardProofreadPanel(
                             .weight(1f)
                             .verticalScroll(rememberScrollState())
                     ) {
+                        if (selectedEngineIndex == 0) {
+                            neuralResult?.let { nRes ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = accentColor.copy(alpha = 0.15f),
+                                    border = BorderStroke(0.5.dp, accentColor.copy(alpha = 0.4f)),
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "${nRes.toneSummary} • ${nRes.latencyMs}ms local inference • ${nRes.appliedEdits.size} improvements",
+                                        color = accentColor,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+
+                                if (nRes.appliedEdits.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
+                                            .padding(bottom = 6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        nRes.appliedEdits.forEach { edit ->
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = keyTextColor.copy(alpha = 0.08f),
+                                                border = BorderStroke(0.5.dp, keyTextColor.copy(alpha = 0.18f))
+                                            ) {
+                                                Text(
+                                                    text = "${edit.original} → ${edit.replacement}",
+                                                    color = keyTextColor,
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            slmResult?.let { result ->
+                                if (result.corrections.isNotEmpty()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = accentColor.copy(alpha = 0.15f),
+                                        border = BorderStroke(0.5.dp, accentColor.copy(alpha = 0.4f)),
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = result.summaryMessage,
+                                            color = accentColor,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
+                                            .padding(bottom = 6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        result.corrections.forEach { cor ->
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = keyTextColor.copy(alpha = 0.08f),
+                                                border = BorderStroke(0.5.dp, keyTextColor.copy(alpha = 0.18f))
+                                            ) {
+                                                Text(
+                                                    text = "${cor.original} → ${cor.replacement}",
+                                                    color = keyTextColor,
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         if (correctedText != originalText && correctedText.isNotBlank()) {
                             Text(
                                 text = "Original: $originalText",

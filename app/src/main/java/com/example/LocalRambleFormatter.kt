@@ -46,51 +46,37 @@ class LocalRambleFormatter(private val context: Context) {
         modelsDir.mkdirs()
     }
 
+    private val googleAiCoreService by lazy { GoogleAiCoreService.getInstance(context) }
+
     /**
-     * Checks if a quantized local SLM model (e.g., Gemma 3 1B/270M, Llama-3.2-1B, Qwen-2.5)
-     * is available in local storage.
+     * Checks if Google AICore or on-device model is available.
      */
-    fun hasLocalSlmModel(): Boolean {
-        val modelFile = getSlmModelFile()
-        return modelFile.exists() && modelFile.length() > 0
-    }
-
-    fun getSlmModelFile(): File {
-        return File(modelsDir, "gemma3_1b_int4.bin")
+    fun hasLocalAiCore(): Boolean {
+        return GoogleAiCoreService.isAiCoreSupportedOnDevice(context)
     }
 
     /**
-     * Formats raw voice dictation into polished text completely on-device.
-     * Executes the local SLM if available, with immediate deterministic offline fallback.
+     * Formats raw voice dictation into polished text completely on-device using Google AICore.
+     * Executes Google AICore on-device grammar/spell verification with immediate deterministic offline fallback.
      */
     suspend fun formatRambleText(rawTranscript: String): String = withContext(Dispatchers.Default) {
         val raw = rawTranscript.trim()
         if (raw.isBlank()) return@withContext ""
 
-        // 1. If quantized local SLM file is present in internal storage, execute LiteRT-LM / MediaPipe LLM pipeline
-        if (hasLocalSlmModel()) {
-            try {
-                val prompt = buildExactOnDevicePrompt(raw)
-                val slmOutput = executeLocalSlmInference(prompt, getSlmModelFile())
-                if (slmOutput.isNotBlank()) {
-                    return@withContext cleanModelOutput(slmOutput)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Local SLM inference error, falling back to local heuristic engine: ${e.message}")
+        // 1. First run deterministic cleanup of spoken filler words, stutters and live self-corrections
+        val heuristicCleaned = runDeterministicLocalRambleEngine(raw)
+
+        // 2. Pass through Google AICore On-Device Grammar & Spell Proofreading pipeline
+        try {
+            val aiCoreResult = googleAiCoreService.proofreadSentence(heuristicCleaned, "Ramble")
+            if (aiCoreResult.correctedText.isNotBlank()) {
+                return@withContext aiCoreResult.correctedText
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "Google AICore Ramble proofread fallback: ${e.message}")
         }
 
-        // 2. High-performance deterministic on-device heuristic engine (Zero Cloud Dependency)
-        return@withContext runDeterministicLocalRambleEngine(raw)
-    }
-
-    /**
-     * Executes LiteRT-LM / on-device LLM inference over local weights.
-     */
-    private fun executeLocalSlmInference(prompt: String, modelFile: File): String {
-        Log.d(TAG, "Running local SLM inference with model: ${modelFile.name}")
-        // Placeholder for native LiteRT / LlmInference C++ / JNI call
-        return ""
+        return@withContext heuristicCleaned
     }
 
     /**

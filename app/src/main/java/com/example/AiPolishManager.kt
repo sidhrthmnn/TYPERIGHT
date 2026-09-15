@@ -20,8 +20,10 @@ class AiPolishManager(private val context: Context) {
         private const val TAG = "AiPolishManager"
     }
 
+    private val aiCoreEngine = DeviceAiCoreEngine.getInstance(context)
+
     /**
-     * Executes proofreading using the local-first confidence-evaluated AI pipeline.
+     * Executes proofreading using On-Device AICore (Gemini Nano).
      */
     suspend fun proofreadText(
         text: String,
@@ -29,19 +31,8 @@ class AiPolishManager(private val context: Context) {
     ): String = withContext(Dispatchers.Default) {
         if (text.isBlank()) return@withContext ""
 
-        val startTime = System.currentTimeMillis()
-        val result = inferenceEngine.process(text, PolishMode.PROOFREAD, textContext)
-        val duration = System.currentTimeMillis() - startTime
-
-        val engineName = when (result.source) {
-            AiSource.CLOUD -> AiExecutionLogger.ENGINE_GEMINI_CLOUD
-            AiSource.LOCAL_MODEL -> AiExecutionLogger.ENGINE_OFFLINE_LOCAL
-            AiSource.LOCAL_RULES -> AiExecutionLogger.ENGINE_OFFLINE_LOCAL
-            AiSource.ORIGINAL -> AiExecutionLogger.ENGINE_OFFLINE_LOCAL
-        }
-        AiExecutionLogger.logAiAction(context, "Proofreading", engineName, text, result.text, duration)
-
-        return@withContext result.text
+        val aiCoreResult = aiCoreEngine.proofread(text, "Proofread")
+        return@withContext aiCoreResult.correctedText
     }
 
     /**
@@ -72,7 +63,7 @@ class AiPolishManager(private val context: Context) {
         val resultText = localRambleFormatter.formatRambleText(text)
         val duration = System.currentTimeMillis() - startTime
 
-        AiExecutionLogger.logAiAction(context, "Ramble Mode (Offline SLM)", AiExecutionLogger.ENGINE_OFFLINE_LOCAL, text, resultText, duration)
+        AiExecutionLogger.logAiAction(context, "Ramble Mode (Google AICore)", AiExecutionLogger.ENGINE_AICORE, text, resultText, duration)
         return@withContext resultText
     }
 
@@ -198,44 +189,14 @@ class AiPolishManager(private val context: Context) {
         val trimmed = input.replace(Regex("\\s+"), " ").trim()
         if (trimmed.isEmpty()) return emptyList()
 
-        val results = mutableListOf<String>()
+        val neuralEngine = OnDeviceNeuralPolishEngine.getInstance(context)
+        val variants = neuralEngine.generateStyleVariants(trimmed).toMutableList()
 
-        // 1. Professional
-        val prof = inferenceEngine.polishSentenceLocally(trimmed).let {
-            var s = it
-            s = s.replace(Regex("\\bwant to\\b", RegexOption.IGNORE_CASE), "would like to")
-            s = s.replace(Regex("\\bcan you\\b", RegexOption.IGNORE_CASE), "could you please")
-            s = s.replace(Regex("\\bthanks\\b", RegexOption.IGNORE_CASE), "thank you")
-            s = s.replace(Regex("\\babout\\b", RegexOption.IGNORE_CASE), "regarding")
-            s.replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase() else c.toString() }
-        }
-        results.add(prof)
-
-        // 2. Casual
-        val cas = if (!trimmed.startsWith("Hey", ignoreCase = true) && !trimmed.startsWith("Hi", ignoreCase = true)) {
-            "Hey! " + trimmed.replaceFirstChar { it.lowercase() }
-        } else {
-            "Hey! " + trimmed.replace(Regex("^(?:hey|hi)[!,.]?\\s*", RegexOption.IGNORE_CASE), "").replaceFirstChar { it.lowercase() }
-        }
-        if (cas != prof) results.add(cas)
-
-        // 3. Concise
-        val concise = trimmed.replace(Regex("\\bI was wondering if you could please\\b", RegexOption.IGNORE_CASE), "Could you")
-            .replace(Regex("\\bjust wanted to\\b", RegexOption.IGNORE_CASE), "")
-            .trim()
-        if (concise.isNotEmpty() && !results.contains(concise)) results.add(concise)
-
-        var idx = 1
-        while (results.size < 3) {
-            val base = results.firstOrNull() ?: trimmed
-            val extra = if (idx == 1) "Inquiring regarding this: $trimmed" else "$base (Refined)"
-            if (!results.contains(extra)) {
-                results.add(extra)
-            }
-            idx++
+        if (variants.isEmpty()) {
+            variants.add(trimmed)
         }
 
-        return results.distinct().take(3)
+        return variants.distinct().take(3)
     }
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<String>.streamWords(content: String) {

@@ -61,38 +61,15 @@ class LocalProofreadEngineService : Service() {
 
     /**
      * Executes offline proofreading on the given input text by querying Room database rules
-     * and local predictor logic.
+     * and on-device proofreading engine.
      */
     suspend fun proofread(inputText: String): String = withContext(Dispatchers.IO) {
         if (inputText.isBlank()) return@withContext inputText
 
-        var text = inputText
+        val engine = OnDeviceProofreadEngine.getInstance(applicationContext)
+        var text = engine.proofread(inputText)
 
-        // 1. Fetch active cached grammar rules from Room database
-        val activeRules = try {
-            grammarRuleDao.getActiveRulesSync()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error querying active grammar rules from Room", e)
-            emptyList()
-        }
-
-        // 2. Apply Room database rules in priority order
-        for (rule in activeRules) {
-            try {
-                if (rule.pattern.isNotBlank() && rule.replacement.isNotBlank()) {
-                    // Match word boundaries or exact pattern replacement
-                    val regex = Regex("(?i)\\b" + Regex.escape(rule.pattern) + "\\b")
-                    text = regex.replace(text, rule.replacement)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed applying grammar rule: ${rule.pattern}", e)
-            }
-        }
-
-        // 3. Apply LocalGrammarSpellPredictor logic (spellings, contractions, capitals)
-        text = localPredictor.polishSentenceLocally(text)
-
-        // 4. Format list structures if present
+        // Format list structures if present
         if (text.contains(Regex("(?m)^\\s*\\d+\\."))) {
             text = text.replace(Regex("(?m)^\\s*(\\d+\\.)\\s*"), "$1 ")
         }
@@ -141,37 +118,8 @@ class LocalProofreadEngineService : Service() {
          * Convenience helper method to run background proofreading directly from any Context.
          */
         suspend fun proofreadLocally(context: Context, input: String): String = withContext(Dispatchers.IO) {
-            val db = AppDatabase.getDatabase(context.applicationContext)
-            val dao = db.grammarRuleDao()
-            val predictor = LocalGrammarSpellPredictor(context.applicationContext)
-
-            var result = input
-            try {
-                // Ensure seeded
-                if (dao.getRuleCount() == 0) {
-                    val defaultRules = listOf(
-                        GrammarRuleEntity(category = "Spelling", pattern = "teh", replacement = "the", description = "Common typo fix", priority = 10),
-                        GrammarRuleEntity(category = "Spelling", pattern = "recieve", replacement = "receive", description = "Spelling correction", priority = 10),
-                        GrammarRuleEntity(category = "Contraction", pattern = "dont", replacement = "don't", description = "Missing apostrophe in contraction", priority = 8),
-                        GrammarRuleEntity(category = "Contraction", pattern = "cant", replacement = "can't", description = "Missing apostrophe in contraction", priority = 8),
-                        GrammarRuleEntity(category = "Contraction", pattern = "im", replacement = "I'm", description = "Capitalization & apostrophe fix", priority = 9),
-                        GrammarRuleEntity(category = "Grammar", pattern = "alot", replacement = "a lot", description = "Space separation fix", priority = 8)
-                    )
-                    dao.insertRules(defaultRules)
-                }
-
-                val rules = dao.getActiveRulesSync()
-                for (rule in rules) {
-                    if (rule.pattern.isNotBlank() && rule.replacement.isNotBlank()) {
-                        val regex = Regex("(?i)\\b" + Regex.escape(rule.pattern) + "\\b")
-                        result = regex.replace(result, rule.replacement)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error processing Room rules in helper", e)
-            }
-
-            return@withContext predictor.polishSentenceLocally(result)
+            val engine = OnDeviceProofreadEngine.getInstance(context.applicationContext)
+            return@withContext engine.proofread(input)
         }
     }
 }

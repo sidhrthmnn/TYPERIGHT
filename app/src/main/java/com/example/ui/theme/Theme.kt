@@ -82,7 +82,7 @@ private val DarkColorScheme = darkColorScheme(
 fun getAppColorScheme(
     context: Context,
     darkTheme: Boolean,
-    dynamicColor: Boolean = true
+    dynamicColor: Boolean = false
 ): ColorScheme {
     return when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
@@ -96,7 +96,7 @@ fun getAppColorScheme(
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current

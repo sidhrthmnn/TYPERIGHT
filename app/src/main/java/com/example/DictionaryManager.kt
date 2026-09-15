@@ -94,7 +94,7 @@ class DictionaryManager(private val context: Context) {
         WordFrequency("my", 190), WordFrequency("one", 185), WordFrequency("all", 180),
         WordFrequency("would", 175), WordFrequency("should", 160), WordFrequency("could", 150),
         WordFrequency("must", 120), WordFrequency("might", 110), WordFrequency("shall", 90),
-        WordFrequency("there", 170), WordFrequency("their", 165),
+        WordFrequency("there", 170), WordFrequency("their", 165), WordFrequency("here", 165), WordFrequency("where", 150),
         WordFrequency("what", 160), WordFrequency("so", 155), WordFrequency("up", 150),
         WordFrequency("out", 145), WordFrequency("if", 140), WordFrequency("about", 135),
         WordFrequency("who", 130), WordFrequency("get", 125), WordFrequency("which", 120),
@@ -104,7 +104,7 @@ class DictionaryManager(private val context: Context) {
         WordFrequency("him", 88), WordFrequency("know", 86), WordFrequency("take", 84),
         WordFrequency("people", 82), WordFrequency("into", 80), WordFrequency("year", 78),
         WordFrequency("your", 76), WordFrequency("good", 74), WordFrequency("some", 72),
-        WordFrequency("could", 70), WordFrequency("them", 68), WordFrequency("see", 66),
+        WordFrequency("them", 68), WordFrequency("see", 66), WordFrequency("cat", 65),
         WordFrequency("other", 64), WordFrequency("than", 62), WordFrequency("then", 60),
         WordFrequency("now", 58), WordFrequency("look", 56), WordFrequency("only", 54),
         WordFrequency("come", 52), WordFrequency("its", 50), WordFrequency("over", 48),
@@ -115,7 +115,7 @@ class DictionaryManager(private val context: Context) {
         WordFrequency("even", 22), WordFrequency("new", 20), WordFrequency("want", 18),
         WordFrequency("because", 16), WordFrequency("any", 14), WordFrequency("these", 12),
         WordFrequency("give", 10), WordFrequency("day", 9), WordFrequency("most", 8),
-        WordFrequency("us", 7),
+        WordFrequency("us", 7), WordFrequency("gym", 60), WordFrequency("store", 80),
 
         // --- VERBS & CONJUGATIONS (Present, Past, Participle, Gerund) ---
         WordFrequency("let", 120), WordFrequency("lets", 90), WordFrequency("letting", 80),
@@ -534,7 +534,7 @@ class DictionaryManager(private val context: Context) {
         "could" to listOf("be", "have", "do", "go", "get", "not"),
         "should" to listOf("be", "have", "do", "go", "get", "not"),
         "how" to listOf("are you", "do you", "is it") // Phrase prediction hook
-    )
+    ) + ComprehensiveLexicon.EXTENDED_BIGRAMS
 
     // Key positions on a normalized 1.0 x 1.0 coordinate grid for proximity calculations
     private val keyCoordinates = mapOf(
@@ -763,6 +763,8 @@ class DictionaryManager(private val context: Context) {
         null
     }
 
+    private val candidateLearnFrequency = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     init {
         // Build local Trie index, SymSpell index, Fast Hash Set & Phonetic index from common words
         commonWords.forEach {
@@ -775,6 +777,36 @@ class DictionaryManager(private val context: Context) {
             val pKey = computePhoneticKey(it.word)
             if (pKey.isNotEmpty()) {
                 phoneticIndex.getOrPut(pKey) { mutableListOf() }.add(it.word)
+            }
+        }
+        // Build supplemental vocabulary for comprehensive English coverage
+        SUPPLEMENTAL_WORDS.forEach { word ->
+            val lower = word.lowercase()
+            if (!commonWordsSet.contains(lower)) {
+                commonWordsSet.add(lower)
+                commonWordsFreqMap[lower] = 60
+                trie.insert(lower, 60)
+                wordTrie.insert(lower, 60)
+                gboardEngine.symSpellEngine.insertWord(lower, 60)
+                val pKey = computePhoneticKey(lower)
+                if (pKey.isNotEmpty()) {
+                    phoneticIndex.getOrPut(pKey) { mutableListOf() }.add(lower)
+                }
+            }
+        }
+        // Ingest comprehensive lexicon across technology, conversation, and modern mobile domains
+        ComprehensiveLexicon.WORDS.forEach { item ->
+            val lower = item.word.lowercase()
+            if (!commonWordsSet.contains(lower)) {
+                commonWordsSet.add(lower)
+                commonWordsFreqMap[lower] = item.frequency
+                trie.insert(item.word, item.frequency)
+                wordTrie.insert(item.word, item.frequency)
+                gboardEngine.symSpellEngine.insertWord(item.word, item.frequency)
+                val pKey = computePhoneticKey(item.word)
+                if (pKey.isNotEmpty()) {
+                    phoneticIndex.getOrPut(pKey) { mutableListOf() }.add(item.word)
+                }
             }
         }
         loadUserDictionary()
@@ -935,8 +967,19 @@ class DictionaryManager(private val context: Context) {
 
     private fun loadUserDictionary() {
         val loaded = prefs.getStringSet("user_words", emptySet()) ?: emptySet()
-        userWords.addAll(loaded)
-        loaded.forEach {
+        // Filter out corrupted typos from historical sessions
+        val validWords = loaded.filter { word ->
+            val clean = word.lowercase().trim()
+            !gboardEngine.commonTypoLookup.containsKey(clean) &&
+            !gboardEngine.contractionLookup.containsKey(clean)
+        }.toSet()
+
+        userWords.clear()
+        userWords.addAll(validWords)
+        if (validWords.size != loaded.size) {
+            prefs.edit().putStringSet("user_words", validWords).apply()
+        }
+        validWords.forEach {
             trie.insert(it, 35)
             wordTrie.insert(it, 35)
             gboardEngine.symSpellEngine.insertWord(it, 35)
@@ -980,12 +1023,27 @@ class DictionaryManager(private val context: Context) {
         if (commonWordsSet.contains(clean)) return true
         if (synchronized(userWords) { userWords.contains(clean) }) return true
         if (gboardEngine.symSpellEngine.hasWord(clean)) return true
+        if (isWordInDictionary(clean)) return true
         return false
     }
 
-    fun learnWord(word: String) {
-        val clean = word.lowercase().trim()
+    fun learnWord(word: String, explicit: Boolean = false) {
+        val clean = word.lowercase().trim().trim { !it.isLetterOrDigit() && it != '\'' }
         if (clean.isEmpty() || clean.length < 2 || isProfane(clean)) return
+        if (commonWordsSet.contains(clean)) return
+
+        // Guard against learning accidental typos unless explicitly tapped by user
+        if (!explicit) {
+            if (gboardEngine.commonTypoLookup.containsKey(clean) ||
+                gboardEngine.contractionLookup.containsKey(clean)
+            ) {
+                return
+            }
+            val count = (candidateLearnFrequency[clean] ?: 0) + 1
+            candidateLearnFrequency[clean] = count
+            if (count < 3) return
+        }
+
         val isBaseWord = commonWords.any { it.word.lowercase() == clean }
         if (!isBaseWord) {
             val alreadyLearned = synchronized(userWords) {
@@ -1100,6 +1158,14 @@ class DictionaryManager(private val context: Context) {
         previousWords: List<String> = emptyList()
     ): List<String> {
         val normalizedPrefix = prefix.lowercase().trim()
+
+        val isMalayalam = settings.keyboardLanguage.contains("Malayalam", ignoreCase = true)
+        if (isMalayalam && normalizedPrefix.isNotEmpty()) {
+            val candidates = ManglishTransliterationEngine.getInstance(context).getTransliterationCandidates(prefix)
+            if (candidates.isNotEmpty()) {
+                return candidates.take(3)
+            }
+        }
 
         if (isSensitiveField) {
             if (normalizedPrefix.isEmpty()) {
@@ -1867,6 +1933,13 @@ class DictionaryManager(private val context: Context) {
     companion object {
         const val SILENT_CORRECT_THRESHOLD = 0.40f // Autocorrect threshold
         const val SUGGESTION_THRESHOLD = 0.30f     // Suggestion candidate threshold
+
+        val SUPPLEMENTAL_WORDS: Set<String> by lazy {
+            val vocabText = """
+                meeting meetings tomorrow yesterday tonight morning evening afternoon please thanks because definitely separate receive happened grammar keyboard beautiful really together friend friends family schedule message messages problem problems question questions answer answers system program computer phone email office business service product client project report review important perfect truly probably maybe without through against between before after during while until believe understand remember forget decide consider require suggest include provide continue expect create build offer describe explain appreciate welcome sorry excuse minute minutes hour hours second seconds today week weeks month months year years doctor hospital station airport hotel restaurant dinner lunch breakfast coffee water food music video photo camera screen battery color number street address city country world place house room door window car train bus flight ticket money card bank price cost market store shop game play team group class school student teacher learn study read write listen speak talk walk run drive travel visit stay leave arrive start stop finish begin end open close send receive call wait help need want like love feel hope wish think know see hear watch look find lose give take bring buy sell pay spend save keep hold put set show tell ask answer try work play live move change grow happen allow cause lead follow stand sit fall rise cut build kill die remain suggest require report decide pull push break wear choose agree check point support cover join catch draw fight throw fill drop plan enjoy explain touch train serve manage pass sell agree discuss prepare expect protect win lose reach teach walk wonder notice smile laugh cry shout sleep dream wake drink eat cook clean wash drive ride fly swim burn freeze hurt cure heal shine glow blow shake hide seek climb jump hang ring sing dance count measure weigh cost fit suit match seem appear sound taste smell belong consist contain depend differ exist matter mean mind own owe possess prefer realize recognize remember remind resemble satisfy suppose surprise trust understand value wish doubt dislike hate fear envy pity admire respect appreciate forgive blame praise thank congratulate welcome greet introduce invite refuse accept reject agree disagree argue quarrel warn threaten promise swear bet advise recommend urge demand insist request beg order command forbid prevent avoid escape rescue save help assist aid serve treat cure heal care nurse protect defend guard shelter shield secure insure guarantee assure confirm prove test check verify examine inspect investigate explore search seek hunt track trace discover invent create produce make build construct erect form shape mold design plan draft compose write author paint draw sketch carve sculpt cast print publish record film tape photograph snapshot shoot capture display exhibit present introduce unveil reveal disclose expose show demonstrate illustrate manifest express voice utter pronounce articulate enunciate state declare announce proclaim broadcast circulate distribute disseminate spread scatter disperse diffuse transmit convey carry transport transfer shift switch convert transform transmute change alter modify adapt adjust regulate tune calibrate correct rectify remedy repair mend fix patch restore renew revive refresh recreate regenerate reproduce replicate duplicate copy imitate mimic emulate simulate model pattern follow obey comply conform adhere stick cling cleave bind tie knot fasten secure attach join connect link couple unite combine blend merge fuse meld mix mingle intermix compound synthesize integrate incorporate embody include contain hold accommodate house shelter harbor lodge board quarter station post place put set situate locate position pose stand install establish found institute initiate inaugurate launch start begin commence originate arise spring stem derive proceed issue emanate flow pour stream spurt gush rush surge swell heave billow toss pitch roll rock sway swing oscillate vibrate tremble quiver shiver shudder quake totter wobble stagger reel lurch stumble trip slip slide glide skate skim drift float sail cruise voyage journey travel tour trek hike march stride pace step tread walk saunter stroll amble wander roam ramble rove straggle meander drift stray deviate diverge swerve veer turn pivot revolve rotate spin whirl twirl swirl eddy vortex circle orbit loop spiral coil curl wind twist twine weave knit braid plait interlace entangle tangle snarl knot unravel untangle unwind unwrap unfold open spread expand extend stretch reach prolong lengthen elongate broaden widen deepen heighten elevate raise lift hoist heave boost enhance heighten intensify magnify amplify increase augment supplement add annex append attach subjoin tag tack affix fasten fix clamp rivet weld solder cement glue paste stick seal lock bolt bar latch clasp buckle button snap hook link yoke harness couple chain tie bind cord rope wire strap gird wrap bandage swathe muffle cloak mantle robe drape shroud veil screen shield protect guard defend preserve conserve save rescue deliver liberate free release exempt acquit clear absolve pardon forgive condone overlook excuse justify warrant vindicate validate verify confirm corroborate substantiate authenticate certify endorse approve sanction authorize commission empower enable allow permit admit concede grant yield surrender relinquish abandon forsake desert quit leave depart vacate evacuate withdraw retire retreat recede ebbed subside wane dwindle decrease diminish lessen reduce contract shrink constrict narrow taper attenuate slender thin pare trim clip prune crop dock curtail shorten abbreviate abridge condense compress compact squeeze pinch press crush smash shatter fracture break crack snap burst explode rupture tear rip rend slit split cleave sever divide separate part sunder detach disconnect disjoin disunite isolate segregate quarantine insulate seclude sequester withdraw retire hide conceal screen shield mask disguise cloak veil shroud obscure eclipse shadow dim darken cloud fog mist haze blur fuzz smear smudge blot stain taint tarnish soil dirty pollute contaminate infect poison corrupt deprave spoil ruin wreck damage harm hurt injure wound bruise maim cripple disable incapacitate paralyze prostrate overcome overpower overwhelm subdue conquer vanquish defeat beat rout crush trounce thrash whip flog cane strike hit smite knock tap rap slap cuff smack thump thud bang bump crash clash collide bump jar jolt shake jiggle rattle clatter clank chink jingle tinkle chime toll peal ring buzz hum drone murmur whisper rustle sigh gasp pant puff blow breathe inhale exhale snort sniff snuffle sneeze cough hiccup belch burp gag choke stifle smother suffocate drown submerge sink founder plunge dive dip duck souse douse soak steep drench saturate wet moisten dampen humidify water irrigate spray sprinkle shower spatter splash splatter slosh swash spill slop overflow brim well bubble boil simmer seethe fume steam vaporize evaporate distill filter strain sift screen winnow purify cleanse scour scrub wipe mop sponge swab brush sweep vacuum dust polish shine buff burnish rub chafe fret gall scrape grate rasp file sand hone sharpen whet grind mill crush pound pulverize powder mash puree pulp paste knead mold work manipulate handle finger thumb feel touch caress stroke pet pat fondle cuddle hug embrace clasp grasp grip clutch snatch grab seize catch trap ensnare entangle capture arrest apprehend take hold contain keep retain withhold reserve store stash cache hoard accumulate amass gather collect assemble muster marshal mobilize rally convene convoke summon cite subpoena call invite bid ask solicit appeal plead petition sue beg implore beseech entreat supplicate crave pray importune pester badger nag hound harass harry molest plague torment torture rack afflict distress trouble worry fret grieve mourn lament bemoan bewail weep cry sob wail howl screech shriek scream yell shout bawl bellow roar clamor cheer applaud acclaim hail salute greet welcome acknowledge recognize admit own avow confess concede grant allow permit consent agree assent concur cooperate collaborate conspire connive plot scheme intrigue collude participate partake share divide portion ration allot allocate assign apportion distribute dispense mete administer provide supply furnish equip arm fit rig outfit provision cater feed nourish sustain maintain support back uphold champion advocate promote foster nurture cherish harbor cultivate tend mind watch guard patrol police protect defend safeguard shield screen shelter harbor haven refuge sanctuary asylum retreat resort haunt frequent visit attend patronize support foster promote encourage inspire hearten embolden cheer comfort console solace soothe calm tranquilize pacify appease placate mollify propitiate conciliate reconcile harmonize coordinate orchestrate organize arrange order array marshal dispose systematize codify classify categorize sort sift file index catalog list tabulate record enter log register enroll matriculate sign subscribe endorse countersign initial mark stamp imprint impress engrave etch inscribe carve chisel sculpt mold cast forge fabricate manufacture produce generate yield bear breed propagate multiply increase reproduce procreate beget father mother sire originate commence begin start dawn open launch initiate inaugurate embark undertake venture attempt try strive struggle contend vie compete contest battle fight war clash combat skirmish tussle scuffle brawl wrestle grapple box duel joust encounter meet confront face brave dare defy challenge provoke taunt mock deride ridicule scoff jeer sneer gibe flout disdain scorn despise abhor detest loathe abominate execrate curse damn blast blame censure condemn denounce reproach rebuke reprimand reprove admonish scold chide berate upbraid rate lecture harangue castigate chastise punish penalize discipline correct rectify remedy redress atone expiate compensate recompense indemnify reimburse repay refund remunerate reward settle liquidate discharge acquit pay defray satisfy meet honor fulfill perform execute discharge accomplish achieve effect attain realize consummate complete finish conclude terminate close wind culminate climax cap crown top surpass excel exceed transcend outdo outstrip outperform eclipse overshadow dwarf beat best worst defeat master conquer vanquish subdue tame domesticate curb check bridle rein harness control command govern rule reign dominate predominate prevail triumph win succeed prosper thrive flourish bloom blossom flower mature ripen age mellow season harden temper toughen anneal strengthen fortify reinforce brace prop buttress shore support sustain bear carry shoulder endure abide tolerate brook suffer stand withstand resist oppose counter parry repel repulse rebuff ward fend stave dodge evade elude avoid shun eschew steer skirt bypass sidestep circumvent outwit baffle foil thwart frustrate confound disconcert discomfit discompose disquiet agitate disturb perturb fluster ruffle upset unnerve intimidate daunt dismay terrify frighten scare alarm startle shock appall horrify disgust revolt sicken nauseate offend outrage insult affront slight snub humiliate mortify chagrin shame abash disgrace dishonor degrade debase demean humble abase lower reduce demote relegate downgrade depose dethrone oust expel eject banish exile deport transport extradite evict dispossess expropriate confiscate seize impound sequester distrain attach levy exact extort wrest wring wrench extract elicit evoke derive deduce infer gather conclude judge deem reckon estimate gauge appraise assess rate evaluate value price cost figure compute calculate reckon tally count enumerate number tabulate total sum aggregate add subtract deduct multiply divide balance reconcile audit verify check inspect scrutinize scan skim peruse read study pore learn memorize master grasp comprehend understand fathom penetrate pierce discern perceive see behold view survey inspect observe notice note mark remark heed mind regard consider ponder meditate ruminate contemplate reflect muse deliberate cogitate think reason rationalize analyze dissect parse resolve decompose dissolve melt thaw fuse liquefy solidify freeze congeal curdle clot coagulate set harden stiffen petrify calcify fossilize ossify dry parch sear scorch burn char singe toast bake roast broil grill fry saute braise stew boil simmer poach coddle scald steam blanch steep infuse brew distill ferment bubble effervesce fizz sparkle glitter glisten shimmer gleam glint flash flare blaze flame glow burn kindle ignite light illumine illuminate brighten clarify elucidate explain interpret construe translate render paraphrase rephrase rewrite recast remodel reform regenerate reorganize reconstruct rebuild restore revive resuscitate revitalize rejuvenate renew renovate refurbish redecorate recondition overhaul service tune adjust regulate control govern direct manage conduct handle administer execute perform discharge dispatch expedite hasten speed accelerate quicken hurry rush dash race sprint run scurry scamper scuttle dart shoot fly glide sail soar hover flutter flit flap wave brandish flourish wield ply employ use utilize harness exploit operate function act work serve avail benefit profit gain win earn acquire obtain procure secure get derive draw reap harvest gather collect glean amass heap pile stack load burden encumber saddle tax charge bill invoice debit credit trust rely depend count bank lean rest repose sleep slumber snooze nap doze drowse lounge loaf loiter linger tarry delay stall hesitate falter waver vacillate fluctuate oscillate swing sway rock reel totter wobble shiver quiver tremble quake shake jar jolt vibrate pulsate throb beat palpitate flutter pant gasp heave swell distend inflate expand stretch widen broaden enlarge amplify magnify maximize optimize perfect refine polish hone elevate exalt dignify ennoble honor glorify praise extol laud eulogize commend applaud cheer acclaim salute toast celebrate commemorate observe keep solemnize bless sanctify consecrate hallow dedicate devote commit consign entrust confide delegate assign charge commission accredit authorize empower license permit allow sanction warrant guarantee assure vouch attest testify swear affirm assert declare pronounce proclaim broadcast publish trumpet herald announce herald signal sign indicate denote signify imply hint suggest insinuate intimate connote mean intend aim propose plan design scheme contrive devise frame formulate prepare ready prime equip arm fortify gird brace steel nerve strengthen invigorate energize stimulate activate spark kindle prompt induce persuade convince prevail sway influence bias prejudice warp skew distort twist deform mangle mutilate mar spoil ruin wreck shatter destroy annihilate demolish raze level flatten crush quash quell suppress stifle smother extinguish quench douse snuff stamp trample tread step stride pace march parade advance proceed progress forge head lead guide steer pilot navigate helm conduct usher escort accompany chaperon convoy attend wait serve minister assist help succor relieve ease alleviate mitigate palliate allay assuage soothe calm lull pacify appease placate satisfy content gratify please delight gladden cheer comfort solace warm thrill exhilarate elate electrify enchant charm captivate fascinate beguile allure attract draw magnetize lure entice tempt seduce cajole coax wheedle inveigle flatter blandish compliment praise extol fawn toady truckle kowtow bow curtsy genuflect kneel stoop bend crouch cower shrink flinch wince quail recoil cringe crawl creep grovel slither glide slide slip skid coast drift stray wander roam ramble amble saunter stroll promenade walk tramp trudge plod lumber clump stamp trot canter gallop bound leap jump spring skip hop vault hurdle clear pass surmount scale climb ascend mount rise soar tower loom hover hang dangle suspend swing sway oscillate wave undulate ripple flicker flutter quiver shiver tremble quake shake jolt jerk twitch spasm convulse writhe squirm wiggle wriggle twist contort distort deform warp bend curve arch bow crook hook angle deflect divert turn wheel pivot swing swivel spin rotate revolve gyrate whirl roll tumble somersault cartwheel flip invert reverse transpose swap switch exchange interchange substitute replace supplant supersede displace usurp oust evict expel banish exile ostracize boycott shun spurn reject repudiate renounce abjure disown disclaim disavow retract recant revoke rescind repeal annul nullify void invalidate cancel countermand veto quash override overrule disallow bar block obstruct hinder impede hamper fetter shackle handcuff chain tie bind truss rope lash strap cinch girth belt fasten secure lock latch bolt bar seal stop plug cork bung choke clog congest block dam choke jam wedge cram pack stuff crowd throng squeeze compress compact press iron smooth flatten level even plane shave trim pare peel skin strip bare denude uncover expose reveal disclose unveil unmask divulge leak tell whisper breathe impart communicate convey transmit broadcast spread publish circulate disseminate proclaim announce declare state express voice utter sound vocalize articulate pronounce enunciate say speak talk chat converse discourse lecture address preach sermonize teach instruct educate train drill coach tutor guide lead direct command order decree ordain dictate prescribe require demand exact enforce compel coerce force drive impel push propel thrust plunge shove prod poke nudge jab punch strike hit smite pound batter buffet pummel thrash beat whip lash stripe scourge flagellate flog cane club bludgeon knock tap rap slap pat dab touch contact brush graze kiss caress fondle pet stroke massage knead rub chafe fret gall irritate inflame exasperate provoke anger enrage infuriate madden incense rile irk vex annoy bother trouble disturb disquiet worry plague harass harry torment pester badger hound dog bait tease taunt mock deride chaff banter kid josh rib needle poke prod goad spur egg prick sting bite nip pinch squeeze tweak twist wrench yank pull haul drag tow tug jerk draw attract magnetize lure entice allure charm captivate enchant bewitch fascinate hypnotize mesmerize spellbind transfix rivet grip hold retain keep save conserve hoard stash store cache hide bury inter cover shroud screen shield protect guard defend preserve cherish nurture harbor shelter house quarter lodge board accommodate host entertain treat regale feast feed nourish nurse rear raise bring foster train discipline school educate cultivate develop grow produce generate create make form shape mold fashion model carve sculpt cast forge construct erect build fabricate manufacture assemble compile compose draft write author pen indite inscribe record enter log chronicle narrate recount relate tell repeat reiterate restate rephrase summarize outline sketch trace draw delineate depict portray represent illustrate symbolize typify personify embody exemplify demonstrate prove verify corroborate substantiate confirm ratify sanction endorse approve applaud commend praise laud celebrate acclaim hail honor respect revere venerate worship adore idolize deify exalt elevate promote advance further forward expedite hasten accelerate speed quicken hurry rush dash race fly glide drift float sail cruise wander roam ramble stroll walk tramp march stride step pace tread plod trudge climb mount ascend scale conquer master overcome surmount vanquish defeat beat triumph win succeed thrive flourish prosper bloom shine glow sparkle glitter radiate beam flash gleam blaze burn kindle ignite fire light illuminate brighten cheer comfort solace warm thrill inspire uplift elevate enliven animate energize invigorate revive refresh renew restore heal cure remedy repair mend fix perfect complete finish conclude settle resolve decide determine fix establish secure ground root plant sow seed scatter disperse broadcast spread expand extend reach stretch widen broaden enlarge grow develop mature ripen flourish prosper succeed
+            """.trimIndent()
+            vocabText.split(Regex("\\s+")).filter { it.isNotBlank() }.toSet()
+        }
     }
 
     /**

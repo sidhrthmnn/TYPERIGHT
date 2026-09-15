@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 class LocalInferenceEngine private constructor(private val context: Context) {
 
     val localPredictor = LocalGrammarSpellPredictor(context)
+    val onDeviceProofreader = OnDeviceProofreadEngine.getInstance(context)
     val tfLiteCorrectionModel = TfLiteCorrectionModel.getInstance(context)
     val keyboardSettings = KeyboardSettings(context)
     val dictionaryManager by lazy { DictionaryManager(context) }
@@ -127,7 +128,8 @@ class LocalInferenceEngine private constructor(private val context: Context) {
             }
 
             // Local Processing for Proofread / Cleanup
-            var locallyCorrected = applyDeterministicCorrections(originalText, mode)
+            var locallyCorrected = onDeviceProofreader.proofread(originalText)
+            locallyCorrected = applyDeterministicCorrections(locallyCorrected, mode)
             locallyCorrected = try {
                 tfLiteCorrectionModel.correctText(locallyCorrected)
             } catch (e: Exception) {
@@ -173,16 +175,24 @@ class LocalInferenceEngine private constructor(private val context: Context) {
             }
             
             // Fallback to local rules if Gemini fails
-            var locallyCorrected = applyDeterministicCorrections(originalText, mode)
-            val localResult = applyLocalStyleTransformation(locallyCorrected, mode)
+            var baseCorrected = onDeviceProofreader.proofread(originalText)
+            baseCorrected = applyDeterministicCorrections(baseCorrected, mode)
+            baseCorrected = try {
+                tfLiteCorrectionModel.correctText(baseCorrected)
+            } catch (e: Exception) {
+                baseCorrected
+            }
+
+            val localResult = applyLocalStyleTransformation(baseCorrected, mode)
             val sanitized = AiOutputValidator.sanitize(localResult, originalText)
             val isValid = AiOutputValidator.isValid(originalText, sanitized, mode)
-            val finalText = if (isValid) sanitized else originalText
+            val finalText = if (isValid) sanitized else baseCorrected
             val hasChanged = finalText != originalText
-            
+            val localConfidence = evaluateLocalQuality(originalText, finalText, mode)
+
             return@withContext AiResult(
                 text = finalText,
-                confidence = 0.5f,
+                confidence = if (isValid) localConfidence else 0.88f,
                 changed = hasChanged,
                 source = if (hasChanged) AiSource.LOCAL_MODEL else AiSource.ORIGINAL,
                 changes = computeEdits(originalText, finalText)
@@ -271,101 +281,24 @@ class LocalInferenceEngine private constructor(private val context: Context) {
     }
 
     /**
-     * Local rule-based transformation when offline for style modes.
+     * Local neural rule-based transformation when offline for style modes.
      */
     private fun applyLocalStyleTransformation(input: String, mode: PolishMode): String {
-        return when (mode) {
-            PolishMode.PROFESSIONAL -> {
-                var p = input
-                val profMap = mapOf(
-                    Regex("\\bwant to\\b", RegexOption.IGNORE_CASE) to "would like to",
-                    Regex("\\bcan you\\b", RegexOption.IGNORE_CASE) to "could you please",
-                    Regex("\\bgive me\\b", RegexOption.IGNORE_CASE) to "please provide",
-                    Regex("\\bthanks\\b", RegexOption.IGNORE_CASE) to "thank you",
-                    Regex("\\bthx\\b", RegexOption.IGNORE_CASE) to "thank you",
-                    Regex("\\bmake sure\\b", RegexOption.IGNORE_CASE) to "ensure",
-                    Regex("\\bhelp\\b", RegexOption.IGNORE_CASE) to "assistance",
-                    Regex("\\bask\\b", RegexOption.IGNORE_CASE) to "enquire",
-                    Regex("\\bbuy\\b", RegexOption.IGNORE_CASE) to "purchase",
-                    Regex("\\bget\\b", RegexOption.IGNORE_CASE) to "obtain",
-                    Regex("\\bstart\\b", RegexOption.IGNORE_CASE) to "commence",
-                    Regex("\\babout\\b", RegexOption.IGNORE_CASE) to "regarding"
-                )
-                for ((k, v) in profMap) p = p.replace(k, v)
-                p.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-            }
-            PolishMode.CASUAL -> {
-                var c = input
-                val casMap = mapOf(
-                    Regex("\\bwould like to\\b", RegexOption.IGNORE_CASE) to "want to",
-                    Regex("\\brequire\\b", RegexOption.IGNORE_CASE) to "need",
-                    Regex("\\bassistance\\b", RegexOption.IGNORE_CASE) to "help",
-                    Regex("\\bregarding\\b", RegexOption.IGNORE_CASE) to "about",
-                    Regex("\\bpurchase\\b", RegexOption.IGNORE_CASE) to "get"
-                )
-                for ((k, v) in casMap) c = c.replace(k, v)
-                c
-            }
-            PolishMode.SHORTEN -> {
-                var s = input
-                val shortMap = mapOf(
-                    Regex("\\bI was wondering if you could please\\b", RegexOption.IGNORE_CASE) to "Could you",
-                    Regex("\\bin order to\\b", RegexOption.IGNORE_CASE) to "to",
-                    Regex("\\bat the present time\\b", RegexOption.IGNORE_CASE) to "now",
-                    Regex("\\bdue to the fact that\\b", RegexOption.IGNORE_CASE) to "because",
-                    Regex("\\bplease feel free to\\b", RegexOption.IGNORE_CASE) to "",
-                    Regex("\\bjust wanted to\\b", RegexOption.IGNORE_CASE) to ""
-                )
-                for ((k, v) in shortMap) s = s.replace(k, v)
-                s.replace(Regex(" +"), " ").trim()
-            }
-            PolishMode.EXPAND -> {
-                if (!input.startsWith("Please note that", ignoreCase = true)) {
-                    "Please note that " + input.replaceFirstChar { it.lowercase() }
-                } else input
-            }
-            else -> input
+        val tone = when (mode) {
+            PolishMode.POLISH -> "Eloquent"
+            PolishMode.REPHRASE -> "Formal"
+            PolishMode.PROFESSIONAL -> "Formal"
+            PolishMode.CASUAL -> "Casual"
+            PolishMode.SHORTEN -> "Concise"
+            PolishMode.EXPAND -> "Formal"
+            PolishMode.VOICE_CLEANUP -> "Voice"
+            else -> "Proofread"
         }
+        return OnDeviceNeuralPolishEngine.getInstance(context).polish(input, tone).polishedText
     }
 
     private fun fixCommonTyposAndGrammar(input: String): String {
-        var text = input
-        val fixes = listOf(
-            Regex("\\bteh\\b", RegexOption.IGNORE_CASE) to "the",
-            Regex("\\brecieve\\b", RegexOption.IGNORE_CASE) to "receive",
-            Regex("\\bseperate\\b", RegexOption.IGNORE_CASE) to "separate",
-            Regex("\\bdefinately\\b", RegexOption.IGNORE_CASE) to "definitely",
-            Regex("\\btommorrow\\b", RegexOption.IGNORE_CASE) to "tomorrow",
-            Regex("\\bbeleive\\b", RegexOption.IGNORE_CASE) to "believe",
-            Regex("\\boccured\\b", RegexOption.IGNORE_CASE) to "occurred",
-            Regex("\\buntill\\b", RegexOption.IGNORE_CASE) to "until",
-            Regex("\\btruely\\b", RegexOption.IGNORE_CASE) to "truly",
-            Regex("\\bfreind\\b", RegexOption.IGNORE_CASE) to "friend",
-            Regex("\\bwierd\\b", RegexOption.IGNORE_CASE) to "weird",
-            Regex("\\bbecuase\\b", RegexOption.IGNORE_CASE) to "because",
-            Regex("\\btogeather\\b", RegexOption.IGNORE_CASE) to "together",
-            Regex("\\bthier\\b", RegexOption.IGNORE_CASE) to "their",
-            Regex("\\bshoud\\b", RegexOption.IGNORE_CASE) to "should",
-            Regex("\\bwhould\\b", RegexOption.IGNORE_CASE) to "would",
-            Regex("\\bcoud\\b", RegexOption.IGNORE_CASE) to "could",
-            Regex("\\bI\\s+has\\s+went\\b", RegexOption.IGNORE_CASE) to "I went",
-            Regex("\\bI\\s+has\\b", RegexOption.IGNORE_CASE) to "I have",
-            Regex("\\bhe\\s+have\\b", RegexOption.IGNORE_CASE) to "he has",
-            Regex("\\bshe\\s+have\\b", RegexOption.IGNORE_CASE) to "she has",
-            Regex("\\bshe\\s+dont\\b", RegexOption.IGNORE_CASE) to "she doesn't",
-            Regex("\\bshe\\s+don't\\b", RegexOption.IGNORE_CASE) to "she doesn't",
-            Regex("\\bhe\\s+dont\\b", RegexOption.IGNORE_CASE) to "he doesn't",
-            Regex("\\bhe\\s+don't\\b", RegexOption.IGNORE_CASE) to "he doesn't",
-            Regex("\\bcould\\s+of\\b", RegexOption.IGNORE_CASE) to "could have",
-            Regex("\\bwould\\s+of\\b", RegexOption.IGNORE_CASE) to "would have",
-            Regex("\\bshould\\s+of\\b", RegexOption.IGNORE_CASE) to "should have",
-            Regex("\\byour\\s+going\\s+to\\b", RegexOption.IGNORE_CASE) to "you're going to",
-            Regex("\\btheir\\s+going\\b", RegexOption.IGNORE_CASE) to "they're going"
-        )
-        for ((pattern, replacement) in fixes) {
-            text = text.replace(pattern, replacement)
-        }
-        return text
+        return OnDeviceNeuralPolishEngine.getInstance(context).quickProofread(input)
     }
 
     /**

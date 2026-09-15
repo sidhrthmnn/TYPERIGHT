@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Type Right</string>
+    <string name="app_spell_checker_name">TypeRight Spell Checker</string>
 </resources>

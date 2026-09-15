@@ -59,43 +59,11 @@ class VoiceRecordingSttService(private val context: Context) {
     )
 
     private fun muteVoiceSystemSounds() {
-        if (isMutedForVoice) return
-        try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.let { am ->
-                for (stream in audioStreamsToMute) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        am.adjustStreamVolume(stream, AudioManager.ADJUST_MUTE, 0)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        am.setStreamMute(stream, true)
-                    }
-                }
-                isMutedForVoice = true
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Error muting system cues: ${e.message}")
-        }
+        // No-op to avoid SecurityException on Android M+ (DND policy) and preserve audio routing
     }
 
     private fun restoreVoiceSystemSounds() {
-        if (!isMutedForVoice) return
-        try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.let { am ->
-                for (stream in audioStreamsToMute) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        am.adjustStreamVolume(stream, AudioManager.ADJUST_UNMUTE, 0)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        am.setStreamMute(stream, false)
-                    }
-                }
-                isMutedForVoice = false
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Error restoring system sounds: ${e.message}")
-        }
+        // No-op
     }
 
     /**
@@ -227,20 +195,29 @@ class VoiceRecordingSttService(private val context: Context) {
                                 Log.d(tag, "SpeechRecognizer non-fatal status/error code: $error")
                                 if (!isRecordingActive) return
 
+                                // If partial speech was pending, commit it before resetting
+                                if (currentSegmentPartial.isNotBlank()) {
+                                    if (committedTranscript.isNotEmpty()) {
+                                        committedTranscript.append(" ")
+                                    }
+                                    committedTranscript.append(currentSegmentPartial)
+                                    currentSegmentPartial = ""
+                                    val fullFormatted = formatWhisperFlowText(committedTranscript.toString())
+                                    _currentTranscript.value = fullFormatted
+                                    onPartialText(fullFormatted)
+                                }
+
                                 // Handle silence, pauses, or client busy smoothly without stopping continuous flow
                                 when (error) {
-                                    SpeechRecognizer.ERROR_NO_MATCH,
-                                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
-                                    SpeechRecognizer.ERROR_CLIENT,
-                                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
-                                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> {
-                                        // User was silent or pause occurred; silently restart recognition loop
-                                        restartContinuousListening(scope, onPartialText, onLevelChange, delayMs = 60)
-                                    }
                                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
                                         Log.e(tag, "Fatal mic permission error")
                                         isRecordingActive = false
                                         _isRecording.value = false
+                                    }
+                                    SpeechRecognizer.ERROR_NO_MATCH,
+                                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+                                        // User was silent or brief natural pause; restart listening
+                                        restartContinuousListening(scope, onPartialText, onLevelChange, delayMs = 60, recreate = false)
                                     }
                                     else -> {
                                         // Transient recognition error; recreate and resume continuous listening
@@ -288,23 +265,23 @@ class VoiceRecordingSttService(private val context: Context) {
                 }
 
                 if (recognitionIntent == null) {
+                    val defaultLang = try {
+                        java.util.Locale.getDefault().toLanguageTag()
+                    } catch (_: Exception) { "en-US" }
+
                     recognitionIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
+                        putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (defaultLang.isNotBlank()) defaultLang else "en-US")
                         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                        // Extended silence windows to allow natural pauses while speaking
-                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 10000L)
-                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 10000L)
-                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500L)
-                        putExtra("android.speech.extras.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 10000L)
-                        putExtra("android.speech.extras.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 10000L)
+                        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4000L)
+                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
+                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1000L)
+                        // Quality and formatting biasing extras for Android 13+ and Google Speech Services
+                        putExtra("android.speech.extra.ENABLE_FORMATTING", "android.speech.extra.FORMATTING_OPTIMIZE_QUALITY")
                         putExtra("android.speech.extra.DICTATION_MODE", true)
-                        putExtra("android.speech.extra.SEGMENTED_SESSION", "continuous")
-                        putExtra("android.speech.extra.AUDIO_CUE", false)
-                        putExtra("android.speech.extra.DISABLE_AUDIO_CUE", true)
-                        putExtra("android.speech.extra.SUPPRESS_START_STOP_AUDIO_FEEDBACK", true)
+                        putExtra("android.speech.extra.ENABLE_BIASING_DEVICE_CONTEXT", true)
                     }
                 }
 
@@ -338,6 +315,10 @@ class VoiceRecordingSttService(private val context: Context) {
                         speechRecognizer?.destroy()
                     } catch (_: Exception) {}
                     speechRecognizer = null
+                } else {
+                    try {
+                        speechRecognizer?.cancel()
+                    } catch (_: Exception) {}
                 }
                 startSpeechRecognizerEngine(scope, onPartialText, onLevelChange)
             } catch (e: Exception) {
@@ -347,59 +328,21 @@ class VoiceRecordingSttService(private val context: Context) {
     }
 
     private fun createOptimalSpeechRecognizer(ctx: Context): SpeechRecognizer {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx)
-        ) {
-            SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx)
-        } else {
+        return try {
             SpeechRecognizer.createSpeechRecognizer(ctx)
+        } catch (e: Exception) {
+            Log.w(tag, "Fallback speech recognizer with app context: ${e.message}")
+            SpeechRecognizer.createSpeechRecognizer(ctx.applicationContext ?: ctx)
         }
     }
 
     /**
-     * Real-time WhisperFlow formatting: converts spoken punctuation words (e.g. "period", "comma", "new line"),
-     * ensures proper capitalization at start of sentences, and strips excess duplicate whitespace.
+     * Real-time WhisperFlow formatting: converts spoken punctuation words,
+     * numbers, currencies, and ensures proper capitalization at start of sentences.
      */
     private fun formatWhisperFlowText(raw: String): String {
         if (raw.isBlank()) return ""
-        var text = raw
-
-        // Real-time spoken punctuation replacements
-        val punctuationReplacements = listOf(
-            Regex("(?i)\\bperiod\\b") to ".",
-            Regex("(?i)\\bfull stop\\b") to ".",
-            Regex("(?i)\\bcomma\\b") to ",",
-            Regex("(?i)\\bquestion mark\\b") to "?",
-            Regex("(?i)\\bexclamation mark\\b") to "!",
-            Regex("(?i)\\bexclamation point\\b") to "!",
-            Regex("(?i)\\bnew line\\b") to "\n",
-            Regex("(?i)\\bcolon\\b") to ":",
-            Regex("(?i)\\bsemicolon\\b") to ";"
-        )
-
-        for ((pattern, replacement) in punctuationReplacements) {
-            text = text.replace(pattern, replacement)
-        }
-
-        // Clean up spaces before punctuation
-        text = text.replace(Regex("\\s+([.,?!:;])"), "$1")
-        // Ensure single space after punctuation (except newline)
-        text = text.replace(Regex("([.,?!:;])([A-Za-z0-9])"), "$1 $2")
-
-        // Auto-capitalize first character and characters after sentence endings
-        val chars = text.toCharArray()
-        var capitalizeNext = true
-        for (i in chars.indices) {
-            val c = chars[i]
-            if (capitalizeNext && c.isLetter()) {
-                chars[i] = c.uppercaseChar()
-                capitalizeNext = false
-            } else if (c == '.' || c == '?' || c == '!' || c == '\n') {
-                capitalizeNext = true
-            }
-        }
-
-        return String(chars).trim()
+        return VoiceTranscriptionFormatter.formatTranscription(raw, TranscriptionFormatStyle.SMART_CLEAN)
     }
 
     private fun destroySpeechRecognizer() {
