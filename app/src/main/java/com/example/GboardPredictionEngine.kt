@@ -11,6 +11,7 @@ import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
@@ -106,7 +107,9 @@ class GboardPredictionEngine(private val context: Context) {
         // 6. Decoupled Confidence Gating Thresholds
         const val KEY_CORRECTION_THRESHOLD = 0.35f
         const val WHOLE_WORD_AUTOCORRECT_THRESHOLD = 0.45f
-        const val AUTOCORRECT_MARGIN = 0.03f
+        // A correction should clearly beat the runner-up. Tiny score differences are
+        // common for names, slang, and multilingual input and should stay suggestions.
+        const val AUTOCORRECT_MARGIN = 0.12f
         const val WORD_COMPLETION_THRESHOLD = 0.25f
         const val NEXT_WORD_PREDICTION_THRESHOLD = 0.20f
     }
@@ -279,7 +282,19 @@ class GboardPredictionEngine(private val context: Context) {
         val trimmed = rawTyped.trim()
         val lower = trimmed.lowercase()
 
-        val cacheKey = "$lower|${contextWords.takeLast(2).joinToString(",")}|${tapCoords?.size ?: 0}|$isSensitiveField"
+        // Password fields must never be inspected, learned from, or offered candidates.
+        if (isSensitiveField) {
+            return GboardSuggestionResult("", "", "", false)
+        }
+
+        // Touch coordinates affect the spatial likelihood. Using only their count could
+        // return a correction produced for a completely different tap path.
+        val tapSignature = tapCoords
+            ?.joinToString(";") { point ->
+                "${(point.x * 100f).roundToInt()},${(point.y * 100f).roundToInt()}"
+            }
+            ?: "none"
+        val cacheKey = "$lower|${contextWords.takeLast(2).joinToString(",")}|$tapSignature|$isSensitiveField"
         synchronized(predictionCache) {
             val cached = predictionCache[cacheKey]
             if (cached != null) return cached
@@ -552,11 +567,11 @@ class GboardPredictionEngine(private val context: Context) {
         val scoreMargin = if (secondCandidate != null) (topCandidate.totalPosterior - secondCandidate.totalPosterior) else 1.0f
 
         // Autocorrect decision with margin enforcement:
-        val hasSufficientMargin = scoreMargin >= AUTOCORRECT_MARGIN || 
-                                  topCandidate.reason.contains("Rule") || 
-                                  topCandidate.reason.contains("Grammar") ||
-                                  topCandidate.reason.contains("Typo") ||
-                                  (!isRawValidWord && topCandidate.isAutocorrectEligible)
+        // Only deterministic, explicitly curated typo rules may bypass the score margin.
+        // Statistical and grammar candidates remain visible, but require a clear lead
+        // before replacing what the user typed.
+        val isDeterministicTypo = topCandidate.reason == "Known Typo / Transposition Rule"
+        val hasSufficientMargin = scoreMargin >= AUTOCORRECT_MARGIN || isDeterministicTypo
         val isCenterAutocorrecting = settings.autocorrectEnabled &&
                                      !isSensitiveField &&
                                      topCandidate.isAutocorrectEligible &&

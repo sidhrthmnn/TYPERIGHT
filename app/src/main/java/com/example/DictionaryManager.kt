@@ -1168,13 +1168,8 @@ class DictionaryManager(private val context: Context) {
         }
 
         if (isSensitiveField) {
-            if (normalizedPrefix.isEmpty()) {
-                return listOf("Password123!", "Pass@2026", "SecureKey#1")
-            }
-            val passwordSuggestions = listOf("Password", "Passcode", "Passkey", "Secret123", "Admin2026", "Security")
-            val matched = passwordSuggestions.filter { it.lowercase().startsWith(normalizedPrefix) }
-            if (matched.isNotEmpty()) return matched.take(3)
-            return listOf("${prefix}123!", "${prefix}@2026", "${prefix}#key")
+            // Never derive, display, or retain text from password fields.
+            return emptyList()
         }
 
         // Code or special token check: no auto-completion if code-like

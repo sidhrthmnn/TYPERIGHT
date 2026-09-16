@@ -260,6 +260,18 @@ class TypeRightKeyboardService : KeyboardService() {
             textBufferFlow
                 .debounce(30L)
                 .collectLatest { bufferState ->
+                    // A keyboard must not process or expose candidates for passwords.
+                    if (bufferState.isSensitive) {
+                        withContext(Dispatchers.Main) {
+                            asyncPredictionsState.value = AsyncKeyboardPredictions(
+                                gboardResult = GboardSuggestionResult("", "", "", false),
+                                suggestions = emptyList(),
+                                aiPhraseCompletions = emptyList()
+                            )
+                        }
+                        return@collectLatest
+                    }
+
                     val isMalayalamKeyboard = settings.keyboardLanguage.contains("Malayalam", ignoreCase = true)
                     val isManglishEnabled = settings.manglishTransliterationEnabled
 
@@ -378,12 +390,13 @@ class TypeRightKeyboardService : KeyboardService() {
         // Refresh microphone permission state
         isMicPermissionGranted.value = checkMicrophonePermission()
         currentTypedWord.value = ""
+        asyncPredictionsState.value = AsyncKeyboardPredictions()
         updatePreviousWord()
 
         // Capture new system clipboard content
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-            if (clipboard != null && clipboard.hasPrimaryClip()) {
+            if (!isSensitiveField() && clipboard != null && clipboard.hasPrimaryClip()) {
                 val clipData = clipboard.primaryClip
                 if (clipData != null && clipData.itemCount > 0) {
                     val text = clipData.getItemAt(0).text?.toString()
@@ -445,6 +458,15 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun updatePreviousWord() {
+        if (isSensitiveField()) {
+            // Do not read surrounding text from password editors or retain it in state.
+            previousWord.value = null
+            previousWord2.value = null
+            previousWords.value = emptyList()
+            wordUnderCursor.value = ""
+            notifyTextBufferChanged()
+            return
+        }
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(150, 0)?.toString() ?: ""
         val after = ic.getTextAfterCursor(50, 0)?.toString() ?: ""
@@ -747,39 +769,8 @@ class TypeRightKeyboardService : KeyboardService() {
         if (asyncResult.isCenterAutocorrecting && asyncResult.debugTelemetry?.rawInput?.lowercase() == lower) {
             return asyncResult.centerCandidate
         }
-
-        // 2. Local On-Device Grammar Check
-        val grammarCorrection = localPredictor.checkGrammarDetailed(
-            word = lower,
-            previousWords = previousWords.value,
-            sentenceContext = ""
-        )
-        if (grammarCorrection != null) {
-            return restoreCasing(prefix, grammarCorrection.correctedWord)
-        }
-
-        // 3. Fast Gboard Prediction & Autocorrection Engine
-        val gboardResult = dictionaryManager.getGboardPredictions(
-            rawTyped = prefix,
-            contextWords = previousWords.value,
-            tapCoords = currentWordTapCoords.toList(),
-            isSensitiveField = isSensitiveField()
-        )
-        if (gboardResult.isCenterAutocorrecting) {
-            return gboardResult.centerCandidate
-        }
-
-        // 4. Fallback on-device typo & SymSpell correction for unrecognized words
-        if (!dictionaryManager.isValidOrKnownWord(lower) && prefix.length >= 2) {
-            val typo = dictionaryManager.gboardEngine.commonTypoLookup[lower]
-            val symSpell = dictionaryManager.gboardEngine.symSpellEngine.lookup(lower, maxDistance = 2.0f).firstOrNull()?.term
-            val trie = dictionaryManager.wordTrie.getBestCorrection(lower, maxDistance = 2)
-            val best = typo ?: symSpell ?: trie
-            if (best != null && best.lowercase() != lower) {
-                return restoreCasing(prefix, best)
-            }
-        }
-
+        // Do not run grammar, neural, or fuzzy searches on the input/UI thread.
+        // The asynchronous pipeline will surface its result in the suggestion strip.
         return null
     }
 
@@ -852,48 +843,8 @@ class TypeRightKeyboardService : KeyboardService() {
             return
         }
 
-        // 2. Deep Local Grammar & Contextual Agreement Check
-        val grammarCorrection = localPredictor.checkGrammarDetailed(
-            word = lower,
-            previousWords = previousWords.value,
-            sentenceContext = ""
-        )
-
-        if (grammarCorrection != null) {
-            val correctedText = restoreCasing(prefix, grammarCorrection.correctedWord)
-            if (grammarCorrection.tokensToReplaceCount == 2) {
-                // Retroactively replace previous word as well (e.g. "your welcome" -> "you're welcome", "a apple" -> "an apple", "could of" -> "could have")
-                val prevWord = previousWords.value.lastOrNull() ?: ""
-                val textBefore = ic.getTextBeforeCursor(prevWord.length + 5, 0) ?: ""
-                var deleteLen = 0
-                if (textBefore.endsWith(" ") && prevWord.isNotEmpty()) {
-                    val prevMatchIndex = textBefore.trimEnd().lastIndexOf(prevWord, ignoreCase = true)
-                    if (prevMatchIndex != -1) {
-                        deleteLen = textBefore.length - prevMatchIndex
-                    }
-                }
-                if (deleteLen > 0) {
-                    ic.deleteSurroundingText(deleteLen, 0)
-                }
-                ic.commitText(correctedText + trailingText, 1)
-                lastOriginalWord = if (prevWord.isNotEmpty()) "$prevWord $prefix" else prefix
-                lastCorrectedWord = correctedText
-                justAutocorrected = true
-                lastCorrectedWasSpace = trailingText == " "
-                learnWordAndContext(correctedText)
-                return
-            } else {
-                ic.commitText(correctedText + trailingText, 1)
-                lastOriginalWord = prefix
-                lastCorrectedWord = correctedText
-                justAutocorrected = true
-                lastCorrectedWasSpace = trailingText == " "
-                learnWordAndContext(correctedText)
-                return
-            }
-        }
-
-        // 2. Check asyncPredictionsState result first for 0ms latency
+        // Use the latest asynchronously ranked candidate. Never synchronously invoke
+        // neural, grammar, or fuzzy correction while committing a space/punctuation.
         val asyncResult = asyncPredictionsState.value.gboardResult
         if (asyncResult.isCenterAutocorrecting && asyncResult.debugTelemetry?.rawInput?.lowercase() == lower) {
             val corrected = asyncResult.centerCandidate
@@ -906,44 +857,7 @@ class TypeRightKeyboardService : KeyboardService() {
             return
         }
 
-        // 3. Gboard Posterior Prediction & Autocorrection
-        val gboardResult = dictionaryManager.getGboardPredictions(
-            rawTyped = prefix,
-            contextWords = previousWords.value,
-            tapCoords = currentWordTapCoords.toList(),
-            isSensitiveField = isSensitiveField()
-        )
-
-        if (gboardResult.isCenterAutocorrecting) {
-            val corrected = gboardResult.centerCandidate
-            ic.commitText(corrected + trailingText, 1)
-            lastOriginalWord = prefix
-            lastCorrectedWord = corrected
-            justAutocorrected = true
-            lastCorrectedWasSpace = trailingText == " "
-            learnWordAndContext(corrected)
-            return
-        }
-
-        // 4. Local SymSpell, Typo & Trie Dictionary-based Autocorrect Fallback for straightforward typos
-        if (!dictionaryManager.isValidOrKnownWord(lower) && prefix.length >= 2) {
-            val typo = dictionaryManager.gboardEngine.commonTypoLookup[lower]
-            val symSpell = dictionaryManager.gboardEngine.symSpellEngine.lookup(lower, maxDistance = 2.0f).firstOrNull()?.term
-            val trie = dictionaryManager.wordTrie.getBestCorrection(lower, maxDistance = 2)
-            val best = typo ?: symSpell ?: trie
-            if (best != null && best.lowercase() != lower) {
-                val corrected = restoreCasing(prefix, best)
-                ic.commitText(corrected + trailingText, 1)
-                lastOriginalWord = prefix
-                lastCorrectedWord = corrected
-                justAutocorrected = true
-                lastCorrectedWasSpace = trailingText == " "
-                learnWordAndContext(corrected)
-                return
-            }
-        }
-
-        // 5. Literal typed word
+        // No completed prediction yet: commit immediately and preserve the literal text.
         ic.commitText(prefix + trailingText, 1)
         justAutocorrected = false
         lastCorrectedWasSpace = false
@@ -2420,6 +2334,7 @@ fun KeyboardLayout(
     val activePrefix = if (currentTypedWord.isNotEmpty()) currentTypedWord else wordUnderCursor
 
     val service = context as? TypeRightKeyboardService
+    val isSensitiveInput = service?.isSensitiveField() == true
     val asyncPredictions = service?.asyncPredictionsState?.value ?: AsyncKeyboardPredictions()
     val gboardResult = asyncPredictions.gboardResult
 
@@ -2434,14 +2349,16 @@ fun KeyboardLayout(
     }
 
     // Lightweight immediate prefix completion fallback while debounced worker computes suggestions
-    val instantFallback = remember(activePrefix) {
-        if (activePrefix.isNotEmpty()) {
+    val instantFallback = remember(activePrefix, isSensitiveInput) {
+        if (!isSensitiveInput && activePrefix.isNotEmpty()) {
             dictionaryManager.findWordsWithPrefix(activePrefix, 3)
         } else emptyList<String>()
     }
 
-    val suggestions = remember(asyncPredictions, activePrefix, instantFallback) {
-        if (asyncPredictions.suggestions.isNotEmpty() && asyncPredictions.suggestions.any { it.isNotBlank() }) {
+    val suggestions = remember(asyncPredictions, activePrefix, instantFallback, isSensitiveInput) {
+        if (isSensitiveInput) {
+            listOf("", "", "")
+        } else if (asyncPredictions.suggestions.isNotEmpty() && asyncPredictions.suggestions.any { it.isNotBlank() }) {
             asyncPredictions.suggestions
         } else if (instantFallback.isNotEmpty()) {
             instantFallback
