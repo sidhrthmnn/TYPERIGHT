@@ -13,6 +13,7 @@ class KeyboardSettings(context: Context) {
         const val PREFS_NAME = "typeright_prefs"
         const val KEY_THEME = "keyboard_theme"
         const val KEY_HEIGHT = "keyboard_height"
+        const val KEY_CUSTOM_KEYBOARD_HEIGHT_PERCENT = "custom_keyboard_height_percent"
         const val KEY_SOUND_ENABLED = "sound_enabled"
         const val KEY_HAPTIC_ENABLED = "haptic_enabled"
         const val KEY_AUTOCORRECT_ENABLED = "autocorrect_enabled"
@@ -74,6 +75,7 @@ class KeyboardSettings(context: Context) {
         const val HEIGHT_SHORT = "Short"
         const val HEIGHT_NORMAL = "Normal"
         const val HEIGHT_TALL = "Tall"
+        const val HEIGHT_CUSTOM = "Custom"
 
         const val TIER_AUTO = "Auto-detect"
         const val TIER_1 = "Tier 1: Full AI (Voice + Polish)"
@@ -226,7 +228,7 @@ class KeyboardSettings(context: Context) {
         }
 
     var theme: String
-        get() = prefs.getString(KEY_THEME, THEME_RETRO_BEIGE) ?: THEME_RETRO_BEIGE
+        get() = prefs.getString(KEY_THEME, THEME_DARK) ?: THEME_DARK
         set(value) {
             prefs.edit().putString(KEY_THEME, value).apply()
             // Keep isDarkMode in sync for components that check dark mode
@@ -270,6 +272,13 @@ class KeyboardSettings(context: Context) {
             dataStore.updateAsync { it.setKeyboardHeight(value) }
         }
 
+    /** Percentage of usable screen height used when the user selects Custom size. */
+    var customKeyboardHeightPercent: Float
+        get() = prefs.getFloat(KEY_CUSTOM_KEYBOARD_HEIGHT_PERCENT, 28.5f).coerceIn(24f, 38f)
+        set(value) {
+            prefs.edit().putFloat(KEY_CUSTOM_KEYBOARD_HEIGHT_PERCENT, value.coerceIn(24f, 38f)).apply()
+        }
+
     var soundEnabled: Boolean
         get() = prefs.getBoolean(KEY_SOUND_ENABLED, true)
         set(value) {
@@ -311,7 +320,7 @@ class KeyboardSettings(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_CLOUD_SYNC_ENABLED, value).apply()
 
     var isDarkMode: Boolean
-        get() = prefs.getBoolean(KEY_DARK_MODE, false)
+        get() = prefs.getBoolean(KEY_DARK_MODE, true)
         set(value) {
             prefs.edit().putBoolean(KEY_DARK_MODE, value).apply()
             dataStore.updateAsync { it.setDarkMode(value) }

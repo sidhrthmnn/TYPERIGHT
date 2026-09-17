@@ -1940,6 +1940,7 @@ fun KeyboardLayout(
     var dynamicThemeState by remember { mutableStateOf(settings.dynamicThemeEnabled) }
     var accentColorHexState by remember { mutableStateOf(settings.accentColor) }
     var keyboardHeightState by remember { mutableStateOf(settings.height) }
+    var customKeyboardHeightPercent by remember { mutableStateOf(settings.customKeyboardHeightPercent) }
     var numberRowEnabledState by remember { mutableStateOf(settings.numberRowEnabled) }
     var keyboardLanguageState by remember { mutableStateOf(settings.keyboardLanguage) }
     var keyBordersState by remember { mutableStateOf(settings.keyBordersEnabled) }
@@ -1957,6 +1958,7 @@ fun KeyboardLayout(
                 KeyboardSettings.KEY_DYNAMIC_THEME_ENABLED -> dynamicThemeState = settings.dynamicThemeEnabled
                 KeyboardSettings.KEY_ACCENT_COLOR -> accentColorHexState = settings.accentColor
                 KeyboardSettings.KEY_HEIGHT -> keyboardHeightState = settings.height
+                KeyboardSettings.KEY_CUSTOM_KEYBOARD_HEIGHT_PERCENT -> customKeyboardHeightPercent = settings.customKeyboardHeightPercent
                 KeyboardSettings.KEY_NUMBER_ROW_ENABLED -> numberRowEnabledState = settings.numberRowEnabled
                 KeyboardSettings.KEY_KEYBOARD_LANGUAGE -> keyboardLanguageState = settings.keyboardLanguage
                 KeyboardSettings.KEY_KEY_BORDERS_ENABLED -> keyBordersState = settings.keyBordersEnabled
@@ -2295,6 +2297,7 @@ fun KeyboardLayout(
         isLandscape -> (screenHeight * 0.44f).coerceIn(135f, 170f).dp
         keyboardHeightState == KeyboardSettings.HEIGHT_SHORT -> (screenHeight * 0.25f).coerceIn(200f, 220f).dp
         keyboardHeightState == KeyboardSettings.HEIGHT_TALL -> (screenHeight * 0.32f).coerceIn(250f, 280f).dp
+        keyboardHeightState == KeyboardSettings.HEIGHT_CUSTOM -> (screenHeight * (customKeyboardHeightPercent / 100f)).coerceIn(200f, 340f).dp
         else -> (screenHeight * 0.285f).coerceIn(220f, 245f).dp
     }
 
@@ -3586,6 +3589,13 @@ fun KeyboardLayout(
                             keyTextColor = keyTextColor,
                             accentColor = accentColor,
                             keyColor = normalKeyBg,
+                            heightPercent = customKeyboardHeightPercent,
+                            onHeightPercentChange = { percent ->
+                                settings.height = KeyboardSettings.HEIGHT_CUSTOM
+                                settings.customKeyboardHeightPercent = percent
+                                keyboardHeightState = KeyboardSettings.HEIGHT_CUSTOM
+                                customKeyboardHeightPercent = percent
+                            },
                             onToolClick = { tool ->
                                 when (tool) {
                                     GboardTool.PROOFREAD -> {
@@ -5537,10 +5547,19 @@ fun GboardToolsDrawer(
     keyTextColor: Color,
     accentColor: Color,
     keyColor: Color,
+    heightPercent: Float,
+    onHeightPercentChange: (Float) -> Unit,
     onToolClick: (GboardTool) -> Unit,
     onClose: () -> Unit
 ) {
-    val tools = GboardTool.values()
+    // Keep this surface focused on the actions people need while typing. Less-used
+    // settings remain available from the settings screen and the toolbar overflow.
+    val tools = listOf(
+        GboardTool.TEXT_EDIT,
+        GboardTool.ONE_HANDED,
+        GboardTool.CLIPBOARD,
+        GboardTool.TRANSLATE
+    )
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -5565,7 +5584,7 @@ fun GboardToolsDrawer(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "Gboard Tools",
+                    text = "Keyboard tools",
                     color = keyTextColor,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
@@ -5584,12 +5603,37 @@ fun GboardToolsDrawer(
             }
         }
 
-        // 2x4 Grid
+        // Direct-manipulation resize control. The size is saved immediately and used by
+        // the keyboard without requiring a trip into the settings app.
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = keyColor.copy(alpha = 0.92f),
+            border = BorderStroke(0.5.dp, keyTextColor.copy(alpha = 0.14f)),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AspectRatio, contentDescription = null, tint = accentColor, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Resize keyboard", color = keyTextColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    Text("${heightPercent.toInt()}%", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = heightPercent,
+                    onValueChange = onHeightPercentChange,
+                    valueRange = 24f..38f,
+                    colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor)
+                )
+            }
+        }
+
+        // Compact, Gboard-style tool grid
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceEvenly
         ) {
-            val chunkedTools = tools.toList().chunked(4)
+            val chunkedTools = tools.chunked(2)
             chunkedTools.forEach { rowTools ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -5609,7 +5653,7 @@ fun GboardToolsDrawer(
                             border = BorderStroke(0.5.dp, keyTextColor.copy(alpha = 0.12f)),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(56.dp)
+                                .height(54.dp)
                                 .graphicsLayer {
                                     scaleX = scale
                                     scaleY = scale

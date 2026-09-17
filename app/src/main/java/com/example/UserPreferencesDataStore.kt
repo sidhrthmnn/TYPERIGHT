@@ -36,14 +36,14 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
  */
 data class UserPreferences(
     // Theme selection
-    val theme: String = KeyboardSettings.THEME_RETRO_BEIGE,
-    val isDarkMode: Boolean = false,
+    val theme: String = KeyboardSettings.THEME_DARK,
+    val isDarkMode: Boolean = true,
     val dynamicThemeEnabled: Boolean = false,
     val accentColor: String = "#70C7C1",
     val keyBordersEnabled: Boolean = true,
     val keyBevelEnabled: Boolean = true,
-    val retroMonospace: Boolean = true,
-    val mechanicalSound: Boolean = true,
+    val retroMonospace: Boolean = false,
+    val mechanicalSound: Boolean = false,
     val keyboardHeight: String = KeyboardSettings.HEIGHT_NORMAL,
 
     // Auto-correction & typing toggles

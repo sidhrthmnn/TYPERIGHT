@@ -187,7 +187,7 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
     }
 
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Setup", "Typing Sandbox", "Retro Themes & Aesthetics", "AI Engine", "Diagnostics")
+    val tabs = listOf("Setup", "Typing Sandbox", "Appearance", "AI Engine", "Diagnostics")
 
     var testInputText by remember { mutableStateOf("") }
 
@@ -873,7 +873,8 @@ fun AestheticsSection(
     val heightOptions = listOf(
         KeyboardSettings.HEIGHT_SHORT to "Compact",
         KeyboardSettings.HEIGHT_NORMAL to "Default",
-        KeyboardSettings.HEIGHT_TALL to "Tall"
+        KeyboardSettings.HEIGHT_TALL to "Tall",
+        KeyboardSettings.HEIGHT_CUSTOM to "Custom (use keyboard resize)"
     )
 
     Card(
@@ -889,7 +890,7 @@ fun AestheticsSection(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "Retro Hardware Themes & Aesthetics",
+                text = "Keyboard appearance",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -897,7 +898,7 @@ fun AestheticsSection(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-            // RETRO THEMES & PRESETS
+            // Modern defaults, with retro treatments retained as opt-in choices.
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -909,7 +910,7 @@ fun AestheticsSection(
                         modifier = Modifier.padding(2.dp)
                     ) {
                         Text(
-                            text = "RETRO HARDWARE",
+                            text = "MODERN",
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Black,
@@ -918,7 +919,7 @@ fun AestheticsSection(
                         )
                     }
                     Text(
-                        text = "Theme Presets",
+                        text = "Theme presets",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -926,20 +927,20 @@ fun AestheticsSection(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Classic mainframe CRT terminals, 1980s mechanical keycaps, and retro computing palettes.",
+                    text = "A calm, rounded dark theme is the default. Retro treatments remain available when you want them.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
                 val retroThemes = listOf(
+                    Triple(KeyboardSettings.THEME_DARK, "Modern Dark", "Neutral charcoal surfaces and a soft indigo accent"),
+                    Triple(KeyboardSettings.THEME_LIGHT, "Modern Light", "Clean bright surfaces with restrained color"),
                     Triple(KeyboardSettings.THEME_RETRO_BEIGE, "IBM Model M (Beige)", "1980s putty chassis, eggshell keys, burnt orange return"),
                     Triple(KeyboardSettings.THEME_RETRO_CRT_GREEN, "CRT Phosphor Green", "Mainframe cyber terminal with glowing emerald phosphor"),
                     Triple(KeyboardSettings.THEME_RETRO_AMBER, "CRT Amber Terminal", "Monochrome warm amber glow with high-contrast chassis"),
                     Triple(KeyboardSettings.THEME_RETRO_MAC1984, "1984 Macintosh", "Iconic Apple platinum chassis and deep slate modifiers"),
-                    Triple(KeyboardSettings.THEME_RETRO_SYNTHWAVE, "80s Cyber Synthwave", "Outrun neon magenta return & cyber cyan keycaps"),
-                    Triple(KeyboardSettings.THEME_DARK, "Modern Minimal Dark", "OLED deep charcoal minimal keycaps"),
-                    Triple(KeyboardSettings.THEME_LIGHT, "Modern Minimal Light", "Clean bright off-white keycaps")
+                    Triple(KeyboardSettings.THEME_RETRO_SYNTHWAVE, "80s Cyber Synthwave", "Outrun neon magenta return & cyber cyan keycaps")
                 )
 
                 Column(

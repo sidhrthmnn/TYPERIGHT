@@ -329,7 +329,22 @@ class GboardPredictionEngine(private val context: Context) {
                 combinedPool.addAll(listOf("the", "to", "and", "you", "it"))
             }
 
-            val top3 = combinedPool.distinct().take(3)
+            // A suggestion strip should lead with ordinary, well-supported next words.
+            // Do not let insertion order from optional phrase/AI sources decide what a
+            // user sees; rank by the local language model and corpus frequency instead.
+            val top3 = combinedPool.asSequence()
+                .map { it.trim() }
+                .filter { candidate ->
+                    candidate.isNotEmpty() && candidate.all { it.isLetter() || it == '\'' }
+                }
+                .distinctBy { it.lowercase(Locale.ROOT) }
+                .sortedByDescending { candidate ->
+                    val normalized = candidate.lowercase(Locale.ROOT)
+                    (nGramModel.getProbability(normalized, contextWords) * 1000f) +
+                        log10(dictionaryManager.getWordFrequency(normalized).toFloat() + 1f)
+                }
+                .take(3)
+                .toList()
             val left = top3.getOrElse(0) { if (contextWords.isEmpty()) "I" else "the" }
             val center = top3.getOrElse(1) { if (contextWords.isEmpty()) "The" else "to" }
             val right = top3.getOrElse(2) { if (contextWords.isEmpty()) "How" else "and" }
