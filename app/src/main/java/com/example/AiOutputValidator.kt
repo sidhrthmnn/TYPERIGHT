@@ -37,7 +37,7 @@ object AiOutputValidator {
         val originalEnclosed = (originalInput.startsWith("\"") && originalInput.endsWith("\"")) ||
                 (originalInput.startsWith("“") && originalInput.endsWith("”")) ||
                 (originalInput.startsWith("'") && originalInput.endsWith("'"))
-        if (!originalEnclosed) {
+        if (!originalEnclosed && clean.length >= 2) {
             if ((clean.startsWith("\"") && clean.endsWith("\"")) || (clean.startsWith("“") && clean.endsWith("”"))) {
                 clean = clean.substring(1, clean.length - 1).trim()
             } else if (clean.startsWith("'") && clean.endsWith("'") && clean.length > 2) {
@@ -69,7 +69,7 @@ object AiOutputValidator {
         if (candTrim.isEmpty()) {
             return origTrim.isEmpty()
         }
-        if (origTrim.isEmpty()) return true
+        if (origTrim.isEmpty()) return false
 
         // 2. Reject obvious AI chat commentary
         val lower = candTrim.lowercase()
@@ -110,7 +110,7 @@ object AiOutputValidator {
         if (mode == PolishMode.PROOFREAD) {
             val origNumbers = extractMatches(origTrim, NUMBER_REGEX)
             val candNumbers = extractMatches(candTrim, NUMBER_REGEX)
-            if (origNumbers.isNotEmpty() && origNumbers != candNumbers) {
+            if (origNumbers != candNumbers) {
                 // If numbers were altered or deleted in PROOFREAD mode, reject
                 return false
             }

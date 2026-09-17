@@ -1,0 +1,143 @@
+package com.example
+
+import android.text.Editable
+import android.text.Selection
+import android.text.SpannableStringBuilder
+import android.text.InputType
+import android.view.View
+import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.EditorInfo
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.util.ReflectionHelpers
+import org.robolectric.util.ReflectionHelpers.ClassParameter
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class KeyboardEditingTest {
+    private lateinit var service: TypeRightKeyboardService
+    private val text = SpannableStringBuilder()
+
+    @Before fun setup() {
+        service = Robolectric.buildService(TypeRightKeyboardService::class.java).create().get()
+        val connection = object : BaseInputConnection(View(service), true) {
+            override fun getEditable(): Editable = text
+        }
+        ReflectionHelpers.setField(service, "mStartedInputConnection", connection)
+        useEditor(InputType.TYPE_CLASS_TEXT)
+        Selection.setSelection(text, 0)
+    }
+
+    @After fun tearDown() { service.onDestroy() }
+
+    private fun useEditor(type: Int) {
+        val info = EditorInfo().apply { inputType = type }
+        ReflectionHelpers.setField(service, "mInputEditorInfo", info)
+        service.onStartInput(info, false)
+    }
+
+    private fun invoke(name: String) = ReflectionHelpers.callInstanceMethod<Unit>(service, name)
+    private fun key(value: String) = ReflectionHelpers.callInstanceMethod<Unit>(service, "handleKeyPress", ClassParameter.from(String::class.java, value))
+    private fun type(value: String) { value.forEach { if (it == ' ') invoke("handleSpace") else key(it.toString()) } }
+
+    @Test fun immediateTypoCorrectionCanBeUndoneAndStaysSuppressed() {
+        type("teh ")
+        assertEquals("the ", text.toString())
+        invoke("handleDelete")
+        assertEquals("teh", text.toString())
+        invoke("handleSpace")
+        assertEquals("teh ", text.toString())
+    }
+
+    @Test fun apostropheDoesNotSplitContraction() {
+        type("don't ")
+        assertEquals("don't ", text.toString())
+    }
+
+    @Test fun punctuationDoesNotInsertSpacesInsideDecimalsOrUrls() {
+        type("3.14")
+        assertEquals("3.14", text.toString())
+        text.clear(); Selection.setSelection(text, 0)
+        useEditor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+        type("https://teh.com/a?x=3.14")
+        assertEquals("https://teh.com/a?x=3.14", text.toString())
+    }
+
+    @Test fun deleteSelectionDoesNotAlsoDeletePreviousWord() {
+        text.append("hello world")
+        Selection.setSelection(text, 6, 11)
+        invoke("handleDelete")
+        assertEquals("hello ", text.toString())
+    }
+
+    @Test fun deleteEmojiDoesNotLeaveBrokenSurrogates() {
+        text.append("hi 👨‍👩‍👧‍👦")
+        Selection.setSelection(text, text.length)
+        invoke("handleDelete")
+        assertEquals("hi ", text.toString())
+    }
+
+    @Test fun passwordInputIsLiteralAndNeverPublishedToPredictor() {
+        useEditor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        type("teh ")
+        assertEquals("teh ", text.toString())
+        assertTrue(service.asyncPredictionsState.value.suggestions.isEmpty())
+        assertFalse(service.allowsTextAssistance())
+    }
+
+    @Test fun nextWordInsertionDoesNotDeleteFollowingWord() {
+        text.append("hello world")
+        Selection.setSelection(text, 6)
+        ReflectionHelpers.callInstanceMethod<Unit>(service, "commitSuggestion", ClassParameter.from(String::class.java, "beautiful"))
+        assertEquals("hello beautiful world", text.toString())
+    }
+
+    @Test fun proofreadingRefusesToOverwriteNewTyping() {
+        text.append("hello world"); Selection.setSelection(text, text.length)
+        val snapshot = service.captureEditorText()
+        text.append("!"); Selection.setSelection(text, text.length)
+        assertFalse(service.applyEditorReplacement(snapshot, "Hello world.", PolishMode.PROOFREAD))
+        assertEquals("hello world!", text.toString())
+    }
+
+    @Test fun proofreadingRefusesToOverwriteAnotherEditor() {
+        text.append("hello world"); Selection.setSelection(text, text.length)
+        val snapshot = service.captureEditorText()
+        useEditor(InputType.TYPE_CLASS_TEXT)
+        assertFalse(service.applyEditorReplacement(snapshot, "Hello world.", PolishMode.PROOFREAD))
+    }
+
+    @Test fun proofreadingReplacesOnlyTheCapturedSelection() {
+        text.append("say hello world please"); Selection.setSelection(text, 4, 15)
+        val snapshot = service.captureEditorText()
+        assertTrue(service.applyEditorReplacement(snapshot, "Hello world", PolishMode.PROOFREAD))
+        assertEquals("say Hello world please", text.toString())
+    }
+
+    @Test fun passwordsNeverEnterPersonalDictionary() {
+        useEditor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        repeat(4) { type("plughsecret ") }
+        val dictionary = ReflectionHelpers.getField<DictionaryManager>(service, "dictionaryManager")
+        assertFalse(dictionary.isWordInUserDictionary("plughsecret"))
+        assertFalse(dictionary.isWordInDictionary("plughsecret"))
+    }
+
+    @Test fun noPersonalizedLearningFlagIsRespected() {
+        service.currentInputEditorInfo.imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+        repeat(4) { type("plughsecret ") }
+        val dictionary = ReflectionHelpers.getField<DictionaryManager>(service, "dictionaryManager")
+        assertFalse(dictionary.isWordInUserDictionary("plughsecret"))
+    }
+
+    @Test fun settingsDisableImmediateCorrection() {
+        KeyboardSettings(service).autocorrectEnabled = false
+        type("teh ")
+        assertEquals("teh ", text.toString())
+    }
+}

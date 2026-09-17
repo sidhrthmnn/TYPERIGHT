@@ -59,8 +59,8 @@ object AiExecutionLogger {
         durationMs: Long = 0
     ) {
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date())
-        val inputSnippet = if (input.length > 80) input.take(77) + "..." else input
-        val outputSnippet = if (output.length > 80) output.take(77) + "..." else output
+        val inputSnippet = "[redacted: ${input.length} characters]"
+        val outputSnippet = "[redacted: ${output.length} characters]"
 
         // 1. Log to Android Logcat
         Log.i(
@@ -79,6 +79,7 @@ object AiExecutionLogger {
                 durationMs = durationMs
             )
             val file = getLogFile(context)
+            if (file.length() > 256 * 1024) file.writeText("")
             file.appendText(entry.toFormattedString() + "\n\n")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to persist AI execution log: ${e.message}")

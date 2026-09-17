@@ -160,7 +160,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
             }
         }
         .map { prefs ->
-            val themeVal = prefs[PreferencesKeys.THEME] ?: KeyboardSettings.THEME_RETRO_BEIGE
+            val themeVal = prefs[PreferencesKeys.THEME] ?: KeyboardSettings.THEME_DARK
             val isDarkTheme = themeVal == KeyboardSettings.THEME_DARK ||
                     themeVal == KeyboardSettings.THEME_RETRO_CRT_GREEN ||
                     themeVal == KeyboardSettings.THEME_RETRO_AMBER ||
@@ -476,7 +476,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
     private fun readInitialFromSharedPreferences(): UserPreferences {
         return try {
             val sp = appContext.getSharedPreferences(KeyboardSettings.PREFS_NAME, Context.MODE_PRIVATE)
-            val themeVal = sp.getString(KeyboardSettings.KEY_THEME, KeyboardSettings.THEME_RETRO_BEIGE) ?: KeyboardSettings.THEME_RETRO_BEIGE
+            val themeVal = sp.getString(KeyboardSettings.KEY_THEME, KeyboardSettings.THEME_DARK) ?: KeyboardSettings.THEME_DARK
             val isDarkTheme = themeVal == KeyboardSettings.THEME_DARK ||
                     themeVal == KeyboardSettings.THEME_RETRO_CRT_GREEN ||
                     themeVal == KeyboardSettings.THEME_RETRO_AMBER ||

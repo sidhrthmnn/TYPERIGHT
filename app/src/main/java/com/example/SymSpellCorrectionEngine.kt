@@ -43,7 +43,7 @@ class SymSpellCorrectionEngine(
      */
     fun insertWord(word: String, frequency: Int = 1) {
         val lower = word.lowercase().trim()
-        if (lower.isEmpty()) return
+        if (lower.isEmpty() || lower.length > 32) return
 
         wordFrequencyMap[lower] = maxOf(wordFrequencyMap[lower] ?: 0, frequency)
 
@@ -62,6 +62,7 @@ class SymSpellCorrectionEngine(
         val results = HashSet<String>()
         val queue = ArrayDeque<Pair<String, Int>>()
         queue.add(Pair(word, 0))
+        results.add(word)
 
         while (queue.isNotEmpty()) {
             val (current, dist) = queue.removeFirst()
@@ -69,7 +70,7 @@ class SymSpellCorrectionEngine(
             if (dist < maxDistance) {
                 for (i in current.indices) {
                     val next = current.substring(0, i) + current.substring(i + 1)
-                    if (next.isNotEmpty() && !results.contains(next)) {
+                    if (next.isNotEmpty() && results.add(next)) {
                         queue.add(Pair(next, dist + 1))
                     }
                 }
@@ -88,7 +89,7 @@ class SymSpellCorrectionEngine(
         maxResults: Int = 10
     ): List<SuggestionItem> {
         val lower = input.lowercase().trim()
-        if (lower.isEmpty()) return emptyList()
+        if (lower.isEmpty() || lower.length > 32 || maxResults <= 0) return emptyList()
 
         val candidates = HashSet<String>()
         val inputDeletes = getDeletes(lower, maxEditDistance)

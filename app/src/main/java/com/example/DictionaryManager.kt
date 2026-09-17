@@ -583,11 +583,11 @@ class DictionaryManager(private val context: Context) {
 
     // Dynamic User Dictionary, Personal Blocklist, Learned Bigrams, and Suppressed Corrections
     private val prefs = context.getSharedPreferences("typeright_dictionary", Context.MODE_PRIVATE)
-    private val userWords = mutableSetOf<String>()
-    private val personalBlocklist = mutableSetOf<String>()
+    private val userWords = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val personalBlocklist = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val personalizedBigrams = mutableMapOf<String, MutableList<String>>()
     private val suppressedCorrections = mutableMapOf<String, MutableSet<String>>()
-    private val recentlyAcceptedWords = LinkedHashSet<String>()
+    private val recentlyAcceptedWords = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
 
     fun recordAcceptedWord(word: String) {
         val clean = word.lowercase().trim()
@@ -602,6 +602,13 @@ class DictionaryManager(private val context: Context) {
                     }
                 }
             }
+        }
+    }
+
+    fun isCorrectionSuppressed(originalWord: String, correctedWord: String): Boolean {
+        val original = originalWord.lowercase(java.util.Locale.ROOT).trim()
+        return original in personalBlocklist || synchronized(suppressedCorrections) {
+            suppressedCorrections[original]?.contains(correctedWord.lowercase(java.util.Locale.ROOT).trim()) == true
         }
     }
 
@@ -1157,7 +1164,8 @@ class DictionaryManager(private val context: Context) {
         tapCoords: List<PointF>? = null,
         previousWords: List<String> = emptyList()
     ): List<String> {
-        val normalizedPrefix = prefix.lowercase().trim()
+        if (isSensitiveField) return emptyList()
+        val normalizedPrefix = prefix.lowercase(java.util.Locale.ROOT).trim()
 
         val isMalayalam = settings.keyboardLanguage.contains("Malayalam", ignoreCase = true)
         if (isMalayalam && normalizedPrefix.isNotEmpty()) {

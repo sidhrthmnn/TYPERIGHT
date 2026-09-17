@@ -112,7 +112,8 @@ class LocalInferenceEngine private constructor(private val context: Context) {
                         if (!cloudResponse.isNullOrBlank()) {
                             usedNemotron = true
                         }
-                    } catch (e: Throwable) {
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
                         Log.w(TAG, "Nemotron cloud proofreading failed: ${e.message}")
                     }
                 }
@@ -121,7 +122,8 @@ class LocalInferenceEngine private constructor(private val context: Context) {
                 if (cloudResponse.isNullOrBlank() && isGeminiEnabled) {
                     try {
                         cloudResponse = GeminiApiClient.generatePolish(originalText, mode, context)
-                    } catch (e: Throwable) {
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
                         Log.w(TAG, "Gemini cloud proofreading failed: ${e.message}")
                     }
                 }
@@ -153,6 +155,7 @@ class LocalInferenceEngine private constructor(private val context: Context) {
             locallyCorrected = try {
                 tfLiteCorrectionModel.correctText(locallyCorrected)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 locallyCorrected
             }
             
@@ -185,7 +188,8 @@ class LocalInferenceEngine private constructor(private val context: Context) {
                     if (!cloudResponse.isNullOrBlank()) {
                         usedNemotron = true
                     }
-                } catch (e: Throwable) {
+                } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.w(TAG, "Nemotron cloud inference failed: ${e.message}.")
                 }
             }
@@ -194,7 +198,8 @@ class LocalInferenceEngine private constructor(private val context: Context) {
             if (cloudResponse.isNullOrBlank() && isGeminiEnabled) {
                 try {
                     cloudResponse = GeminiApiClient.generatePolish(originalText, mode, context)
-                } catch (e: Throwable) {
+                } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.w(TAG, "Gemini cloud inference failed: ${e.message}.")
                 }
             }
@@ -219,13 +224,14 @@ class LocalInferenceEngine private constructor(private val context: Context) {
             baseCorrected = try {
                 tfLiteCorrectionModel.correctText(baseCorrected)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 baseCorrected
             }
 
             val localResult = applyLocalStyleTransformation(baseCorrected, mode)
             val sanitized = AiOutputValidator.sanitize(localResult, originalText)
             val isValid = AiOutputValidator.isValid(originalText, sanitized, mode)
-            val finalText = if (isValid) sanitized else baseCorrected
+            val finalText = if (isValid) sanitized else originalText
             val hasChanged = finalText != originalText
             val localConfidence = evaluateLocalQuality(originalText, finalText, mode)
 
@@ -270,6 +276,7 @@ class LocalInferenceEngine private constructor(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
             // Non-fatal if room db is not yet populated
         }
 

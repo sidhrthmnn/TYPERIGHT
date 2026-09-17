@@ -74,6 +74,11 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.text.font.FontFamily
@@ -124,8 +129,13 @@ data class TextInputBufferState(
 data class AsyncKeyboardPredictions(
     val gboardResult: GboardSuggestionResult = GboardSuggestionResult("", "", "", false),
     val suggestions: List<String> = emptyList(),
-    val aiPhraseCompletions: List<String> = emptyList()
+    val aiPhraseCompletions: List<String> = emptyList(),
+    val source: TextInputBufferState? = null
 )
+
+data class EditorTextSnapshot(val session: Long, val before: String, val selected: String?, val after: String) {
+    val text: String get() = selected?.takeIf { it.isNotEmpty() } ?: (before + after)
+}
 
 class TypeRightKeyboardService : KeyboardService() {
 
@@ -168,6 +178,10 @@ class TypeRightKeyboardService : KeyboardService() {
     private var lastCorrectedWord: String = ""
     private var justAutocorrected: Boolean = false
     private var lastCorrectedWasSpace: Boolean = false
+    private var bufferGeneration = 0L
+    private var editorSession = 0L
+    private var lastSpaceTime = 0L
+    private var suggestionSpacePending = false
     private var lastCursorPosition = 0
     private var lastComposedStart = -1
     private var lastComposedEnd = -1
@@ -179,6 +193,7 @@ class TypeRightKeyboardService : KeyboardService() {
     private val isAiPolishing = mutableStateOf(false)
     private var currentAiRequestId: Long = 0L
     private var currentAiJob: kotlinx.coroutines.Job? = null
+    private var rephraseSnapshot: EditorTextSnapshot? = null
     private val isAiRephrasing = mutableStateOf(false)
     private val aiRephraseSuggestions = androidx.compose.runtime.mutableStateListOf<String>()
     private val isMicPermissionGranted = mutableStateOf(false)
@@ -200,7 +215,7 @@ class TypeRightKeyboardService : KeyboardService() {
     private var speechRecognizer: SpeechRecognizer? = null
     private var mediaRecorder: MediaRecorder? = null
     private var audioFile: File? = null
-    private var serviceJob = Job()
+    private var serviceJob = kotlinx.coroutines.SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
     private var audioRecord: android.media.AudioRecord? = null
     private var isAudioRecordActive = false
@@ -254,109 +269,83 @@ class TypeRightKeyboardService : KeyboardService() {
         // Initialize on-device speech processing engine
         WhisperCppBrain.loadGGMLModel(this, "whisper-tiny")
 
-        // Launch debounced asynchronous processing pipeline for text input buffer
+        // New input cancels the previous delay and computation. Results belong to one snapshot.
         serviceScope.launch {
-            @OptIn(kotlinx.coroutines.FlowPreview::class)
-            textBufferFlow
-                .debounce(30L)
-                .collectLatest { bufferState ->
-                    // A keyboard must not process or expose candidates for passwords.
-                    if (bufferState.isSensitive) {
-                        withContext(Dispatchers.Main) {
-                            asyncPredictionsState.value = AsyncKeyboardPredictions(
-                                gboardResult = GboardSuggestionResult("", "", "", false),
-                                suggestions = emptyList(),
-                                aiPhraseCompletions = emptyList()
-                            )
-                        }
-                        return@collectLatest
-                    }
-
-                    val isMalayalamKeyboard = settings.keyboardLanguage.contains("Malayalam", ignoreCase = true)
-                    val isManglishEnabled = settings.manglishTransliterationEnabled
-
-                    val manglishCandidates = withContext(Dispatchers.Default) {
-                        if (bufferState.activePrefix.isNotEmpty() && (isMalayalamKeyboard || isManglishEnabled)) {
-                            manglishEngine.getTransliterationCandidates(bufferState.activePrefix)
+            textBufferFlow.collectLatest { buffer ->
+                try {
+                    kotlinx.coroutines.delay(20L)
+                    val result = withContext(Dispatchers.Default) {
+                        if (buffer.isSensitive || buffer.isUrl || buffer.isEmail) {
+                            AsyncKeyboardPredictions(source = buffer)
                         } else {
-                            emptyList()
+                            val gboard = dictionaryManager.getGboardPredictions(
+                                buffer.activePrefix, buffer.previousWords, buffer.tapCoords.ifEmpty { null }, false)
+                            val malayalam = settings.keyboardLanguage.contains("Malayalam", ignoreCase = true)
+                            val transliterations = if (buffer.activePrefix.isNotEmpty() &&
+                                (malayalam || settings.manglishTransliterationEnabled)) {
+                                manglishEngine.getTransliterationCandidates(buffer.activePrefix)
+                            } else emptyList()
+                            val finalResult = if (malayalam && transliterations.isNotEmpty()) gboard.copy(
+                                leftCandidate = transliterations.getOrElse(1) { buffer.activePrefix },
+                                centerCandidate = transliterations[0],
+                                rightCandidate = transliterations.getOrElse(2) { "" },
+                                isCenterAutocorrecting = true
+                            ) else gboard
+                            val suggestions = listOf(finalResult.leftCandidate, finalResult.centerCandidate,
+                                if (!malayalam && transliterations.isNotEmpty()) transliterations[0] else finalResult.rightCandidate)
+                            AsyncKeyboardPredictions(finalResult, suggestions, emptyList(), buffer)
                         }
                     }
-
-                    val gboard = withContext(Dispatchers.Default) {
-                        dictionaryManager.getGboardPredictions(
-                            rawTyped = bufferState.activePrefix,
-                            contextWords = bufferState.previousWords,
-                            tapCoords = if (bufferState.tapCoords.isNotEmpty()) bufferState.tapCoords else null,
-                            isSensitiveField = bufferState.isSensitive
-                        )
-                    }
-
-                    val suggestionsList = withContext(Dispatchers.Default) {
-                        if (isMalayalamKeyboard && manglishCandidates.isNotEmpty()) {
-                            if (manglishCandidates.size >= 2) {
-                                listOf(manglishCandidates[1], manglishCandidates[0], manglishCandidates.getOrElse(2) { gboard.rightCandidate })
-                            } else {
-                                listOf(bufferState.activePrefix, manglishCandidates[0], gboard.rightCandidate)
-                            }
-                        } else if (isManglishEnabled && manglishCandidates.isNotEmpty()) {
-                            val baseList = if (bufferState.isUrl || bufferState.isEmail || bufferState.isSensitive) {
-                                dictionaryManager.getSuggestionsForPrefix(
-                                    prefix = bufferState.activePrefix,
-                                    prevWord = bufferState.previousWord,
-                                    isUrlField = bufferState.isUrl,
-                                    isEmailField = bufferState.isEmail,
-                                    isSensitiveField = bufferState.isSensitive,
-                                    previousWords = bufferState.previousWords
-                                )
-                            } else {
-                                listOf(gboard.leftCandidate, gboard.centerCandidate, gboard.rightCandidate)
-                            }
-                            // Insert Malayalam candidate in the third or center slot
-                            if (manglishCandidates[0] != bufferState.activePrefix) {
-                                listOf(baseList.getOrElse(0) { "" }, baseList.getOrElse(1) { "" }, manglishCandidates[0])
-                            } else baseList
-                        } else if (bufferState.isUrl || bufferState.isEmail || bufferState.isSensitive) {
-                            dictionaryManager.getSuggestionsForPrefix(
-                                prefix = bufferState.activePrefix,
-                                prevWord = bufferState.previousWord,
-                                isUrlField = bufferState.isUrl,
-                                isEmailField = bufferState.isEmail,
-                                isSensitiveField = bufferState.isSensitive,
-                                previousWords = bufferState.previousWords
-                            )
-                        } else {
-                            listOf(gboard.leftCandidate, gboard.centerCandidate, gboard.rightCandidate)
-                        }
-                    }
-
-                    val phrases = withContext(Dispatchers.Default) {
-                        if (bufferState.activePrefix.isEmpty() && bufferState.previousWords.isNotEmpty()) {
-                            dictionaryManager.localGrammarPredictor.predictPhraseCompletions(
-                                previousWords = bufferState.previousWords,
-                                prefix = bufferState.activePrefix
-                            )
-                        } else emptyList()
-                    }
-
-                    val finalGboard = if (isMalayalamKeyboard && manglishCandidates.isNotEmpty()) {
-                        gboard.copy(
-                            leftCandidate = manglishCandidates.getOrElse(1) { bufferState.activePrefix },
-                            centerCandidate = manglishCandidates[0],
-                            rightCandidate = manglishCandidates.getOrElse(2) { gboard.rightCandidate },
-                            isCenterAutocorrecting = true
-                        )
-                    } else gboard
-
-                    withContext(Dispatchers.Main) {
-                        asyncPredictionsState.value = AsyncKeyboardPredictions(
-                            gboardResult = finalGboard,
-                            suggestions = suggestionsList,
-                            aiPhraseCompletions = phrases
-                        )
-                    }
+                    if (textBufferFlow.value == buffer) asyncPredictionsState.value = result
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    Log.w("TypeRight", "Prediction failed: ${failure.javaClass.simpleName}")
+                    if (textBufferFlow.value == buffer) asyncPredictionsState.value = AsyncKeyboardPredictions(source = buffer)
                 }
+            }
         }
+    }
+
+    private fun cancelPendingPolish() {
+        currentAiRequestId++
+        currentAiJob?.cancel()
+        currentAiJob = null
+        rephraseSnapshot = null
+        isAiPolishing.value = false
+        isAiRephrasing.value = false
+        aiRephraseSuggestions.clear()
+    }
+
+    private fun resetEditorState() {
+        editorSession++
+        if (::voiceRecordingService.isInitialized) voiceRecordingService.cancelRecording()
+        isVoiceTypingActive.value = false
+        isRambleRecording.value = false
+        isRambleProcessing.value = false
+        pendingVoiceTranscript.value = ""
+        showVoicePolishPrompt.value = false
+        cancelPendingPolish()
+        currentTypedWord.value = ""
+        wordUnderCursor.value = ""
+        previousWord.value = null
+        previousWord2.value = null
+        previousWords.value = emptyList()
+        currentWordTapCoords.clear()
+        justAutocorrected = false
+        lastOriginalWord = ""
+        lastCorrectedWord = ""
+        lastSpaceTime = 0L
+        suggestionSpacePending = false
+        lastComposedStart = -1
+        lastComposedEnd = -1
+        asyncPredictionsState.value = AsyncKeyboardPredictions()
+        textBufferFlow.value = TextInputBufferState(isSensitive = true, timestamp = ++bufferGeneration)
+    }
+
+    override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInput(info, restarting)
+        resetEditorState()
     }
 
     override fun onConfigureWindow(win: Window, isFullscreen: Boolean, isCandidatesOnly: Boolean) {
@@ -396,9 +385,10 @@ class TypeRightKeyboardService : KeyboardService() {
         // Capture new system clipboard content
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-            if (!isSensitiveField() && clipboard != null && clipboard.hasPrimaryClip()) {
+            if (!isSensitiveField() && settings.clipboardEnabled && clipboard != null && clipboard.hasPrimaryClip()) {
                 val clipData = clipboard.primaryClip
-                if (clipData != null && clipData.itemCount > 0) {
+                if (clipData != null && clipData.itemCount > 0 &&
+                    clipData.description.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) != true) {
                     val text = clipData.getItemAt(0).text?.toString()
                     if (!text.isNullOrBlank()) {
                         serviceScope.launch {
@@ -419,27 +409,17 @@ class TypeRightKeyboardService : KeyboardService() {
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         
-        val isCursorInsideComposing = candidatesStart != -1 && candidatesEnd != -1 &&
-                newSelStart >= candidatesStart && newSelStart <= candidatesEnd
-
-        if (!isCursorInsideComposing || newSelStart != oldSelStart) {
-            val expectedStep = lastCursorPosition + 1
-            if (newSelStart != expectedStep || candidatesStart == -1) {
-                if (currentTypedWord.value.isNotEmpty()) {
-                    currentInputConnection?.finishComposingText()
-                    currentTypedWord.value = ""
-                    currentWordTapCoords.clear()
-                }
-            }
+        val atComposingEnd = candidatesStart >= 0 && newSelStart == newSelEnd && newSelEnd == candidatesEnd
+        if (currentTypedWord.value.isNotEmpty() && !atComposingEnd) {
+            currentInputConnection?.finishComposingText()
+            currentTypedWord.value = ""
+            currentWordTapCoords.clear()
+            justAutocorrected = false
         }
-
         lastCursorPosition = newSelStart
-
-        // Zero-lag optimization: Only execute synchronous Binder IPC when cursor moves outside
-        // composing text or candidate state changes, never during smooth sequential character typing.
-        if (candidatesStart == -1 || !isCursorInsideComposing) {
-            updatePreviousWord()
-        }
+        lastComposedStart = candidatesStart
+        lastComposedEnd = candidatesEnd
+        if (!atComposingEnd) updatePreviousWord()
     }
 
     private fun isWordChar(c: Char): Boolean {
@@ -458,7 +438,7 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun updatePreviousWord() {
-        if (isSensitiveField()) {
+        if (!allowsTextAssistance()) {
             // Do not read surrounding text from password editors or retain it in state.
             previousWord.value = null
             previousWord2.value = null
@@ -540,22 +520,18 @@ class TypeRightKeyboardService : KeyboardService() {
 
     fun notifyTextBufferChanged() {
         val active = if (currentTypedWord.value.isNotEmpty()) currentTypedWord.value else wordUnderCursor.value
-        val buffer = TextInputBufferState(
-            typedWord = currentTypedWord.value,
-            activePrefix = active,
-            previousWord = previousWord.value,
-            previousWords = previousWords.value.toList(),
-            tapCoords = currentWordTapCoords.toList(),
-            isUrl = isUrlField(),
-            isEmail = isEmailField(),
-            isSensitive = isSensitiveField(),
-            timestamp = System.currentTimeMillis()
-        )
+        val buffer = if (!allowsTextAssistance()) TextInputBufferState(isSensitive = true, timestamp = ++bufferGeneration)
+        else TextInputBufferState(
+            typedWord = currentTypedWord.value, activePrefix = active,
+            previousWord = previousWord.value, previousWords = previousWords.value.toList(),
+            tapCoords = currentWordTapCoords.map { PointF(it.x, it.y) }, timestamp = ++bufferGeneration)
+        asyncPredictionsState.value = AsyncKeyboardPredictions()
         textBufferFlow.value = buffer
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        resetEditorState()
         if (isVoiceTypingActive.value) {
             stopVoiceTyping(shouldPolish = false)
         }
@@ -756,112 +732,68 @@ class TypeRightKeyboardService : KeyboardService() {
         return isPassword || isNumberPassword
     }
 
+    fun captureEditorText(): EditorTextSnapshot? {
+        if (!allowsTextAssistance()) return null
+        val ic = currentInputConnection ?: return null
+        ic.finishComposingText()
+        currentTypedWord.value = ""
+        currentWordTapCoords.clear()
+        wordUnderCursor.value = ""
+        notifyTextBufferChanged()
+        return EditorTextSnapshot(editorSession, ic.getTextBeforeCursor(2000, 0)?.toString().orEmpty(),
+            ic.getSelectedText(0)?.toString(), ic.getTextAfterCursor(2000, 0)?.toString().orEmpty())
+    }
+
+    fun applyEditorReplacement(snapshot: EditorTextSnapshot?, replacement: String, mode: PolishMode): Boolean {
+        if (snapshot == null || snapshot.session != editorSession || !allowsTextAssistance()) return false
+        val ic = currentInputConnection ?: return false
+        if (ic.getTextBeforeCursor(2000, 0)?.toString().orEmpty() != snapshot.before ||
+            ic.getTextAfterCursor(2000, 0)?.toString().orEmpty() != snapshot.after ||
+            ic.getSelectedText(0)?.toString() != snapshot.selected ||
+            !AiOutputValidator.isValid(snapshot.text, replacement, mode)) return false
+        ic.beginBatchEdit()
+        try {
+            ic.finishComposingText()
+            if (snapshot.selected.isNullOrEmpty()) ic.deleteSurroundingText(snapshot.before.length, snapshot.after.length)
+            ic.commitText(replacement, 1)
+        } finally { ic.endBatchEdit() }
+        justAutocorrected = false
+        updatePreviousWord()
+        return true
+    }
+
     private fun formatGrammarCheckedText(word: String): CharSequence {
         return word
     }
 
-    private fun getAutoCorrectedWord(prefix: String): String? {
-        val lower = prefix.lowercase().trim()
-        if (!settings.autocorrectEnabled || prefix.isEmpty() || isSensitiveField()) return null
-
-        // 1. Check if background prediction is already computed and ready
-        val asyncResult = asyncPredictionsState.value.gboardResult
-        if (asyncResult.isCenterAutocorrecting && asyncResult.debugTelemetry?.rawInput?.lowercase() == lower) {
-            return asyncResult.centerCandidate
-        }
-        // Do not run grammar, neural, or fuzzy searches on the input/UI thread.
-        // The asynchronous pipeline will surface its result in the suggestion strip.
-        return null
+    fun allowsTextAssistance(): Boolean {
+        val info = currentInputEditorInfo ?: return false
+        return !isSensitiveField() && !isUrlField() && !isEmailField() &&
+            (info.inputType and android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT &&
+            (info.inputType and android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == 0
     }
 
-    private fun commitWordWithSmartCorrection(
-        ic: InputConnection,
-        prefix: String,
-        trailingText: String = ""
-    ) {
-        val lower = prefix.lowercase().trim()
-        if (prefix.isEmpty() || isSensitiveField()) {
-            ic.commitText(prefix + trailingText, 1)
-            learnWordAndContext(prefix)
-            return
-        }
+    private fun mayLearn(): Boolean = allowsTextAssistance() &&
+        ((currentInputEditorInfo?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) == 0
 
-        // 0. Malayalam transliteration mode
-        val isMalayalamKeyboard = settings.keyboardLanguage.contains("Malayalam", ignoreCase = true)
-        if (isMalayalamKeyboard) {
-            val candidates = manglishEngine.getTransliterationCandidates(prefix)
-            if (candidates.isNotEmpty()) {
-                val malayalamWord = candidates[0]
-                ic.commitText(malayalamWord + trailingText, 1)
-                lastOriginalWord = prefix
-                lastCorrectedWord = malayalamWord
-                justAutocorrected = true
-                lastCorrectedWasSpace = trailingText == " "
-                learnWordAndContext(malayalamWord)
-                return
-            }
-        }
+    private fun getAutoCorrectedWord(prefix: String): String? {
+        if (!settings.autocorrectEnabled || prefix.isEmpty() || !allowsTextAssistance()) return null
+        dictionaryManager.gboardEngine.immediateCorrection(prefix, dictionaryManager)?.let { return it }
+        val prediction = asyncPredictionsState.value
+        val source = prediction.source ?: return null
+        if (source != textBufferFlow.value || source.activePrefix != prefix) return null
+        return prediction.gboardResult.takeIf { it.isCenterAutocorrecting }?.centerCandidate
+            ?.takeUnless { dictionaryManager.isCorrectionSuppressed(prefix, it) }
+    }
 
-        if (!settings.autocorrectEnabled) {
-            ic.commitText(prefix + trailingText, 1)
-            learnWordAndContext(prefix)
-            return
-        }
-
-        // 1. Standalone 'i' auto-capitalization & Contractions (iOS / Gboard signature feature)
-        if (lower == "i") {
-            ic.commitText("I" + trailingText, 1)
-            lastOriginalWord = prefix
-            lastCorrectedWord = "I"
-            justAutocorrected = (prefix != "I")
-            lastCorrectedWasSpace = trailingText == " "
-            learnWordAndContext("I")
-            return
-        }
-
-        val contraction = dictionaryManager.gboardEngine.contractionLookup[lower]
-        if (contraction != null) {
-            val corrected = restoreCasing(prefix, contraction)
-            ic.commitText(corrected + trailingText, 1)
-            lastOriginalWord = prefix
-            lastCorrectedWord = corrected
-            justAutocorrected = true
-            lastCorrectedWasSpace = trailingText == " "
-            learnWordAndContext(corrected)
-            return
-        }
-
-        val knownTypo = dictionaryManager.gboardEngine.commonTypoLookup[lower]
-        if (knownTypo != null) {
-            val corrected = restoreCasing(prefix, knownTypo)
-            ic.commitText(corrected + trailingText, 1)
-            lastOriginalWord = prefix
-            lastCorrectedWord = corrected
-            justAutocorrected = true
-            lastCorrectedWasSpace = trailingText == " "
-            learnWordAndContext(corrected)
-            return
-        }
-
-        // Use the latest asynchronously ranked candidate. Never synchronously invoke
-        // neural, grammar, or fuzzy correction while committing a space/punctuation.
-        val asyncResult = asyncPredictionsState.value.gboardResult
-        if (asyncResult.isCenterAutocorrecting && asyncResult.debugTelemetry?.rawInput?.lowercase() == lower) {
-            val corrected = asyncResult.centerCandidate
-            ic.commitText(corrected + trailingText, 1)
-            lastOriginalWord = prefix
-            lastCorrectedWord = corrected
-            justAutocorrected = true
-            lastCorrectedWasSpace = trailingText == " "
-            learnWordAndContext(corrected)
-            return
-        }
-
-        // No completed prediction yet: commit immediately and preserve the literal text.
-        ic.commitText(prefix + trailingText, 1)
-        justAutocorrected = false
-        lastCorrectedWasSpace = false
-        learnWordAndContext(prefix)
+    private fun commitWordWithSmartCorrection(ic: InputConnection, prefix: String, trailingText: String = "") {
+        val corrected = getAutoCorrectedWord(prefix) ?: prefix
+        ic.commitText(corrected + trailingText, 1)
+        lastOriginalWord = prefix
+        lastCorrectedWord = corrected
+        justAutocorrected = corrected != prefix
+        lastCorrectedWasSpace = trailingText == " "
+        learnWordAndContext(corrected)
     }
 
     private fun restoreCasing(original: String, target: String): String {
@@ -876,7 +808,8 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun handleKeyPress(text: String) {
-        if (isAiPolishing.value) return
+        cancelPendingPolish()
+        lastSpaceTime = 0L
         showVoicePolishPrompt.value = false
         playFeedback()
         if (isVoiceTypingActive.value) {
@@ -909,7 +842,7 @@ class TypeRightKeyboardService : KeyboardService() {
             val char = text[0]
             
             // If it is a surrogate char or is not standard letter/digit (like some emojis that are single char):
-            if (char.isSurrogate() || (!char.isLetterOrDigit() && char != ',' && char != '.' && char != '!' && char != '?' && char != '@' && char != '#' && char != '$')) {
+            if (char.isSurrogate() || (!TypingPolicy.isWordCharacter(char) && char != ',' && char != '.' && char != '!' && char != '?' && char != '@' && char != '#' && char != '$')) {
                 if (currentTypedWord.value.isNotEmpty()) {
                     val prefix = currentTypedWord.value
                     commitWordWithSmartCorrection(ic, prefix, "")
@@ -929,12 +862,14 @@ class TypeRightKeyboardService : KeyboardService() {
                 } else {
                     // Check if there is a trailing space before cursor
                     val before = ic.getTextBeforeCursor(1, 0) ?: ""
-                    if (before == " ") {
-                        ic.deleteSurroundingText(1, 0) // Collapse space
+                    if (suggestionSpacePending && before == " ") {
+                        ic.deleteSurroundingText(1, 0)
                     }
                 }
-                // Commit punctuation followed by auto-inserted trailing space!
-                ic.commitText("$char ", 1)
+                // Do not insert spaces inside URLs, decimals, or ellipses.
+                ic.commitText(char.toString(), 1)
+                suggestionSpacePending = false
+                justAutocorrected = false
                 updatePreviousWord()
                 return
             }
@@ -954,7 +889,7 @@ class TypeRightKeyboardService : KeyboardService() {
             val letter = if (isShiftActive.value) char.uppercaseChar().toString() else char.toString()
             
             // Train the typing offset ML model for alphabetical characters
-            if (char.lowercaseChar() in 'a'..'z') {
+            if (mayLearn() && char.lowercaseChar() in 'a'..'z') {
                 dictionaryManager.learnTapPattern(char, lastTapX, lastTapY)
             }
 
@@ -993,69 +928,47 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun handleDelete() {
-        if (isAiPolishing.value) return
+        cancelPendingPolish()
+        lastSpaceTime = 0L
+        suggestionSpacePending = false
         showVoicePolishPrompt.value = false
         playFeedback(FeedbackType.Delete)
-        if (isVoiceTypingActive.value) {
-            stopVoiceTyping(shouldPolish = false)
-        }
+        if (isVoiceTypingActive.value) stopVoiceTyping(shouldPolish = false)
         val ic = currentInputConnection ?: return
-        
-        // Backspace clears any outstanding AI suggestions
-        aiRephraseSuggestions.clear()
-        
-        // Instant undo check: if backspace immediately follows an autocorrect event
-        if (justAutocorrected && lastOriginalWord.isNotEmpty() && lastCorrectedWord.isNotEmpty()) {
-            val len = lastCorrectedWord.length + (if (lastCorrectedWasSpace) 1 else 0)
-            ic.deleteSurroundingText(len, 0)
-            
-            // Restore original typed text
-            currentTypedWord.value = lastOriginalWord
-            ic.setComposingText(formatGrammarCheckedText(currentTypedWord.value), 1)
-            
-            // Adaptively learn NOT to autocorrect this word again
-            dictionaryManager.suppressCorrection(lastOriginalWord, lastCorrectedWord)
-            
-            justAutocorrected = false
-            updatePreviousWord()
-            return
-        }
-        
-        justAutocorrected = false
-
-        if (currentTypedWord.value.isEmpty()) {
-            val wordBefore = getWordBeforeCursor(ic)
-            if (wordBefore.isNotEmpty()) {
-                ic.deleteSurroundingText(wordBefore.length, 0)
-                currentTypedWord.value = wordBefore
-            }
-        }
-
-        if (currentTypedWord.value.isNotEmpty()) {
-            currentTypedWord.value = currentTypedWord.value.dropLast(1)
-            if (currentWordTapCoords.isNotEmpty()) {
-                currentWordTapCoords.removeAt(currentWordTapCoords.size - 1)
-            }
-            if (currentTypedWord.value.isNotEmpty()) {
-                ic.setComposingText(formatGrammarCheckedText(currentTypedWord.value), 1)
-            } else {
-                currentWordTapCoords.clear()
-                ic.setComposingText("", 1)
-                ic.finishComposingText()
-            }
-        } else {
-            val selected = ic.getSelectedText(0)
-            if (selected.isNullOrEmpty()) {
-                ic.deleteSurroundingText(1, 0)
-            } else {
+        ic.beginBatchEdit()
+        try {
+            if (!ic.getSelectedText(0).isNullOrEmpty()) {
                 ic.commitText("", 1)
+                currentTypedWord.value = ""
+                currentWordTapCoords.clear()
+                justAutocorrected = false
+            } else {
+                val suffix = lastCorrectedWord + if (lastCorrectedWasSpace) " " else ""
+                val canUndo = allowsTextAssistance() && justAutocorrected && lastCorrectedWord.isNotEmpty() &&
+                    ic.getTextBeforeCursor(suffix.length, 0)?.toString() == suffix
+                if (canUndo) {
+                    ic.deleteSurroundingText(suffix.length, 0)
+                    currentTypedWord.value = lastOriginalWord
+                    currentWordTapCoords.clear()
+                    ic.setComposingText(lastOriginalWord, 1)
+                    dictionaryManager.suppressCorrection(lastOriginalWord, lastCorrectedWord)
+                } else if (currentTypedWord.value.isNotEmpty()) {
+                    currentTypedWord.value = currentTypedWord.value.dropLast(TypingPolicy.lastCharacterLength(currentTypedWord.value))
+                    currentWordTapCoords.clear()
+                    ic.setComposingText(currentTypedWord.value, 1)
+                    if (currentTypedWord.value.isEmpty()) ic.finishComposingText()
+                } else {
+                    val before = ic.getTextBeforeCursor(128, 0)?.toString().orEmpty()
+                    if (before.isNotEmpty()) ic.deleteSurroundingText(TypingPolicy.lastCharacterLength(before), 0)
+                }
+                justAutocorrected = false
             }
-        }
+        } finally { ic.endBatchEdit() }
         updatePreviousWord()
     }
 
     private fun handleDeleteWord() {
-        if (isAiPolishing.value) return
+        cancelPendingPolish()
         playFeedback(FeedbackType.Delete)
         val ic = currentInputConnection ?: return
         
@@ -1101,36 +1014,35 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun handleSpace() {
-        if (isAiPolishing.value) return
+        cancelPendingPolish()
         playFeedback(FeedbackType.Space)
-        if (isVoiceTypingActive.value) {
-            stopVoiceTyping(shouldPolish = true)
-        }
+        if (isVoiceTypingActive.value) stopVoiceTyping(shouldPolish = false)
         val ic = currentInputConnection ?: return
+        val now = android.os.SystemClock.uptimeMillis()
         val prefix = currentTypedWord.value
-
-        if (prefix.isNotEmpty()) {
-            commitWordWithSmartCorrection(ic, prefix, " ")
-        } else {
-            // Double-space-to-period check
-            val before = ic.getTextBeforeCursor(2, 0) ?: ""
-            val shouldConvertToPeriod = (before == " ") || (before.length == 2 && before[1] == ' ' && before[0].isLetterOrDigit())
-            if (shouldConvertToPeriod) {
-                ic.deleteSurroundingText(1, 0)
-                ic.commitText(". ", 1)
+        ic.beginBatchEdit()
+        try {
+            if (prefix.isNotEmpty()) {
+                commitWordWithSmartCorrection(ic, prefix, " ")
             } else {
-                ic.commitText(" ", 1)
+                val before = if (allowsTextAssistance()) ic.getTextBeforeCursor(2, 0)?.toString().orEmpty() else ""
+                if (lastSpaceTime != 0L && TypingPolicy.shouldInsertPeriod(before, settings.doubleSpacePeriod, now - lastSpaceTime)) {
+                    ic.deleteSurroundingText(1, 0)
+                    ic.commitText(". ", 1)
+                } else ic.commitText(" ", 1)
+                justAutocorrected = false
+                lastCorrectedWasSpace = false
             }
-            justAutocorrected = false
-            lastCorrectedWasSpace = false
-        }
+        } finally { ic.endBatchEdit() }
+        lastSpaceTime = now
+        suggestionSpacePending = false
         currentTypedWord.value = ""
         currentWordTapCoords.clear()
         updatePreviousWord()
     }
 
     private fun handleEnter() {
-        if (isAiPolishing.value) return
+        cancelPendingPolish()
         playFeedback(FeedbackType.Enter)
         if (isVoiceTypingActive.value) {
             stopVoiceTyping(shouldPolish = true)
@@ -1282,7 +1194,7 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun commitSuggestion(word: String) {
-        if (isAiPolishing.value) return
+        cancelPendingPolish()
         playFeedback()
         val ic = currentInputConnection ?: return
         
@@ -1326,12 +1238,13 @@ class TypeRightKeyboardService : KeyboardService() {
             }
             val partAfterLength = wordEndIdx
             
-            if (partBeforeLength > 0 || partAfterLength > 0) {
+            if (partBeforeLength > 0) {
                 ic.deleteSurroundingText(partBeforeLength, partAfterLength)
             }
             ic.commitText("$word ", 1)
         }
         
+        suggestionSpacePending = true
         learnWordAndContext(word, explicit = isExplicitRawAccept)
 
         justAutocorrected = false
@@ -1341,25 +1254,14 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun learnWordAndContext(word: String, explicit: Boolean = false) {
-        if (!isSensitiveField() && word.isNotEmpty() && !word[0].isSurrogate()) {
-            dictionaryManager.recordAcceptedWord(word)
-            dictionaryManager.learnWord(word, explicit = explicit)
-            val prevWords = previousWords.value
-            val prev1 = prevWords.lastOrNull()
-            val prev2 = if (prevWords.size >= 2) prevWords[prevWords.size - 2] else null
-            val prev3 = if (prevWords.size >= 3) prevWords[prevWords.size - 3] else null
-            if (!prev1.isNullOrEmpty()) {
-                dictionaryManager.learnBigram(prev1, word)
-                if (!prev2.isNullOrEmpty()) {
-                    dictionaryManager.learnTrigram(prev2, prev1, word)
-                    if (!prev3.isNullOrEmpty()) {
-                        dictionaryManager.learnQuadgram(prev3, prev2, prev1, word)
-                    }
-                }
-            }
-        } else if (word.isNotEmpty()) {
-            dictionaryManager.recordAcceptedWord(word)
-        }
+        if (!mayLearn() || word.isEmpty() || word.any { !TypingPolicy.isWordCharacter(it) }) return
+        // Only explicitly accepted words bypass the repeated-use learning threshold.
+        if (explicit) dictionaryManager.recordAcceptedWord(word)
+        dictionaryManager.learnWord(word, explicit = explicit)
+        val context = previousWords.value.takeLast(3)
+        context.lastOrNull()?.let { dictionaryManager.learnBigram(it, word) }
+        if (context.size >= 2) dictionaryManager.learnTrigram(context[context.size - 2], context.last(), word)
+        if (context.size == 3) dictionaryManager.learnQuadgram(context[0], context[1], context[2], word)
     }
 
     private fun launchSettingsActivity() {
@@ -1393,6 +1295,8 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun startVoiceTyping() {
+        if (!allowsTextAssistance()) return
+        val session = editorSession
         if (!isMicPermissionGranted.value) {
             launchSettingsActivity()
             return
@@ -1407,6 +1311,7 @@ class TypeRightKeyboardService : KeyboardService() {
         voiceRecordingService.startRecording(
             scope = serviceScope,
             onPartialText = { partial ->
+                if (session != editorSession || !isVoiceTypingActive.value) return@startRecording
                 voiceTranscript.value = partial
                 currentInputConnection?.setComposingText(partial, 1)
             },
@@ -1419,11 +1324,13 @@ class TypeRightKeyboardService : KeyboardService() {
     private fun stopVoiceTyping(shouldPolish: Boolean = false) {
         if (!isVoiceTypingActive.value) return
         isVoiceTypingActive.value = false
+        val session = editorSession
 
         voiceRecordingService.stopRecording(
             scope = serviceScope,
             shouldPolish = false,
             onFinalTranscript = { rawText ->
+                if (session != editorSession || !allowsTextAssistance()) return@stopRecording
                 val cleanRaw = rawText.trim()
                 if (cleanRaw.isNotEmpty()) {
                     currentInputConnection?.commitText(cleanRaw, 1)
@@ -1465,6 +1372,10 @@ class TypeRightKeyboardService : KeyboardService() {
 
             val finalOutput = if (formattedText.isNotBlank()) formattedText.trim() else rawText.trim()
 
+            if (!allowsTextAssistance() || ic.getTextBeforeCursor(rawText.trim().length, 0)?.toString() != rawText.trim()) {
+                isAiPolishing.value = false
+                return@launch
+            }
             if (lastCommittedVoiceLength > 0) {
                 ic.deleteSurroundingText(lastCommittedVoiceLength, 0)
             } else if (rawText.isNotEmpty()) {
@@ -1487,6 +1398,7 @@ class TypeRightKeyboardService : KeyboardService() {
      * Buffers continuous speech without committing partial text to InputConnection.
      */
     private fun startRambleMode() {
+        if (!allowsTextAssistance()) return
         if (!isMicPermissionGranted.value) {
             launchSettingsActivity()
             return
@@ -1522,11 +1434,13 @@ class TypeRightKeyboardService : KeyboardService() {
         if (!isRambleRecording.value) return
         isRambleRecording.value = false
         isRambleProcessing.value = true
+        val session = editorSession
 
         voiceRecordingService.stopRecording(
             scope = serviceScope,
             shouldPolish = false,
             onFinalTranscript = { rawSpeech ->
+                if (session != editorSession || !allowsTextAssistance()) return@stopRecording
                 val rawTrim = rawSpeech.trim()
                 if (rawTrim.isBlank()) {
                     isRambleProcessing.value = false
@@ -1540,10 +1454,11 @@ class TypeRightKeyboardService : KeyboardService() {
                         val textToCommit = if (finalizedText.isNotBlank()) finalizedText.trim() else rawTrim
                         
                         // Atomically commit finalized text using InputConnection.commitText
-                        currentInputConnection?.commitText(textToCommit, 1)
+                        if (session == editorSession && allowsTextAssistance()) currentInputConnection?.commitText(textToCommit, 1)
                     } catch (e: Exception) {
                         Log.e("TypeRight", "Ramble Mode AI processing error: ${e.message}")
-                        currentInputConnection?.commitText(rawTrim, 1)
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        if (session == editorSession && allowsTextAssistance()) currentInputConnection?.commitText(rawTrim, 1)
                     } finally {
                         isRambleProcessing.value = false
                         rambleTranscript.value = ""
@@ -1578,23 +1493,9 @@ class TypeRightKeyboardService : KeyboardService() {
      */
     private fun commitRephraseSuggestion(suggestion: String) {
         playFeedback()
-        val ic = currentInputConnection ?: return
-        serviceScope.launch {
-            val selectedText = ic.getSelectedText(0)?.toString()
-            if (!selectedText.isNullOrEmpty()) {
-                ic.commitText(suggestion, 1)
-                // Deselect and place cursor at the end of replacement
-                val et = ic.getExtractedText(ExtractedTextRequest(), 0)
-                val len = et?.text?.length ?: 0
-                ic.setSelection(len, len)
-            } else {
-                // Replace entire text
-                val et = ic.getExtractedText(ExtractedTextRequest(), 0)
-                val totalLen = et?.text?.length ?: 0
-                ic.setSelection(0, totalLen)
-                ic.commitText(suggestion, 1)
-            }
+        if (applyEditorReplacement(rephraseSnapshot, suggestion, PolishMode.REPHRASE)) {
             aiRephraseSuggestions.clear()
+            rephraseSnapshot = null
         }
     }
 
@@ -1604,8 +1505,9 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun performDirectLocalProofread() {
+        if (!allowsTextAssistance()) return
         val ic = currentInputConnection ?: return
-        if (isAiPolishing.value) return
+        cancelPendingPolish()
 
         if (currentTypedWord.value.isNotEmpty()) {
             ic.finishComposingText()
@@ -1626,14 +1528,7 @@ class TypeRightKeyboardService : KeyboardService() {
                 textToProofread = selectedText
                 isSelection = true
             } else {
-                val et = ic.getExtractedText(ExtractedTextRequest(), 0)
-                val fullText = et?.text?.toString()
-                
-                textToProofread = when {
-                    !fullText.isNullOrBlank() -> fullText
-                    (before + after).isNotBlank() -> (before + after)
-                    else -> ""
-                }
+                textToProofread = before + after
                 isSelection = false
             }
 
@@ -1654,7 +1549,11 @@ class TypeRightKeyboardService : KeyboardService() {
                 if (requestId != currentAiRequestId) return@launch
 
                 withContext(Dispatchers.Main) {
-                    if (requestId != currentAiRequestId) return@withContext
+                    if (requestId != currentAiRequestId || !allowsTextAssistance()) return@withContext
+                    if (ic.getTextBeforeCursor(2000, 0)?.toString().orEmpty() != before ||
+                        ic.getTextAfterCursor(2000, 0)?.toString().orEmpty() != after ||
+                        ic.getSelectedText(0)?.toString() != selectedText ||
+                        !AiOutputValidator.isValid(textToProofread, proofreadResult, PolishMode.PROOFREAD)) return@withContext
                     ic.beginBatchEdit()
                     try {
                         ic.finishComposingText()
@@ -1696,52 +1595,31 @@ class TypeRightKeyboardService : KeyboardService() {
      * Executes AI Polish on-device to suggest professional, casual, or concise rewrites.
      */
     private fun performAiPolish() {
+        if (!allowsTextAssistance() || settings.supportTier == KeyboardSettings.TIER_3) return
+        cancelPendingPolish()
         playFeedback()
-        val ic = currentInputConnection ?: return
-
-        // Tier Check - Graceful fallback
-        if (settings.supportTier == KeyboardSettings.TIER_3) {
-            return
-        }
-
-        serviceScope.launch {
-            val selectedText = ic.getSelectedText(0)?.toString()
-            val textToPolish: String
-
-            if (!selectedText.isNullOrEmpty()) {
-                textToPolish = selectedText
-            } else {
-                val et = ic.getExtractedText(ExtractedTextRequest(), 0)
-                val fullText = et?.text?.toString()
-                if (!fullText.isNullOrBlank()) {
-                    textToPolish = fullText
-                } else {
-                    val before = ic.getTextBeforeCursor(2000, 0)?.toString() ?: ""
-                    val after = ic.getTextAfterCursor(2000, 0)?.toString() ?: ""
-                    textToPolish = (before + after).trim()
-                }
-            }
-
-            if (textToPolish.isBlank()) {
-                withContext(Dispatchers.Main) {
-                    toggleAssistant()
-                }
-                return@launch
-            }
-
+        val snapshot = captureEditorText() ?: return
+        if (snapshot.text.isBlank()) return
+        rephraseSnapshot = snapshot
+        val requestId = currentAiRequestId
+        currentAiJob = serviceScope.launch {
             isAiPolishing.value = true
-            aiRephraseSuggestions.clear()
-
-            aiPolishManager.suggestImprovements(textToPolish)
-                .catch { e ->
-                    Log.e("TypeRight", "AI Polish error: ${e.message}")
-                    isAiPolishing.value = false
+            try {
+                aiPolishManager.suggestImprovements(snapshot.text).collect { suggestions ->
+                    if (requestId == currentAiRequestId && snapshot.session == editorSession) {
+                        aiRephraseSuggestions.clear()
+                        aiRephraseSuggestions.addAll(suggestions.filter {
+                            AiOutputValidator.isValid(snapshot.text, it, PolishMode.REPHRASE)
+                        })
+                    }
                 }
-                .collect { suggestions ->
-                    aiRephraseSuggestions.clear()
-                    aiRephraseSuggestions.addAll(suggestions)
-                    isAiPolishing.value = false
-                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("TypeRight", "Polish failed: ${failure.javaClass.simpleName}")
+            } finally {
+                if (requestId == currentAiRequestId) isAiPolishing.value = false
+            }
         }
     }
 
@@ -2038,7 +1916,7 @@ fun KeyboardLayout(
             }
 
             // 2. Retro Beige (IBM Model M / Classic 1984) - DEFAULT RETRO THEME
-            themeState == KeyboardSettings.THEME_RETRO_BEIGE || themeState == KeyboardSettings.THEME_LIGHT -> {
+            themeState == KeyboardSettings.THEME_RETRO_BEIGE -> {
                 val bg = Color(0xFFDDD4C4) // Classic 1980s computer chassis putty/beige
                 val normalBg = Color(0xFFF7F2EC) // Cream/eggshell alpha keys
                 val specialBg = Color(0xFFC7BDAC) // Warm battleship gray modifier keys
@@ -2337,7 +2215,7 @@ fun KeyboardLayout(
     val activePrefix = if (currentTypedWord.isNotEmpty()) currentTypedWord else wordUnderCursor
 
     val service = context as? TypeRightKeyboardService
-    val isSensitiveInput = service?.isSensitiveField() == true
+    val isSensitiveInput = service != null && !service.allowsTextAssistance()
     val asyncPredictions = service?.asyncPredictionsState?.value ?: AsyncKeyboardPredictions()
     val gboardResult = asyncPredictions.gboardResult
 
@@ -2351,20 +2229,12 @@ fun KeyboardLayout(
         else -> Icons.AutoMirrored.Filled.KeyboardReturn
     }
 
-    // Lightweight immediate prefix completion fallback while debounced worker computes suggestions
-    val instantFallback = remember(activePrefix, isSensitiveInput) {
-        if (!isSensitiveInput && activePrefix.isNotEmpty()) {
-            dictionaryManager.findWordsWithPrefix(activePrefix, 3)
-        } else emptyList<String>()
-    }
-
-    val suggestions = remember(asyncPredictions, activePrefix, instantFallback, isSensitiveInput) {
+    // The UI only reads completed results; dictionary searches run on the worker.
+    val suggestions = remember(asyncPredictions, activePrefix, isSensitiveInput) {
         if (isSensitiveInput) {
             listOf("", "", "")
         } else if (asyncPredictions.suggestions.isNotEmpty() && asyncPredictions.suggestions.any { it.isNotBlank() }) {
             asyncPredictions.suggestions
-        } else if (instantFallback.isNotEmpty()) {
-            instantFallback
         } else if (activePrefix.isNotEmpty()) {
             listOf(activePrefix, "", "")
         } else {
@@ -3321,7 +3191,7 @@ fun KeyboardLayout(
                                                         val next = when (activeAiEngineState) {
                                                             ActiveAiEngine.BOTH -> ActiveAiEngine.OFFLINE
                                                             ActiveAiEngine.OFFLINE -> ActiveAiEngine.ONLINE
-                                                            ActiveAiEngine.ONLINE -> ActiveAiEngine.NONE
+                                                            ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> ActiveAiEngine.NONE
                                                             ActiveAiEngine.NONE -> ActiveAiEngine.BOTH
                                                         }
                                                         settings.setActiveAiEngine(next)
@@ -3558,29 +3428,7 @@ fun KeyboardLayout(
                             keyTextColor = keyTextColor,
                             accentColor = accentColor,
                             keyColor = normalKeyBg,
-                            onApplyText = { appliedText ->
-                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
-                                if (ic != null) {
-                                    ic.beginBatchEdit()
-                                    try {
-                                        ic.finishComposingText()
-                                        val selected = ic.getSelectedText(0)?.toString()
-                                        if (!selected.isNullOrEmpty()) {
-                                            ic.commitText(appliedText, 1)
-                                        } else {
-                                            val before = ic.getTextBeforeCursor(2000, 0)?.toString() ?: ""
-                                            val after = ic.getTextAfterCursor(2000, 0)?.toString() ?: ""
-                                            if (before.isNotEmpty() || after.isNotEmpty()) {
-                                                ic.deleteSurroundingText(before.length, after.length)
-                                            }
-                                            ic.commitText(appliedText, 1)
-                                        }
-                                    } finally {
-                                        ic.endBatchEdit()
-                                    }
-                                }
-                                isProofreadSheetOpen = false
-                            },
+                            onApplyText = { isProofreadSheetOpen = false },
                             onClose = { isProofreadSheetOpen = false }
                         )
                     }
@@ -3680,22 +3528,7 @@ fun KeyboardLayout(
                             keyTextColor = keyTextColor,
                             accentColor = accentColor,
                             keyColor = normalKeyBg,
-                            onApplyText = { appliedText, isSelection ->
-                                val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
-                                if (ic != null) {
-                                    if (isSelection) {
-                                        ic.commitText(appliedText, 1)
-                                    } else {
-                                        val before = ic.getTextBeforeCursor(1000, 0)?.toString() ?: ""
-                                        val after = ic.getTextAfterCursor(1000, 0)?.toString() ?: ""
-                                        if (before.isNotEmpty() || after.isNotEmpty()) {
-                                            ic.deleteSurroundingText(before.length, after.length)
-                                        }
-                                        ic.commitText(appliedText, 1)
-                                    }
-                                }
-                                onAssistantToggle()
-                            },
+                            onApplyText = { _, _ -> onAssistantToggle() },
                             onClose = onAssistantToggle
                         )
                     }
@@ -5174,7 +5007,8 @@ fun AiAssistantPanel(
     val context = LocalContext.current
     val keyboardSettings = remember { KeyboardSettings(context) }
     val coroutineScope = rememberCoroutineScope()
-    val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+    val editorService = context as? TypeRightKeyboardService
+    val snapshot = remember { editorService?.captureEditorText() }
 
     // Fetch the text to process: either selected text or the entire text field content.
     var originalText by remember { mutableStateOf("") }
@@ -5216,22 +5050,8 @@ fun AiAssistantPanel(
 
     LaunchedEffect(initialMode) {
         selectedMode = initialMode
-        val selected = ic?.getSelectedText(0)?.toString()
-        if (!selected.isNullOrEmpty()) {
-            originalText = selected
-            isSelectionActive = true
-        } else {
-            val et = ic?.getExtractedText(ExtractedTextRequest(), 0)
-            val fullText = et?.text?.toString()
-            if (!fullText.isNullOrEmpty()) {
-                originalText = fullText
-            } else {
-                val beforeCursor = ic?.getTextBeforeCursor(500, 0)?.toString() ?: ""
-                val afterCursor = ic?.getTextAfterCursor(500, 0)?.toString() ?: ""
-                originalText = (beforeCursor + afterCursor).trim()
-            }
-            isSelectionActive = false
-        }
+        originalText = snapshot?.text.orEmpty()
+        isSelectionActive = !snapshot?.selected.isNullOrEmpty()
 
         if (originalText.isNotEmpty()) {
             runPolish(originalText, selectedMode)
@@ -5313,7 +5133,9 @@ fun AiAssistantPanel(
                 .clickable(
                     enabled = generatedText.isNotEmpty() && !isLoading && !generatedText.startsWith("Error"),
                     onClick = {
-                        onApplyText(generatedText, isSelectionActive)
+                        if (editorService?.applyEditorReplacement(snapshot, generatedText, PolishMode.fromString(selectedMode)) == true) {
+                            onApplyText(generatedText, isSelectionActive)
+                        }
                     }
                 )
                 .padding(10.dp)
@@ -5390,28 +5212,28 @@ fun AiEngineIndicatorBadge(
     val bgColor = when (activeEngine) {
         ActiveAiEngine.BOTH -> accentColor.copy(alpha = 0.16f)
         ActiveAiEngine.OFFLINE -> Color(0xFF10B981).copy(alpha = 0.16f)
-        ActiveAiEngine.ONLINE -> Color(0xFF3B82F6).copy(alpha = 0.16f)
+        ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> Color(0xFF3B82F6).copy(alpha = 0.16f)
         ActiveAiEngine.NONE -> keyTextColor.copy(alpha = 0.06f)
     }
 
     val borderColor = when (activeEngine) {
         ActiveAiEngine.BOTH -> accentColor.copy(alpha = 0.50f)
         ActiveAiEngine.OFFLINE -> Color(0xFF10B981).copy(alpha = 0.50f)
-        ActiveAiEngine.ONLINE -> Color(0xFF3B82F6).copy(alpha = 0.50f)
+        ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> Color(0xFF3B82F6).copy(alpha = 0.50f)
         ActiveAiEngine.NONE -> keyTextColor.copy(alpha = 0.18f)
     }
 
     val contentColor = when (activeEngine) {
         ActiveAiEngine.BOTH -> accentColor
         ActiveAiEngine.OFFLINE -> Color(0xFF10B981)
-        ActiveAiEngine.ONLINE -> Color(0xFF3B82F6)
+        ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> Color(0xFF3B82F6)
         ActiveAiEngine.NONE -> keyTextColor.copy(alpha = 0.55f)
     }
 
     val icon = when (activeEngine) {
         ActiveAiEngine.BOTH -> Icons.Default.AutoAwesome
         ActiveAiEngine.OFFLINE -> Icons.Default.Bolt
-        ActiveAiEngine.ONLINE -> Icons.Default.Cloud
+        ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> Icons.Default.Cloud
         ActiveAiEngine.NONE -> Icons.Default.CloudOff
     }
 
@@ -5552,6 +5374,11 @@ fun GboardToolsDrawer(
     onToolClick: (GboardTool) -> Unit,
     onClose: () -> Unit
 ) {
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val screenHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.toFloat().coerceAtLeast(1f)
+    val currentHeight by rememberUpdatedState(heightPercent)
+    val resize by rememberUpdatedState(onHeightPercentChange)
+    var dragHeight by remember { mutableStateOf(heightPercent) }
     // Keep this surface focused on the actions people need while typing. Less-used
     // settings remain available from the settings screen and the toolbar overflow.
     val tools = listOf(
@@ -5619,12 +5446,29 @@ fun GboardToolsDrawer(
                     Spacer(Modifier.weight(1f))
                     Text("${heightPercent.toInt()}%", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
-                Slider(
-                    value = heightPercent,
-                    onValueChange = onHeightPercentChange,
-                    valueRange = 24f..38f,
-                    colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor)
-                )
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(48.dp).padding(top = 4.dp)
+                        .border(1.dp, accentColor.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                        .semantics {
+                            contentDescription = "Keyboard height. Drag up to enlarge or down to shrink"
+                            progressBarRangeInfo = ProgressBarRangeInfo(heightPercent, 24f..38f)
+                            setProgress { resize(it.coerceIn(24f, 38f)); true }
+                        }
+                        .pointerInput(density, screenHeightDp) {
+                            detectDragGestures(onDragStart = { dragHeight = currentHeight }) { change, delta ->
+                                change.consume()
+                                dragHeight = (dragHeight - delta.y / density / screenHeightDp * 100f).coerceIn(24f, 38f)
+                                resize(dragHeight)
+                            }
+                        }.testTag("keyboard_resize_handle"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.DragHandle, contentDescription = null, tint = accentColor)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Drag up or down to resize", color = keyTextColor, fontSize = 12.sp)
+                    }
+                }
             }
         }
 
@@ -5703,7 +5547,9 @@ fun GboardProofreadPanel(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val ic = (context as? TypeRightKeyboardService)?.currentInputConnection
+    val editorService = context as? TypeRightKeyboardService
+    val snapshot = remember { editorService?.captureEditorText() }
+    var correctionJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     
     var originalText by remember { mutableStateOf("") }
     var correctedText by remember { mutableStateOf("") }
@@ -5729,18 +5575,19 @@ fun GboardProofreadPanel(
             return
         }
         isLoading = true
-        coroutineScope.launch {
+        correctionJob?.cancel()
+        correctionJob = coroutineScope.launch {
             try {
                 when (engineIdx) {
                     0 -> { // ⚡ Neural Polish (On-Device)
                         val engine = OnDeviceNeuralPolishEngine.getInstance(context)
-                        val res = engine.polish(text, tone)
+                        val res = withContext(Dispatchers.Default) { engine.polish(text, tone) }
                         neuralResult = res
                         correctedText = res.polishedText
                     }
                     1 -> { // 🧠 AICore (Gemini Nano)
                         val slmEngine = SlmProofreadEngine.getInstance(context)
-                        val detailed = slmEngine.proofread(text, tone)
+                        val detailed = withContext(Dispatchers.Default) { slmEngine.proofread(text, tone) }
                         slmResult = detailed
                         if (tone.equals("Proofread", ignoreCase = true)) {
                             correctedText = detailed.proofreadText
@@ -5751,12 +5598,13 @@ fun GboardProofreadPanel(
                     }
                     else -> { // 🤖 SLM Syntactic
                         val slmEngine = SlmProofreadEngine.getInstance(context)
-                        val detailed = slmEngine.proofread(text, tone)
+                        val detailed = withContext(Dispatchers.Default) { slmEngine.proofread(text, tone) }
                         slmResult = detailed
                         correctedText = detailed.proofreadText
                     }
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 correctedText = text
             } finally {
                 isLoading = false
@@ -5765,15 +5613,7 @@ fun GboardProofreadPanel(
     }
 
     LaunchedEffect(Unit) {
-        ic?.finishComposingText()
-        val selected = ic?.getSelectedText(0)?.toString()
-        if (!selected.isNullOrEmpty()) {
-            originalText = selected
-        } else {
-            val before = ic?.getTextBeforeCursor(2000, 0)?.toString() ?: ""
-            val after = ic?.getTextAfterCursor(2000, 0)?.toString() ?: ""
-            originalText = (before + after).trim()
-        }
+        originalText = snapshot?.text.orEmpty()
         if (originalText.isNotEmpty()) {
             runCorrection(originalText, "Proofread", 0)
         } else {
@@ -6027,7 +5867,9 @@ fun GboardProofreadPanel(
                     Button(
                         onClick = {
                             val textToApply = if (correctedText.isNotBlank()) correctedText else originalText
-                            onApplyText(textToApply)
+                            if (editorService?.applyEditorReplacement(snapshot, textToApply, PolishMode.fromString(selectedTone)) == true) {
+                                onApplyText(textToApply)
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = accentColor),
                         shape = RoundedCornerShape(20.dp),

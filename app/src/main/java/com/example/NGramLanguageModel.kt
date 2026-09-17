@@ -44,7 +44,7 @@ class NGramLanguageModel : IContextLanguageModel {
     // Unigram map: "w" -> frequency
     private val unigrams = ConcurrentHashMap<String, Int>()
 
-    private var totalUnigramCount: Long = 0L
+    private val totalUnigramCount = java.util.concurrent.atomic.AtomicLong(0L)
 
     init {
         seedCommonNGrams()
@@ -234,7 +234,7 @@ class NGramLanguageModel : IContextLanguageModel {
         val key = "${w1.lowercase()} ${w2.lowercase()} ${w3.lowercase()}"
         val target = w4.lowercase()
         val map = quadgrams.getOrPut(key) { ConcurrentHashMap() }
-        map[target] = (map[target] ?: 0) + freq
+        map.merge(target, freq) { a, b -> a + b }
         addTrigram(w2, w3, w4, freq)
     }
 
@@ -242,7 +242,7 @@ class NGramLanguageModel : IContextLanguageModel {
         val key = "${w1.lowercase()} ${w2.lowercase()}"
         val target = w3.lowercase()
         val map = trigrams.getOrPut(key) { ConcurrentHashMap() }
-        map[target] = (map[target] ?: 0) + freq
+        map.merge(target, freq) { a, b -> a + b }
         addBigram(w2, w3, freq)
     }
 
@@ -250,10 +250,9 @@ class NGramLanguageModel : IContextLanguageModel {
         val key = w1.lowercase()
         val target = w2.lowercase()
         val map = bigrams.getOrPut(key) { ConcurrentHashMap() }
-        map[target] = (map[target] ?: 0) + freq
-        val old = unigrams[target] ?: 0
-        unigrams[target] = old + freq
-        totalUnigramCount += freq
+        map.merge(target, freq) { a, b -> a + b }
+        unigrams.merge(target, freq) { a, b -> a + b }
+        totalUnigramCount.addAndGet(freq.toLong())
     }
 
     /**
@@ -276,9 +275,8 @@ class NGramLanguageModel : IContextLanguageModel {
         val tokens = sentence.lowercase().split(Regex("[\\s.,!?;:\"]+")).filter { it.isNotBlank() }
         for (i in tokens.indices) {
             val w1 = tokens[i]
-            val old = unigrams[w1] ?: 0
-            unigrams[w1] = old + 1
-            totalUnigramCount++
+            unigrams.merge(w1, 1) { a, b -> a + b }
+            totalUnigramCount.incrementAndGet()
 
             if (i + 1 < tokens.size) {
                 val w2 = tokens[i + 1]
@@ -356,12 +354,12 @@ class NGramLanguageModel : IContextLanguageModel {
 
         // Unigram component
         val uniCount = unigrams[target]?.toFloat() ?: 1f
-        val totalCount = totalUnigramCount.toFloat().coerceAtLeast(1000f)
-        uniProb = (uniCount / totalCount).coerceIn(0.01f, 1.0f)
+        val totalCount = totalUnigramCount.get().toFloat().coerceAtLeast(1000f)
+        uniProb = (uniCount / totalCount).coerceIn(0.000001f, 1.0f)
 
         // Jelinek-Mercer weights (0.40 Quadgram, 0.30 Trigram, 0.20 Bigram, 0.10 Unigram)
         val interpolated = (0.40f * quadProb) + (0.30f * triProb) + (0.20f * biProb) + (0.10f * uniProb)
-        return interpolated.coerceIn(0.05f, 1.0f)
+        return interpolated.coerceIn(0.000001f, 1.0f)
     }
 
     /**

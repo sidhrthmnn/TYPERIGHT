@@ -4,183 +4,85 @@ import android.service.textservice.SpellCheckerService
 import android.view.textservice.SuggestionsInfo
 import android.view.textservice.TextInfo
 import android.view.textservice.SentenceSuggestionsInfo
-import android.util.Log
+import java.util.Locale
 
-/**
- * Android System SpellCheckerService implementation providing real-time on-device
- * spell checking and grammatical autocorrection suggestions for Android text fields.
- */
+/** System spell checking shares the keyboard decoder and never learns submitted text. */
 class TypeRightSpellCheckerService : SpellCheckerService() {
-    private lateinit var dictionaryManager: DictionaryManager
-    private lateinit var localPredictor: LocalGrammarSpellPredictor
+    private lateinit var dictionary: DictionaryManager
 
     override fun onCreate() {
         super.onCreate()
-        dictionaryManager = DictionaryManager(this)
-        localPredictor = LocalGrammarSpellPredictor(this)
+        dictionary = DictionaryManager(this)
     }
 
-    override fun createSession(): Session {
-        return TypeRightSpellCheckerSession()
+    override fun createSession(): Session = TypeRightSession()
+
+    private fun suggest(info: TextInfo, limit: Int, context: List<String>): SuggestionsInfo {
+        val word = info.text.orEmpty().trim()
+        val lower = word.lowercase(Locale.ROOT)
+        val known = word.isEmpty() || word.length > 32 || dictionary.isCodeOrSpecialToken(word) ||
+            dictionary.isWordInDictionary(lower) || word.all(Char::isDigit)
+        val result = if (known) {
+            SuggestionsInfo(SuggestionsInfo.RESULT_ATTR_IN_THE_DICTIONARY, emptyArray())
+        } else if (limit <= 0) {
+            SuggestionsInfo(0, emptyArray())
+        } else {
+            val decoded = dictionary.getGboardPredictions(word, context.takeLast(3), null)
+            val candidates = (listOf(decoded.centerCandidate, decoded.rightCandidate, decoded.leftCandidate) +
+                decoded.debugTelemetry?.topCandidates.orEmpty().map { it.word })
+                .filter { it.isNotBlank() && !it.equals(word, true) }
+                .distinctBy { it.lowercase(Locale.ROOT) }.take(limit.coerceAtMost(5))
+            val flags = if (candidates.isEmpty()) 0 else SuggestionsInfo.RESULT_ATTR_LOOKS_LIKE_TYPO or
+                SuggestionsInfo.RESULT_ATTR_HAS_RECOMMENDED_SUGGESTIONS
+            SuggestionsInfo(flags, candidates.toTypedArray())
+        }
+        result.setCookieAndSequence(info.cookie, info.sequence)
+        return result
     }
 
-    private inner class TypeRightSpellCheckerSession : Session() {
-        override fun onCreate() {
-            // Initialized
-        }
+    private inner class TypeRightSession : Session() {
+        override fun onCreate() = Unit
 
-        override fun onGetSuggestions(textInfo: TextInfo?, suggestionsLimit: Int): SuggestionsInfo {
-            if (textInfo == null) {
-                return SuggestionsInfo(SuggestionsInfo.RESULT_ATTR_IN_THE_DICTIONARY, emptyArray())
-            }
-            val word = textInfo.text ?: ""
-            val cleanWord = word.trim()
-            val lowerWord = cleanWord.lowercase()
-            
-            if (lowerWord.isEmpty() || lowerWord.length < 2) {
-                return SuggestionsInfo(SuggestionsInfo.RESULT_ATTR_IN_THE_DICTIONARY, emptyArray())
-            }
-
-            // Check if word is already valid in dictionary or user learned words
-            val inDict = dictionaryManager.isWordInDictionary(lowerWord)
-            if (inDict) {
-                return SuggestionsInfo(SuggestionsInfo.RESULT_ATTR_IN_THE_DICTIONARY, emptyArray())
-            }
-
-            // Check if word has a direct local grammar correction
-            val grammarFix = localPredictor.checkGrammarLocally(lowerWord, emptyList(), "")
-            if (grammarFix != null) {
-                val suggestions = arrayOf(grammarFix)
-                return SuggestionsInfo(
-                    SuggestionsInfo.RESULT_ATTR_LOOKS_LIKE_TYPO or SuggestionsInfo.RESULT_ATTR_HAS_RECOMMENDED_SUGGESTIONS,
-                    suggestions
-                )
-            }
-
-            // Word is a typo, query high-precision multi-signal spelling corrections
-            val corrections = dictionaryManager.getSpellingCorrections(lowerWord)
-            val limit = suggestionsLimit.coerceIn(1, 5)
-            val suggestionsArray = corrections.take(limit).toTypedArray()
-
-            return if (suggestionsArray.isNotEmpty()) {
-                SuggestionsInfo(
-                    SuggestionsInfo.RESULT_ATTR_LOOKS_LIKE_TYPO or SuggestionsInfo.RESULT_ATTR_HAS_RECOMMENDED_SUGGESTIONS,
-                    suggestionsArray
-                )
-            } else {
-                SuggestionsInfo(
-                    SuggestionsInfo.RESULT_ATTR_LOOKS_LIKE_TYPO,
-                    emptyArray()
-                )
-            }
-        }
+        override fun onGetSuggestions(textInfo: TextInfo?, suggestionsLimit: Int): SuggestionsInfo =
+            textInfo?.let { suggest(it, suggestionsLimit, emptyList()) } ?: SuggestionsInfo(0, emptyArray())
 
         override fun onGetSuggestionsMultiple(
-            textInfos: Array<out TextInfo>?,
-            suggestionsLimit: Int,
-            sequentialWords: Boolean
+            textInfos: Array<out TextInfo>?, suggestionsLimit: Int, sequentialWords: Boolean
         ): Array<SuggestionsInfo> {
-            if (textInfos == null || textInfos.isEmpty()) {
-                return emptyArray()
-            }
-            val results = ArrayList<SuggestionsInfo>(textInfos.size)
-            var prevWord: String? = null
-            var prevWord2: String? = null
-
-            for (textInfo in textInfos) {
-                val word = textInfo.text ?: ""
-                val lowerWord = word.lowercase().trim()
-                if (lowerWord.isEmpty() || lowerWord.length < 2 || dictionaryManager.isWordInDictionary(lowerWord)) {
-                    results.add(SuggestionsInfo(SuggestionsInfo.RESULT_ATTR_IN_THE_DICTIONARY, emptyArray()))
-                } else {
-                    val contextWords = listOfNotNull(prevWord2, prevWord)
-                    val grammarFix = localPredictor.checkGrammarLocally(lowerWord, contextWords, "")
-                    val corrections = if (grammarFix != null) {
-                        listOf(grammarFix) + dictionaryManager.getSpellingCorrections(lowerWord, prevWord, prevWord2).filter { it.lowercase() != grammarFix.lowercase() }
-                    } else {
-                        dictionaryManager.getSpellingCorrections(lowerWord, prevWord, prevWord2)
+            val context = ArrayDeque<String>()
+            return textInfos.orEmpty().map { info ->
+                suggest(info, suggestionsLimit, context.toList()).also {
+                    if (sequentialWords) {
+                        context.addLast(info.text.orEmpty())
+                        if (context.size > 3) context.removeFirst()
                     }
-                    val limit = suggestionsLimit.coerceIn(1, 5)
-                    results.add(
-                        SuggestionsInfo(
-                            SuggestionsInfo.RESULT_ATTR_LOOKS_LIKE_TYPO or (if (corrections.isNotEmpty()) SuggestionsInfo.RESULT_ATTR_HAS_RECOMMENDED_SUGGESTIONS else 0),
-                            corrections.take(limit).toTypedArray()
-                        )
-                    )
                 }
-                if (sequentialWords) {
-                    prevWord2 = prevWord
-                    prevWord = lowerWord
-                }
-            }
-            return results.toTypedArray()
+            }.toTypedArray()
         }
 
         override fun onGetSentenceSuggestionsMultiple(
-            textInfos: Array<out TextInfo>?,
-            suggestionsLimit: Int
-        ): Array<SentenceSuggestionsInfo> {
-            if (textInfos == null || textInfos.isEmpty()) {
-                return emptyArray()
-            }
-
-            val sentenceResults = ArrayList<SentenceSuggestionsInfo>(textInfos.size)
-
-            for (textInfo in textInfos) {
-                val fullText = textInfo.text ?: ""
-                if (fullText.isBlank()) {
-                    sentenceResults.add(SentenceSuggestionsInfo(emptyArray(), IntArray(0), IntArray(0)))
-                    continue
+            textInfos: Array<out TextInfo>?, suggestionsLimit: Int
+        ): Array<SentenceSuggestionsInfo> = textInfos.orEmpty().map { info ->
+            val results = mutableListOf<SuggestionsInfo>()
+            val offsets = mutableListOf<Int>()
+            val lengths = mutableListOf<Int>()
+            val context = ArrayDeque<String>()
+            val text = info.text.orEmpty()
+            var previousEnd = 0
+            // Unicode letters/marks retain UTF-16 offsets expected by Android editors.
+            for (match in Regex("[\\p{L}\\p{M}\\p{N}]+(?:['’][\\p{L}\\p{M}]+)*").findAll(text)) {
+                if (text.substring(previousEnd, match.range.first).any { it in ".!?\n" }) context.clear()
+                val result = suggest(TextInfo(match.value, info.cookie, info.sequence), suggestionsLimit, context.toList())
+                if (result.suggestionsCount > 0) {
+                    results.add(result)
+                    offsets.add(match.range.first)
+                    lengths.add(match.value.length)
                 }
-
-                val suggestionsInfoList = mutableListOf<SuggestionsInfo>()
-                val offsetList = mutableListOf<Int>()
-                val lengthList = mutableListOf<Int>()
-
-                // Tokenize words with offsets
-                val wordRegex = Regex("\\b[\\w']+\\b")
-                val matches = wordRegex.findAll(fullText).toList()
-                val contextWords = mutableListOf<String>()
-
-                for (match in matches) {
-                    val word = match.value
-                    val lowerWord = word.lowercase().trim()
-                    val offset = match.range.first
-                    val length = word.length
-
-                    if (lowerWord.length >= 2 && !dictionaryManager.isWordInDictionary(lowerWord)) {
-                        val prev1 = contextWords.lastOrNull()
-                        val prev2 = if (contextWords.size >= 2) contextWords[contextWords.size - 2] else null
-
-                        val grammarFix = localPredictor.checkGrammarLocally(lowerWord, contextWords, fullText)
-                        val corrections = if (grammarFix != null) {
-                            listOf(grammarFix) + dictionaryManager.getSpellingCorrections(lowerWord, prev1, prev2).filter { it.lowercase() != grammarFix.lowercase() }
-                        } else {
-                            dictionaryManager.getSpellingCorrections(lowerWord, prev1, prev2)
-                        }
-
-                        val limit = suggestionsLimit.coerceIn(1, 5)
-                        val suggestionsArray = corrections.take(limit).toTypedArray()
-                        val attr = SuggestionsInfo.RESULT_ATTR_LOOKS_LIKE_TYPO or (if (suggestionsArray.isNotEmpty()) SuggestionsInfo.RESULT_ATTR_HAS_RECOMMENDED_SUGGESTIONS else 0)
-
-                        suggestionsInfoList.add(SuggestionsInfo(attr, suggestionsArray))
-                        offsetList.add(offset)
-                        lengthList.add(length)
-                    }
-
-                    contextWords.add(lowerWord)
-                }
-
-                sentenceResults.add(
-                    SentenceSuggestionsInfo(
-                        suggestionsInfoList.toTypedArray(),
-                        offsetList.toIntArray(),
-                        lengthList.toIntArray()
-                    )
-                )
+                context.addLast(match.value)
+                if (context.size > 3) context.removeFirst()
+                previousEnd = match.range.last + 1
             }
-
-            return sentenceResults.toTypedArray()
-        }
+            SentenceSuggestionsInfo(results.toTypedArray(), offsets.toIntArray(), lengths.toIntArray())
+        }.toTypedArray()
     }
 }
