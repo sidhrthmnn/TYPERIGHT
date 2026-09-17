@@ -27,6 +27,10 @@ object AiOutputValidator {
         var clean = candidate.trim()
         if (clean.isEmpty()) return ""
 
+        // Strip reasoning tags if model output contains <think>...</think> or stray </think>
+        clean = clean.replace(Regex("(?s)<think>.*?</think>"), "").trim()
+        clean = clean.replace(Regex("</?think>"), "").trim()
+
         // Strip markdown code fences (``` or ```text ... ```)
         if (clean.startsWith("```")) {
             clean = clean.replace(Regex("^```[a-zA-Z]*\\s*\n?"), "")

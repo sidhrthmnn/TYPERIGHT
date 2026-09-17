@@ -669,10 +669,14 @@ class LocalGrammarSpellPredictor(private val context: Context) {
 
                 resultWords.add("$leadingPunct$fix$trailingPunct")
             } else {
-                // Check if the word is a known typo or missing contraction apostrophe
+                // Check if the word is a known typo
                 val lower = clean.lowercase()
-                val typoFix = OnDeviceProofreadEngine.getInstance(context).proofreadToken(clean)
-                if (typoFix != null && typoFix != clean) {
+                val typoFix = if (dictionaryManager.isWordInDictionary(lower)) {
+                    null
+                } else {
+                    dictionaryManager.getSpellingCorrections(lower).firstOrNull()
+                }
+                if (typoFix != null && typoFix.lowercase() != lower) {
                     val leadingPunct = w.takeWhile { !it.isLetterOrDigit() }
                     val trailingPunct = w.takeLastWhile { !it.isLetterOrDigit() }
                     resultWords.add("$leadingPunct$typoFix$trailingPunct")

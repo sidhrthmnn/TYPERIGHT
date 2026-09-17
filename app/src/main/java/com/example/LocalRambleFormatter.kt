@@ -46,34 +46,24 @@ class LocalRambleFormatter(private val context: Context) {
         modelsDir.mkdirs()
     }
 
-    private val googleAiCoreService by lazy { GoogleAiCoreService.getInstance(context) }
-
     /**
-     * Checks if Google AICore or on-device model is available.
+     * Formats raw voice dictation into polished text using NVIDIA Nemotron Cloud AI.
      */
-    fun hasLocalAiCore(): Boolean {
-        return GoogleAiCoreService.isAiCoreSupportedOnDevice(context)
-    }
-
-    /**
-     * Formats raw voice dictation into polished text completely on-device using Google AICore.
-     * Executes Google AICore on-device grammar/spell verification with immediate deterministic offline fallback.
-     */
-    suspend fun formatRambleText(rawTranscript: String): String = withContext(Dispatchers.Default) {
+    suspend fun formatRambleText(rawTranscript: String): String = withContext(Dispatchers.IO) {
         val raw = rawTranscript.trim()
         if (raw.isBlank()) return@withContext ""
 
-        // 1. First run deterministic cleanup of spoken filler words, stutters and live self-corrections
+        // 1. Run deterministic cleanup of spoken filler words, stutters and live self-corrections
         val heuristicCleaned = runDeterministicLocalRambleEngine(raw)
 
-        // 2. Pass through Google AICore On-Device Grammar & Spell Proofreading pipeline
+        // 2. Pass through NVIDIA Nemotron Cloud AI for synthesis and grammar refinement
         try {
-            val aiCoreResult = googleAiCoreService.proofreadSentence(heuristicCleaned, "Ramble")
-            if (aiCoreResult.correctedText.isNotBlank()) {
-                return@withContext aiCoreResult.correctedText
+            val nemotronResult = NvidiaNemotronClient.rambleModeSynthesis(heuristicCleaned).getOrNull()
+            if (!nemotronResult.isNullOrBlank()) {
+                return@withContext nemotronResult
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Google AICore Ramble proofread fallback: ${e.message}")
+            Log.w(TAG, "NVIDIA Nemotron Ramble synthesis fallback: ${e.message}")
         }
 
         return@withContext heuristicCleaned

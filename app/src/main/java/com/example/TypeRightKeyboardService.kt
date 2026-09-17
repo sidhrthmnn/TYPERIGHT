@@ -144,7 +144,6 @@ class TypeRightKeyboardService : KeyboardService() {
     private lateinit var aiPolishManager: AiPolishManager
     private lateinit var clipboardRepository: ClipboardRepository
     private val localPredictor by lazy { LocalGrammarSpellPredictor(this) }
-    private val googleAiCoreService by lazy { GoogleAiCoreService.getInstance(this) }
     private val manglishEngine by lazy { ManglishTransliterationEngine.getInstance(this) }
 
     private enum class FeedbackType {
@@ -5759,7 +5758,8 @@ fun GboardProofreadPanel(
                             .verticalScroll(rememberScrollState())
                     ) {
                         if (selectedEngineIndex == 0) {
-                            neuralResult?.let { nRes ->
+                            val nRes = neuralResult
+                            if (nRes != null) {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = accentColor.copy(alpha = 0.15f),
@@ -5783,7 +5783,7 @@ fun GboardProofreadPanel(
                                             .padding(bottom = 6.dp),
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        nRes.appliedEdits.forEach { edit ->
+                                        for (edit in nRes.appliedEdits) {
                                             Surface(
                                                 shape = RoundedCornerShape(6.dp),
                                                 color = keyTextColor.copy(alpha = 0.08f),
@@ -5802,7 +5802,8 @@ fun GboardProofreadPanel(
                                 }
                             }
                         } else {
-                            slmResult?.let { result ->
+                            val result = slmResult
+                            if (result != null) {
                                 if (result.corrections.isNotEmpty()) {
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
@@ -5826,7 +5827,7 @@ fun GboardProofreadPanel(
                                             .padding(bottom = 6.dp),
                                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        result.corrections.forEach { cor ->
+                                        for (cor in result.corrections) {
                                             Surface(
                                                 shape = RoundedCornerShape(6.dp),
                                                 color = keyTextColor.copy(alpha = 0.08f),

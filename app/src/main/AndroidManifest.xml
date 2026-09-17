@@ -67,11 +67,6 @@
                 android:resource="@xml/spellchecker" />
         </service>
 
-        <!-- Proofreading Engine Service -->
-        <service
-            android:name="com.example.LocalProofreadEngineService"
-            android:exported="false" />
-
         <!-- Dictionary Update Service -->
         <service
             android:name="com.example.DictionaryUpdateService"

@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
 object NemotronApiClient {
     private const val TAG = "NemotronApiClient"
     private val CANDIDATE_MODELS = listOf(
-        "nvidia/nemotron-3-ultra",
+        "nvidia/nemotron-3.5-lightning-30b-a3b",
         "nvidia/llama-3.1-nemotron-70b-instruct"
     )
     private const val BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -45,13 +45,9 @@ object NemotronApiClient {
         mode: PolishMode,
         context: TextContext? = null
     ): String? = withContext(Dispatchers.IO) {
-        val apiKey = try {
-            BuildConfig::class.java.getField("NVIDIA_API_KEY").get(null) as? String
-        } catch (e: Exception) {
-            null
-        }
+        val apiKey = NvidiaNemotronClient.getApiKey()
 
-        if (apiKey.isNullOrBlank() || apiKey == "MY_NVIDIA_API_KEY") {
+        if (apiKey.isBlank() || apiKey == "MY_NVIDIA_API_KEY") {
             Log.d(TAG, "Nemotron API key not configured. Using on-device inference pipeline.")
             return@withContext null
         }
