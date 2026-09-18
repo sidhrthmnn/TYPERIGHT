@@ -570,6 +570,26 @@ class TypeRightKeyboardService : KeyboardService() {
         speechRecognizer = null
     }
 
+    override fun onKeyText(text: String) {
+        handleKeyPress(text)
+        notifyTextInput(text)
+    }
+
+    override fun onKeyDelete() {
+        handleDelete()
+        notifyDelete()
+    }
+
+    override fun onKeyEnter() {
+        handleEnter()
+        notifyEnter()
+    }
+
+    override fun onKeySpace() {
+        handleSpace()
+        notifySpace()
+    }
+
     override fun onCreateInputView(): View {
         val setup = composeSetup ?: ComposeSetup().also { composeSetup = it }
         setup.start()
@@ -758,6 +778,24 @@ class TypeRightKeyboardService : KeyboardService() {
         } finally { ic.endBatchEdit() }
         justAutocorrected = false
         updatePreviousWord()
+        return true
+    }
+
+    fun undoEditorReplacement(snapshot: EditorTextSnapshot?): Boolean {
+        if (snapshot == null || snapshot.session != editorSession) return false
+        val ic = currentInputConnection ?: return false
+        ic.beginBatchEdit()
+        try {
+            ic.finishComposingText()
+            if (snapshot.selected.isNullOrEmpty()) {
+                ic.deleteSurroundingText(2000, 2000)
+                ic.commitText(snapshot.before + snapshot.after, 1)
+            } else {
+                ic.commitText(snapshot.text, 1)
+            }
+        } finally {
+            ic.endBatchEdit()
+        }
         return true
     }
 
@@ -1072,6 +1110,14 @@ class TypeRightKeyboardService : KeyboardService() {
             }
         }
         updatePreviousWord()
+    }
+
+    override fun undoText() {
+        handleUndo()
+    }
+
+    override fun redoText() {
+        handleRedo()
     }
 
     private fun handleUndo() {
@@ -2173,13 +2219,11 @@ fun KeyboardLayout(
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val screenHeight = configuration.screenHeightDp
 
-    // Spacious key container height with comfortable proportions matching Gboard standard
-    val keysHeight = when {
-        isLandscape -> (screenHeight * 0.44f).coerceIn(135f, 180f).dp
-        keyboardHeightState == KeyboardSettings.HEIGHT_SHORT -> (screenHeight * 0.23f).coerceIn(180f, 220f).dp
-        keyboardHeightState == KeyboardSettings.HEIGHT_TALL -> (screenHeight * 0.34f).coerceIn(260f, 320f).dp
-        keyboardHeightState == KeyboardSettings.HEIGHT_CUSTOM -> (screenHeight * (customKeyboardHeightPercent / 100f)).coerceIn(170f, 380f).dp
-        else -> (screenHeight * 0.285f).coerceIn(210f, 260f).dp
+    // Locked strictly to short keyboard length; resizing disabled per user request
+    val keysHeight = if (isLandscape) {
+        (screenHeight * 0.44f).coerceIn(135f, 180f).dp
+    } else {
+        (screenHeight * 0.23f).coerceIn(180f, 220f).dp
     }
 
     val heightScaleFactor = (keysHeight.value / 225f).coerceIn(0.72f, 1.45f)
@@ -3445,17 +3489,11 @@ fun KeyboardLayout(
                             keyTextColor = keyTextColor,
                             accentColor = accentColor,
                             keyColor = normalKeyBg,
-                            heightPercent = customKeyboardHeightPercent,
-                            onHeightPercentChange = { percent ->
-                                settings.height = KeyboardSettings.HEIGHT_CUSTOM
-                                settings.customKeyboardHeightPercent = percent
-                                keyboardHeightState = KeyboardSettings.HEIGHT_CUSTOM
-                                customKeyboardHeightPercent = percent
-                            },
                             onToolClick = { tool ->
                                 when (tool) {
                                     GboardTool.AI_POLISH,
-                                    GboardTool.PROOFREAD -> {
+                                    GboardTool.PROOFREAD,
+                                    GboardTool.OFFLINE_AI -> {
                                         isToolsDrawerOpen = false
                                         isProofreadSheetOpen = true
                                     }
@@ -5374,6 +5412,7 @@ fun OneHandedSideRail(
 
 enum class GboardTool(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     AI_POLISH("AI Polish", Icons.Default.AutoAwesome),
+    OFFLINE_AI("Offline AI", Icons.Default.Memory),
     PROOFREAD("AI Polish", Icons.Default.AutoAwesome),
     RAMBLE("Voice Dictation", Icons.Default.Mic),
     CLIPBOARD("Clipboard", Icons.Default.ContentPaste),
@@ -5390,26 +5429,20 @@ fun GboardToolsDrawer(
     keyTextColor: Color,
     accentColor: Color,
     keyColor: Color,
-    heightPercent: Float,
-    onHeightPercentChange: (Float) -> Unit,
     onToolClick: (GboardTool) -> Unit,
     onClose: () -> Unit
 ) {
-    val density = androidx.compose.ui.platform.LocalDensity.current.density
-    val screenHeightDp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.toFloat().coerceAtLeast(1f)
-    val currentHeight by rememberUpdatedState(heightPercent)
-    val resize by rememberUpdatedState(onHeightPercentChange)
-    var dragHeight by remember { mutableStateOf(heightPercent) }
     val scale = LocalKeyboardScale.current
 
-    // Keep this surface focused on the actions people need while typing. Less-used
-    // settings remain available from the settings screen and the toolbar overflow.
     val tools = listOf(
         GboardTool.AI_POLISH,
+        GboardTool.OFFLINE_AI,
         GboardTool.CLIPBOARD,
         GboardTool.TEXT_EDIT,
-        GboardTool.ONE_HANDED
+        GboardTool.ONE_HANDED,
+        GboardTool.SETTINGS
     )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -5419,7 +5452,7 @@ fun GboardToolsDrawer(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 4.dp),
+                .padding(bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -5434,7 +5467,7 @@ fun GboardToolsDrawer(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "Keyboard tools",
+                    text = "Keyboard Options & Tools",
                     color = keyTextColor,
                     fontSize = (13f * scale).coerceIn(11f, 15f).sp,
                     fontWeight = FontWeight.Bold
@@ -5453,107 +5486,14 @@ fun GboardToolsDrawer(
             }
         }
 
-        // Direct-manipulation resize control with presets and slider
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = keyColor.copy(alpha = 0.92f),
-            border = BorderStroke(0.5.dp, keyTextColor.copy(alpha = 0.14f)),
-            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AspectRatio, contentDescription = null, tint = accentColor, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Keyboard Height", color = keyTextColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.weight(1f))
-                    Text("${heightPercent.toInt()}%", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-
-                // Quick size preset buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        "Short" to 22f,
-                        "Normal" to 28.5f,
-                        "Tall" to 34f,
-                        "Extra" to 40f
-                    ).forEach { (label, preset) ->
-                        val isSel = kotlin.math.abs(heightPercent - preset) < 2.5f
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSel) accentColor.copy(alpha = 0.22f) else keyTextColor.copy(alpha = 0.07f))
-                                .border(0.5.dp, if (isSel) accentColor else Color.Transparent, RoundedCornerShape(8.dp))
-                                .clickable { resize(preset) }
-                                .padding(vertical = 4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (isSel) accentColor else keyTextColor.copy(alpha = 0.85f),
-                                fontSize = 10.5.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-
-                // Interactive slider and drag handle
-                Slider(
-                    value = heightPercent.coerceIn(20f, 42f),
-                    onValueChange = { resize(it) },
-                    valueRange = 20f..42f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = accentColor,
-                        activeTrackColor = accentColor,
-                        inactiveTrackColor = keyTextColor.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(28.dp)
-                        .testTag("keyboard_resize_slider")
-                )
-
-                // Drag handle area for direct gesture resize
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(24.dp)
-                        .semantics {
-                            contentDescription = "Keyboard height. Drag up to enlarge or down to shrink"
-                            progressBarRangeInfo = ProgressBarRangeInfo(heightPercent, 20f..42f)
-                            setProgress { resize(it.coerceIn(20f, 42f)); true }
-                        }
-                        .pointerInput(density, screenHeightDp) {
-                            detectDragGestures(onDragStart = { dragHeight = currentHeight }) { change, delta ->
-                                change.consume()
-                                dragHeight = (dragHeight - delta.y / density / screenHeightDp * 100f).coerceIn(20f, 42f)
-                                resize(dragHeight)
-                            }
-                        }
-                        .testTag("keyboard_resize_handle"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.DragHandle, contentDescription = null, tint = accentColor.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Drag handle to resize", color = keyTextColor.copy(alpha = 0.6f), fontSize = 10.sp)
-                    }
-                }
-            }
-        }
-
-        // Proportional, Gboard-style tool grid that fills remaining height without overflow
+        // Spacious, compact Gboard-style tool grid filling the short keyboard height
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            val chunkedTools = tools.chunked(2)
+            val chunkedTools = tools.chunked(3)
             chunkedTools.forEach { rowTools ->
                 Row(
                     modifier = Modifier
@@ -5588,23 +5528,26 @@ fun GboardToolsDrawer(
                                 .testTag("gboard_tool_${tool.name.lowercase()}")
                         ) {
                             Column(
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 4.dp, vertical = 6.dp),
                                 verticalArrangement = Arrangement.Center,
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Icon(
                                     imageVector = tool.icon,
                                     contentDescription = tool.title,
-                                    tint = if (tool == GboardTool.AI_POLISH || tool == GboardTool.PROOFREAD) accentColor else keyTextColor,
-                                    modifier = Modifier.size((18f * scale).coerceIn(15f, 24f).dp)
+                                    tint = if (tool == GboardTool.AI_POLISH || tool == GboardTool.PROOFREAD || tool == GboardTool.OFFLINE_AI) accentColor else keyTextColor,
+                                    modifier = Modifier.size((20f * scale).coerceIn(16f, 24f).dp)
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = tool.title,
                                     color = keyTextColor,
-                                    fontSize = (9.5f * scale).coerceIn(8.5f, 12f).sp,
+                                    fontSize = (10f * scale).coerceIn(9f, 12f).sp,
                                     fontWeight = FontWeight.Medium,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    textAlign = TextAlign.Center
                                 )
                             }
                         }
@@ -5624,78 +5567,52 @@ fun GboardProofreadPanel(
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val editorService = context as? TypeRightKeyboardService
     val snapshot = remember { editorService?.captureEditorText() }
-    var correctionJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    
-    var originalText by remember { mutableStateOf("") }
-    var correctedText by remember { mutableStateOf("") }
-    var slmResult by remember { mutableStateOf<SlmProofreadEngine.SlmProofreadResult?>(null) }
-    var neuralResult by remember { mutableStateOf<OnDeviceNeuralPolishEngine.NeuralPolishResult?>(null) }
-    var selectedEngineIndex by remember { mutableStateOf(0) }
-    val engines = listOf("⚡ Neural Polish", "🧠 AICore Nano", "🤖 SLM Syntactic")
-    var isLoading by remember { mutableStateOf(true) }
-    var selectedTone by remember { mutableStateOf("Proofread") }
+    val coordinator = remember { PolishCoordinator.getInstance(context) }
+    val repository = remember { ModelRepository.getInstance(context) }
+    val modelStatus by repository.status.collectAsState()
+    val isModelInstalled = remember(modelStatus) { repository.isModelInstalled() }
+
+    val editorSnapshot = remember(snapshot) {
+        if (snapshot != null) {
+            EditorSnapshot(
+                sessionId = snapshot.session,
+                originalText = snapshot.text,
+                startOffset = snapshot.before.length,
+                endOffset = snapshot.before.length + (snapshot.selected?.length ?: 0),
+                cursorPosition = snapshot.before.length
+            )
+        } else null
+    }
+
+    var selectedTone by remember { mutableStateOf(PolishMode.PROOFREAD) }
+    var useBasicOfflineOnly by remember { mutableStateOf(!isModelInstalled) }
+    var hasApplied by remember { mutableStateOf(false) }
+
+    val uiState by coordinator.uiState.collectAsState()
 
     val tones = listOf(
-        "Proofread" to "✨ Fix All",
-        "Formal" to "👔 Professional",
-        "Casual" to "💬 Casual",
-        "Concise" to "⚡ Concise",
-        "Eloquent" to "🌟 Eloquent",
-        "Bullets" to "📝 Bullets"
+        PolishMode.PROOFREAD to "✨ Fix All",
+        PolishMode.PROFESSIONAL to "👔 Professional",
+        PolishMode.CASUAL to "💬 Friendly",
+        PolishMode.SHORTEN to "⚡ Concise"
     )
 
-    fun runCorrection(text: String, tone: String, engineIdx: Int = selectedEngineIndex) {
-        if (text.isBlank()) {
-            isLoading = false
-            return
-        }
-        isLoading = true
-        correctionJob?.cancel()
-        correctionJob = coroutineScope.launch {
-            try {
-                when (engineIdx) {
-                    0 -> { // ⚡ Neural Polish (On-Device)
-                        val engine = OnDeviceNeuralPolishEngine.getInstance(context)
-                        val res = withContext(Dispatchers.Default) { engine.polish(text, tone) }
-                        neuralResult = res
-                        correctedText = res.polishedText
-                    }
-                    1 -> { // 🧠 AICore (Gemini Nano)
-                        val slmEngine = SlmProofreadEngine.getInstance(context)
-                        val detailed = withContext(Dispatchers.Default) { slmEngine.proofread(text, tone) }
-                        slmResult = detailed
-                        if (tone.equals("Proofread", ignoreCase = true)) {
-                            correctedText = detailed.proofreadText
-                        } else {
-                            val result = DeviceAiCoreEngine.getInstance(context).proofread(detailed.proofreadText, tone)
-                            correctedText = result.correctedText
-                        }
-                    }
-                    else -> { // 🤖 SLM Syntactic
-                        val slmEngine = SlmProofreadEngine.getInstance(context)
-                        val detailed = withContext(Dispatchers.Default) { slmEngine.proofread(text, tone) }
-                        slmResult = detailed
-                        correctedText = detailed.proofreadText
-                    }
-                }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                correctedText = text
-            } finally {
-                isLoading = false
-            }
-        }
+    fun runPolish(mode: PolishMode = selectedTone, basicOnly: Boolean = useBasicOfflineOnly) {
+        val snap = editorSnapshot ?: return
+        hasApplied = false
+        coordinator.triggerPolish(
+            snapshot = snap,
+            mode = mode,
+            preferredBackend = ModelBackend.AUTO,
+            forceBasicOffline = basicOnly
+        )
     }
 
     LaunchedEffect(Unit) {
-        originalText = snapshot?.text.orEmpty()
-        if (originalText.isNotEmpty()) {
-            runCorrection(originalText, "Proofread", 0)
-        } else {
-            isLoading = false
+        if (editorSnapshot != null && editorSnapshot.originalText.isNotBlank()) {
+            runPolish(selectedTone, useBasicOfflineOnly)
         }
     }
 
@@ -5728,18 +5645,34 @@ fun GboardProofreadPanel(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )
+
+                // Truthful engine badge
+                val activeEngineLabel = if (isModelInstalled && !useBasicOfflineOnly) {
+                    "Offline AI — Qwen3 1.7B"
+                } else {
+                    "Basic offline correction"
+                }
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF10B981).copy(alpha = 0.15f),
-                    border = BorderStroke(0.5.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
+                    color = if (isModelInstalled && !useBasicOfflineOnly) Color(0xFF10B981).copy(alpha = 0.15f) else keyTextColor.copy(alpha = 0.08f),
+                    border = BorderStroke(0.5.dp, if (isModelInstalled && !useBasicOfflineOnly) Color(0xFF10B981).copy(alpha = 0.4f) else keyTextColor.copy(alpha = 0.2f)),
                     modifier = Modifier.clickable {
-                        selectedEngineIndex = (selectedEngineIndex + 1) % engines.size
-                        runCorrection(originalText, selectedTone, selectedEngineIndex)
+                        if (isModelInstalled) {
+                            useBasicOfflineOnly = !useBasicOfflineOnly
+                            runPolish(selectedTone, useBasicOfflineOnly)
+                        } else {
+                            try {
+                                val intent = Intent(context, MainActivity::class.java).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(intent)
+                            } catch (_: Exception) {}
+                        }
                     }
                 ) {
                     Text(
-                        text = engines[selectedEngineIndex] + " ▾",
-                        color = Color(0xFF10B981),
+                        text = if (isModelInstalled) "$activeEngineLabel ▾" else "$activeEngineLabel (Model not downloaded)",
+                        color = if (isModelInstalled && !useBasicOfflineOnly) Color(0xFF10B981) else keyTextColor.copy(alpha = 0.8f),
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -5748,7 +5681,10 @@ fun GboardProofreadPanel(
             }
 
             IconButton(
-                onClick = onClose,
+                onClick = {
+                    coordinator.cancelCurrent()
+                    onClose()
+                },
                 modifier = Modifier.size(26.dp)
             ) {
                 Icon(
@@ -5760,7 +5696,7 @@ fun GboardProofreadPanel(
             }
         }
 
-        // Tone chips
+        // Mode chips
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -5769,18 +5705,18 @@ fun GboardProofreadPanel(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            tones.forEach { (toneId, toneLabel) ->
-                val isSelected = selectedTone == toneId
+            tones.forEach { (toneMode, toneLabel) ->
+                val isSelected = selectedTone == toneMode
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = if (isSelected) accentColor else keyColor,
                     border = BorderStroke(0.5.dp, if (isSelected) accentColor else keyTextColor.copy(alpha = 0.15f)),
                     modifier = Modifier
                         .clickable {
-                            selectedTone = toneId
-                            runCorrection(originalText, toneId, selectedEngineIndex)
+                            selectedTone = toneMode
+                            runPolish(toneMode, useBasicOfflineOnly)
                         }
-                        .testTag("proofread_tone_$toneId")
+                        .testTag("proofread_tone_${toneMode.name.lowercase()}")
                 ) {
                     Text(
                         text = toneLabel,
@@ -5793,184 +5729,190 @@ fun GboardProofreadPanel(
             }
         }
 
-        // Diff / Suggestion Card
+        // Main content card
         Surface(
             shape = RoundedCornerShape(12.dp),
             color = keyColor.copy(alpha = 0.6f),
-            border = BorderStroke(1.dp, if (correctedText.isNotEmpty() && correctedText != originalText) accentColor.copy(alpha = 0.5f) else keyTextColor.copy(alpha = 0.12f)),
+            border = BorderStroke(1.dp, keyTextColor.copy(alpha = 0.12f)),
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            if (isLoading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        CircularProgressIndicator(color = accentColor, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Text(
-                            text = "Analyzing with ${engines[selectedEngineIndex]}...",
-                            color = keyTextColor.copy(alpha = 0.7f),
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-            } else if (originalText.isBlank()) {
+            val original = editorSnapshot?.originalText.orEmpty()
+
+            if (original.isBlank()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        text = "Type some text in any input field to proofread.",
+                        text = "Type some text in any input field to polish.",
                         color = keyTextColor.copy(alpha = 0.5f),
                         fontSize = 12.sp
                     )
                 }
             } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        if (selectedEngineIndex == 0) {
-                            val nRes = neuralResult
-                            if (nRes != null) {
+                when (val state = uiState) {
+                    is PolishUiState.Generating, is PolishUiState.PreparingModel -> {
+                        val statusMsg = if (state is PolishUiState.PreparingModel) {
+                            "Preparing on-device model (${state.backend})..."
+                        } else {
+                            if (isModelInstalled && !useBasicOfflineOnly) {
+                                "Generating with Offline AI (Qwen3 1.7B)..."
+                            } else {
+                                "Running basic offline correction..."
+                            }
+                        }
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(color = accentColor, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Text(
+                                    text = statusMsg,
+                                    color = keyTextColor.copy(alpha = 0.7f),
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                    is PolishUiState.ModelNotDownloaded -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Model not downloaded (931 MB)",
+                                color = keyTextColor,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Using Basic offline correction. For genuine on-device LLM inference, download Qwen3-1.7B in settings.",
+                                color = keyTextColor.copy(alpha = 0.7f),
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    is PolishUiState.Error -> {
+                        Box(modifier = Modifier.fillMaxSize().padding(12.dp), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "Error: ${state.message}",
+                                color = MaterialTheme.colorScheme.error,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    is PolishUiState.Ready -> {
+                        val result = state.result
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                // Diagnostic status bar
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = accentColor.copy(alpha = 0.15f),
-                                    border = BorderStroke(0.5.dp, accentColor.copy(alpha = 0.4f)),
+                                    color = accentColor.copy(alpha = 0.12f),
+                                    border = BorderStroke(0.5.dp, accentColor.copy(alpha = 0.35f)),
                                     modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
                                 ) {
                                     Text(
-                                        text = "${nRes.toneSummary} • ${nRes.latencyMs}ms local inference • ${nRes.appliedEdits.size} improvements",
+                                        text = "${result.modelLabel} • ${result.backend} • ${result.durationMs}ms",
                                         color = accentColor,
-                                        fontSize = 11.5.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
                                 }
 
-                                if (nRes.appliedEdits.isNotEmpty()) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState())
-                                            .padding(bottom = 6.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        for (edit in nRes.appliedEdits) {
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = keyTextColor.copy(alpha = 0.08f),
-                                                border = BorderStroke(0.5.dp, keyTextColor.copy(alpha = 0.18f))
-                                            ) {
-                                                Text(
-                                                    text = "${edit.original} → ${edit.replacement}",
-                                                    color = keyTextColor,
-                                                    fontSize = 10.5.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                )
+                                if (result.isChanged && result.text.isNotBlank()) {
+                                    Text(
+                                        text = "Original: $original",
+                                        color = keyTextColor.copy(alpha = 0.45f),
+                                        fontSize = 11.5.sp,
+                                        textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
+                                        modifier = Modifier.padding(bottom = 4.dp)
+                                    )
+                                }
+                                Text(
+                                    text = if (result.text.isNotBlank()) result.text else original,
+                                    color = keyTextColor,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    lineHeight = 18.sp
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (hasApplied) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            if (editorService?.undoEditorReplacement(snapshot) == true) {
+                                                hasApplied = false
                                             }
-                                        }
+                                        },
+                                        shape = RoundedCornerShape(20.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(38.dp)
+                                            .testTag("undo_proofread_button")
+                                    ) {
+                                        Icon(Icons.Default.Undo, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Undo", fontSize = 12.sp)
                                     }
                                 }
-                            }
-                        } else {
-                            val result = slmResult
-                            if (result != null) {
-                                if (result.corrections.isNotEmpty()) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = accentColor.copy(alpha = 0.15f),
-                                        border = BorderStroke(0.5.dp, accentColor.copy(alpha = 0.4f)),
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-                                    ) {
-                                        Text(
-                                            text = result.summaryMessage,
-                                            color = accentColor,
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
 
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState())
-                                            .padding(bottom = 6.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        for (cor in result.corrections) {
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = keyTextColor.copy(alpha = 0.08f),
-                                                border = BorderStroke(0.5.dp, keyTextColor.copy(alpha = 0.18f))
-                                            ) {
-                                                Text(
-                                                    text = "${cor.original} → ${cor.replacement}",
-                                                    color = keyTextColor,
-                                                    fontSize = 10.5.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                )
-                                            }
+                                Button(
+                                    onClick = {
+                                        val textToApply = if (result.text.isNotBlank()) result.text else original
+                                        if (editorService?.applyEditorReplacement(snapshot, textToApply, result.mode) == true) {
+                                            hasApplied = true
+                                            onApplyText(textToApply)
                                         }
-                                    }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                                    shape = RoundedCornerShape(20.dp),
+                                    modifier = Modifier
+                                        .weight(if (hasApplied) 1.5f else 1f)
+                                        .height(38.dp)
+                                        .testTag("apply_proofread_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (hasApplied) "Applied ✓" else if (result.isChanged) "Apply Fix" else "Keep Text",
+                                        color = Color.White,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
-
-                        if (correctedText != originalText && correctedText.isNotBlank()) {
-                            Text(
-                                text = "Original: $originalText",
-                                color = keyTextColor.copy(alpha = 0.45f),
-                                fontSize = 11.5.sp,
-                                textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
-                                modifier = Modifier.padding(bottom = 4.dp)
-                            )
-                        }
-                        Text(
-                            text = if (correctedText.isNotBlank()) correctedText else originalText,
-                            color = keyTextColor,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            lineHeight = 18.sp
-                        )
                     }
-
-                    Button(
-                        onClick = {
-                            val textToApply = if (correctedText.isNotBlank()) correctedText else originalText
-                            if (editorService?.applyEditorReplacement(snapshot, textToApply, PolishMode.fromString(selectedTone)) == true) {
-                                onApplyText(textToApply)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(38.dp)
-                            .testTag("apply_proofread_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (correctedText != originalText && correctedText.isNotBlank()) "Apply Fix (${selectedTone})" else "Keep as is",
-                            color = Color.White,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                    is PolishUiState.Idle -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Ready to polish text", color = keyTextColor.copy(alpha = 0.5f), fontSize = 12.sp)
+                        }
                     }
                 }
             }

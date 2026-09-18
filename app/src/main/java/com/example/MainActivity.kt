@@ -359,7 +359,14 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
                     },
                     onSelectClick = {
                         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                        imm?.showInputMethodPicker()
+                        if (!isKeyboardEnabled) {
+                            Toast.makeText(context, "Please enable Type Right first in Android Settings (Step 1)", Toast.LENGTH_SHORT).show()
+                            val intent = Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)
+                            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            context.startActivity(intent)
+                        } else {
+                            imm?.showInputMethodPicker()
+                        }
                     },
                     onMicClick = {
                         launcher.launch(Manifest.permission.RECORD_AUDIO)
@@ -500,10 +507,10 @@ fun SetupSection(
 
             SetupStepCard(
                 stepNumber = "3",
-                title = "Microphone Permission",
-                description = "Allow real-time neural speech recognition and voice dictation.",
+                title = "Microphone (Optional)",
+                description = "Required only for voice dictation. All typing, swipe, and AI text features work without this.",
                 isCompleted = isMicPermissionGranted,
-                actionLabel = "Grant",
+                actionLabel = if (isMicPermissionGranted) "Granted" else "Grant",
                 testTag = "grant_mic_button",
                 onClick = onMicClick
             )

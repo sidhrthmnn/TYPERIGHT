@@ -1,6 +1,6 @@
 {
   "name": "Type Right",
-  "description": "Elegant smart keyboard powered by NVIDIA Nemotron Cloud AI for real-time proofreading, tone rephrasing, intelligent voice transcription cleanup, and seamless continuous dictation.",
+  "description": "Clean smart keyboard with compact short layout, genuine on-device AI polish powered by LiteRT-LM, real-time proofreading, and offline text correction.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

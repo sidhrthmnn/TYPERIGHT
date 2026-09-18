@@ -152,12 +152,14 @@ class LocalInferenceEngine private constructor(private val context: Context) {
             // Local Processing for Proofread / Cleanup
             var locallyCorrected = onDeviceProofreader.proofread(originalText)
             locallyCorrected = applyDeterministicCorrections(locallyCorrected, mode)
+            val beforeTfLite = locallyCorrected
             locallyCorrected = try {
                 tfLiteCorrectionModel.correctText(locallyCorrected)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 locallyCorrected
             }
+            val tfLiteContributed = locallyCorrected != beforeTfLite
             
             if (mode == PolishMode.RAMBLE) {
                 locallyCorrected = WhisperCppBrain.whisperRambleIntentPolish(locallyCorrected)
@@ -168,12 +170,19 @@ class LocalInferenceEngine private constructor(private val context: Context) {
             val isValid = AiOutputValidator.isValid(originalText, sanitized, mode)
             val finalText = if (isValid) sanitized else originalText
             val hasChanged = finalText != originalText
+            val source = if (!hasChanged) {
+                AiSource.ORIGINAL
+            } else if (tfLiteContributed) {
+                AiSource.LOCAL_MODEL
+            } else {
+                AiSource.LOCAL_RULES
+            }
             
             return@withContext AiResult(
                 text = finalText,
                 confidence = if (isValid) localConfidence else 0.5f,
                 changed = hasChanged,
-                source = if (hasChanged) AiSource.LOCAL_MODEL else AiSource.ORIGINAL,
+                source = source,
                 changes = computeEdits(originalText, finalText)
             )
         } else {
@@ -189,7 +198,7 @@ class LocalInferenceEngine private constructor(private val context: Context) {
                         usedNemotron = true
                     }
                 } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.w(TAG, "Nemotron cloud inference failed: ${e.message}.")
                 }
             }
@@ -199,7 +208,7 @@ class LocalInferenceEngine private constructor(private val context: Context) {
                 try {
                     cloudResponse = GeminiApiClient.generatePolish(originalText, mode, context)
                 } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.w(TAG, "Gemini cloud inference failed: ${e.message}.")
                 }
             }
@@ -218,15 +227,27 @@ class LocalInferenceEngine private constructor(private val context: Context) {
                 }
             }
             
-            // Fallback to local rules if Gemini fails
+            // Fallback to local only if offline AI is enabled
+            if (!isOfflineEnabled) {
+                return@withContext AiResult(
+                    text = originalText,
+                    confidence = 1.0f,
+                    changed = false,
+                    source = AiSource.ORIGINAL,
+                    changes = emptyList()
+                )
+            }
+
             var baseCorrected = onDeviceProofreader.proofread(originalText)
             baseCorrected = applyDeterministicCorrections(baseCorrected, mode)
+            val beforeTfLite = baseCorrected
             baseCorrected = try {
                 tfLiteCorrectionModel.correctText(baseCorrected)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 baseCorrected
             }
+            val tfLiteContributed = baseCorrected != beforeTfLite
 
             val localResult = applyLocalStyleTransformation(baseCorrected, mode)
             val sanitized = AiOutputValidator.sanitize(localResult, originalText)
@@ -234,12 +255,19 @@ class LocalInferenceEngine private constructor(private val context: Context) {
             val finalText = if (isValid) sanitized else originalText
             val hasChanged = finalText != originalText
             val localConfidence = evaluateLocalQuality(originalText, finalText, mode)
+            val source = if (!hasChanged) {
+                AiSource.ORIGINAL
+            } else if (tfLiteContributed) {
+                AiSource.LOCAL_MODEL
+            } else {
+                AiSource.LOCAL_RULES
+            }
 
             return@withContext AiResult(
                 text = finalText,
                 confidence = if (isValid) localConfidence else 0.88f,
                 changed = hasChanged,
-                source = if (hasChanged) AiSource.LOCAL_MODEL else AiSource.ORIGINAL,
+                source = source,
                 changes = computeEdits(originalText, finalText)
             )
         }
@@ -348,32 +376,61 @@ class LocalInferenceEngine private constructor(private val context: Context) {
     }
 
     /**
-     * Computes word-level diffs between original and modified text.
+     * Computes word-level diffs between original and modified text using an
+     * insertion/deletion-aware dynamic programming sequence alignment algorithm.
      */
     private fun computeEdits(original: String, modified: String): List<Edit> {
         if (original == modified) return emptyList()
 
-        val origWords = original.split(" ")
-        val modWords = modified.split(" ")
+        val origWords = original.split(" ").filter { it.isNotEmpty() }
+        val modWords = modified.split(" ").filter { it.isNotEmpty() }
 
-        val edits = mutableListOf<Edit>()
-        val minSize = minOf(origWords.size, modWords.size)
+        val n = origWords.size
+        val m = modWords.size
 
-        for (i in 0 until minSize) {
-            if (origWords[i] != modWords[i]) {
-                edits.add(Edit(original = origWords[i], replacement = modWords[i]))
-            }
+        if (n == 0) {
+            return modWords.map { Edit(original = "", replacement = it) }
         }
-        if (origWords.size > minSize) {
-            for (i in minSize until origWords.size) {
-                edits.add(Edit(original = origWords[i], replacement = ""))
-            }
-        } else if (modWords.size > minSize) {
-            for (i in minSize until modWords.size) {
-                edits.add(Edit(original = "", replacement = modWords[i]))
-            }
+        if (m == 0) {
+            return origWords.map { Edit(original = it, replacement = "") }
         }
 
-        return edits
+        // Longest Common Subsequence (LCS) matrix
+        val dp = Array(n + 1) { IntArray(m + 1) }
+        for (i in 1..n) {
+            for (j in 1..m) {
+                dp[i][j] = if (origWords[i - 1] == modWords[j - 1]) {
+                    dp[i - 1][j - 1] + 1
+                } else {
+                    maxOf(dp[i - 1][j], dp[i][j - 1])
+                }
+            }
+        }
+
+        // Backtrack to assemble edits
+        val reversedEdits = mutableListOf<Edit>()
+        var i = n
+        var j = m
+
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && origWords[i - 1] == modWords[j - 1]) {
+                i--
+                j--
+            } else if (i > 0 && j > 0 && dp[i - 1][j - 1] >= dp[i - 1][j] && dp[i - 1][j - 1] >= dp[i][j - 1]) {
+                reversedEdits.add(Edit(original = origWords[i - 1], replacement = modWords[j - 1]))
+                i--
+                j--
+            } else if (j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+                reversedEdits.add(Edit(original = "", replacement = modWords[j - 1]))
+                j--
+            } else if (i > 0 && (j == 0 || dp[i - 1][j] >= dp[i][j - 1])) {
+                reversedEdits.add(Edit(original = origWords[i - 1], replacement = ""))
+                i--
+            } else {
+                break
+            }
+        }
+
+        return reversedEdits.reversed()
     }
 }

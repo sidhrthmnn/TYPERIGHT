@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Base64
 
 plugins {
   alias(libs.plugins.android.application)
@@ -17,8 +18,8 @@ android {
     applicationId = "com.aistudio.typeright.jkwpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 142
-    versionName = "142.0"
+    versionCode = 144
+    versionName = "144.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -33,7 +34,15 @@ android {
         keyAlias = "upload"
         keyPassword = System.getenv("KEY_PASSWORD")
       } else {
-        storeFile = file("${rootDir}/debug.keystore")
+        val debugKeystoreFile = file("${rootDir}/debug.keystore")
+        if (!debugKeystoreFile.exists()) {
+          val base64File = file("${rootDir}/debug.keystore.base64")
+          if (base64File.exists()) {
+            val bytes = Base64.getDecoder().decode(base64File.readText().trim())
+            debugKeystoreFile.writeBytes(bytes)
+          }
+        }
+        storeFile = debugKeystoreFile
         storePassword = "android"
         keyAlias = "androiddebugkey"
         keyPassword = "android"
@@ -111,7 +120,8 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   
-  // ML/AI (Replaced legacy TensorFlow Lite with high-speed on-device Neural NLP Engine)
+  // ML/AI
+  implementation(libs.litertlm.android)
   
   // Testing
   testImplementation(libs.androidx.compose.ui.test.junit4)

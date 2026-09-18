@@ -266,7 +266,7 @@ class KeyboardSettings(context: Context) {
         set(value) { mechanicalSound = value }
 
     var height: String
-        get() = prefs.getString(KEY_HEIGHT, HEIGHT_NORMAL) ?: HEIGHT_NORMAL
+        get() = prefs.getString(KEY_HEIGHT, HEIGHT_SHORT) ?: HEIGHT_SHORT
         set(value) {
             prefs.edit().putString(KEY_HEIGHT, value).apply()
             dataStore.updateAsync { it.setKeyboardHeight(value) }

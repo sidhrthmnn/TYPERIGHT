@@ -77,15 +77,8 @@ class AiPolishManager(private val context: Context) {
         }
 
         val startTime = System.currentTimeMillis()
-        // If the text looks like a raw voice transcription with spoken bullet/numeric indicators or greetings,
-        // format it rich and clean
-        val richFormatted = formatRichSpokenText(text)
-        val finalOutput = if (richFormatted.contains("\n") || richFormatted.contains("•") || richFormatted.contains("❤️") || richFormatted.contains("😊")) {
-            richFormatted
-        } else {
-            val result = inferenceEngine.process(richFormatted, PolishMode.PROOFREAD)
-            result.text
-        }
+        val result = inferenceEngine.process(text, PolishMode.PROOFREAD)
+        val finalOutput = formatRichSpokenText(result.text)
 
         val duration = System.currentTimeMillis() - startTime
         AiExecutionLogger.logAiAction(context, "Proofreading (Stream)", AiExecutionLogger.ENGINE_OFFLINE_LOCAL, text, finalOutput, duration)
@@ -152,9 +145,7 @@ class AiPolishManager(private val context: Context) {
 
         val settings = KeyboardSettings(context)
         val offlineEnabled = settings.offlineAiEnabled
-        val geminiEnabled = settings.geminiAiEnabled &&
-                settings.supportTier != KeyboardSettings.TIER_3 &&
-                settings.voiceInputMode != KeyboardSettings.VOICE_MODE_LOCAL
+        val geminiEnabled = settings.geminiAiEnabled && settings.supportTier != KeyboardSettings.TIER_3
         val nemotronEnabled = settings.nemotronAiEnabled
 
         if (!offlineEnabled && !geminiEnabled && !nemotronEnabled) {
@@ -169,7 +160,8 @@ class AiPolishManager(private val context: Context) {
                 val casual = NemotronApiClient.generatePolish(text, PolishMode.CASUAL)
                 val rephrase = NemotronApiClient.generatePolish(text, PolishMode.REPHRASE)
                 Triple(formal, casual, rephrase)
-            } catch (e: Throwable) {
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Triple(null, null, null)
             }
 
@@ -186,7 +178,8 @@ class AiPolishManager(private val context: Context) {
                 val casual = GeminiApiClient.generatePolish(text, PolishMode.CASUAL)
                 val rephrase = GeminiApiClient.generatePolish(text, PolishMode.REPHRASE)
                 Triple(formal, casual, rephrase)
-            } catch (e: Throwable) {
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Triple(null, null, null)
             }
 
@@ -254,18 +247,16 @@ class AiPolishManager(private val context: Context) {
         var text = WhisperCppBrain.whisperCleanAndPolish(input)
         if (text.isEmpty()) return ""
 
-        // Symbol replacements
+        // Symbol replacements (only when explicitly invoked as symbol/emoji)
         val symbolCorrections = listOf(
-            Regex("\\bheart\\s+(?:symbol|emoji)\\b", RegexOption.IGNORE_CASE) to "❤️",
-            Regex("\\bheart\\b", RegexOption.IGNORE_CASE) to "❤️",
+            Regex("\\b(?:red\\s+)?heart\\s+(?:symbol|emoji)\\b", RegexOption.IGNORE_CASE) to "❤️",
             Regex("\\bsmiley\\s+(?:face|emoji)\\b", RegexOption.IGNORE_CASE) to "😊",
-            Regex("\\bsmiley\\b", RegexOption.IGNORE_CASE) to "😊",
             Regex("\\bhappy\\s+(?:face|emoji)\\b", RegexOption.IGNORE_CASE) to "😊",
             Regex("\\bsad\\s+(?:face|emoji)\\b", RegexOption.IGNORE_CASE) to "😢",
-            Regex("\\bthumbs\\s+up\\b", RegexOption.IGNORE_CASE) to "👍",
-            Regex("\\bthumbs\\s+down\\b", RegexOption.IGNORE_CASE) to "👎",
-            Regex("\\barrow\\s+right\\b", RegexOption.IGNORE_CASE) to "→",
-            Regex("\\barrow\\s+left\\b", RegexOption.IGNORE_CASE) to "←"
+            Regex("\\bthumbs\\s+up\\s+(?:symbol|emoji)\\b", RegexOption.IGNORE_CASE) to "👍",
+            Regex("\\bthumbs\\s+down\\s+(?:symbol|emoji)\\b", RegexOption.IGNORE_CASE) to "👎",
+            Regex("\\barrow\\s+right\\s+(?:symbol|sign)\\b", RegexOption.IGNORE_CASE) to "→",
+            Regex("\\barrow\\s+left\\s+(?:symbol|sign)\\b", RegexOption.IGNORE_CASE) to "←"
         )
         for ((regex, replacement) in symbolCorrections) {
             text = text.replace(regex, replacement)

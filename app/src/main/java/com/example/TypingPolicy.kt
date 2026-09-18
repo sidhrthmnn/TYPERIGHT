@@ -52,4 +52,13 @@ object TypingPolicy {
         breaks.setText(text)
         return text.length - breaks.preceding(text.length).coerceAtLeast(0)
     }
+
+    /** Number of UTF-16 units in the first user-visible character, including joined emoji. */
+    fun firstCharacterLength(text: String): Int {
+        if (text.isEmpty()) return 0
+        val breaks = android.icu.text.BreakIterator.getCharacterInstance(Locale.ROOT)
+        breaks.setText(text)
+        val firstBoundary = breaks.following(0)
+        return if (firstBoundary == android.icu.text.BreakIterator.DONE) text.length else firstBoundary.coerceAtLeast(1)
+    }
 }

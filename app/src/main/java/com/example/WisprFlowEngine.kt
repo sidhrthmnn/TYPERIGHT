@@ -131,18 +131,18 @@ class WisprFlowEngine private constructor(private val context: Context) {
             Regex("(?i)\\b(\\d+)\\s*(?:dollars)\\b") to "$$$1"
         )
 
-        // Spoken emojis
+        // Spoken emojis (require explicit emoji/symbol invocation)
         val SPOKEN_EMOJIS = listOf(
-            Regex("(?i)\\b(thumbs up|thumb up)\\s*(?:emoji|symbol)?\\b") to "👍",
-            Regex("(?i)\\b(thumbs down|thumb down)\\s*(?:emoji|symbol)?\\b") to "👎",
-            Regex("(?i)\\b(heart|red heart)\\s*(?:emoji|symbol)?\\b") to "❤️",
-            Regex("(?i)\\b(smiley|smiling face|smile)\\s*(?:emoji)?\\b") to "😊",
-            Regex("(?i)\\b(laughing|crying laughing|joy)\\s*(?:face|emoji)?\\b") to "😂",
-            Regex("(?i)\\b(fire|flame)\\s*(?:emoji)?\\b") to "🔥",
-            Regex("(?i)\\b(rocket)\\s*(?:emoji)?\\b") to "🚀",
-            Regex("(?i)\\b(party popper|celebration)\\s*(?:emoji)?\\b") to "🎉",
-            Regex("(?i)\\b(check mark|checkmark)\\s*(?:emoji|symbol)?\\b") to "✅",
-            Regex("(?i)\\b(sparkles?)\\s*(?:emoji)?\\b") to "✨"
+            Regex("(?i)\\b(thumbs up|thumb up)\\s+(?:emoji|symbol)\\b") to "👍",
+            Regex("(?i)\\b(thumbs down|thumb down)\\s+(?:emoji|symbol)\\b") to "👎",
+            Regex("(?i)\\b(?:red\\s+)?heart\\s+(?:emoji|symbol)\\b") to "❤️",
+            Regex("(?i)\\b(smiling face|smiley face|smile emoji|smiley emoji)\\b") to "😊",
+            Regex("(?i)\\b(laughing emoji|crying laughing emoji|joy emoji)\\b") to "😂",
+            Regex("(?i)\\b(fire emoji|flame emoji)\\b") to "🔥",
+            Regex("(?i)\\b(rocket emoji)\\b") to "🚀",
+            Regex("(?i)\\b(party popper emoji|celebration emoji|party emoji)\\b") to "🎉",
+            Regex("(?i)\\b(check mark|checkmark)\\s+(?:emoji|symbol)\\b") to "✅",
+            Regex("(?i)\\b(sparkles?)\\s+emoji\\b") to "✨"
         )
 
         // Sample real-world rambling voice transcripts for playground testing

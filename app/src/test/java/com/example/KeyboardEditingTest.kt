@@ -4,6 +4,7 @@ import android.text.Editable
 import android.text.Selection
 import android.text.SpannableStringBuilder
 import android.text.InputType
+import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
@@ -17,6 +18,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter
+import kotlinx.coroutines.flow.first
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -139,5 +141,132 @@ class KeyboardEditingTest {
         KeyboardSettings(service).autocorrectEnabled = false
         type("teh ")
         assertEquals("teh ", text.toString())
+    }
+
+    @Test fun coreInputMethodServiceReceivesHardwareKeysAndCommitsText() {
+        text.clear()
+        Selection.setSelection(text, 0)
+        
+        // Dispatch hardware key down events through onKeyDown
+        val keyEventH = KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_H, 0)
+        val keyEventI = KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_I, 0)
+        val keyEventSpace = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SPACE)
+        
+        assertTrue(service.onKeyDown(KeyEvent.KEYCODE_H, keyEventH))
+        assertTrue(service.onKeyDown(KeyEvent.KEYCODE_I, keyEventI))
+        assertTrue(service.onKeyDown(KeyEvent.KEYCODE_SPACE, keyEventSpace))
+        
+        assertEquals("hi ", text.toString())
+    }
+
+    @Test fun coreInputMethodServiceHandlesHardwareBackspaceKey() {
+        text.clear()
+        text.append("hello")
+        Selection.setSelection(text, text.length)
+        
+        val backspaceEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)
+        assertTrue(service.onKeyDown(KeyEvent.KEYCODE_DEL, backspaceEvent))
+        
+        assertEquals("hell", text.toString())
+    }
+
+    @Test fun coreInputMethodServiceHandlesHardwareEnterKey() {
+        text.clear()
+        text.append("line1")
+        Selection.setSelection(text, text.length)
+        useEditor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE)
+        
+        val enterEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)
+        assertTrue(service.onKeyDown(KeyEvent.KEYCODE_ENTER, enterEvent))
+        
+        assertEquals("line1\n", text.toString())
+    }
+
+    @Test fun coreInputMethodServiceInspectsEditorTypesCorrectly() {
+        useEditor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        assertTrue(service.isPasswordInputType())
+        assertFalse(service.isEmailInputType())
+        assertFalse(service.isUrlInputType())
+
+        useEditor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS)
+        assertTrue(service.isEmailInputType())
+        assertFalse(service.isPasswordInputType())
+
+        useEditor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+        assertTrue(service.isUrlInputType())
+
+        useEditor(InputType.TYPE_CLASS_NUMBER)
+        assertTrue(service.isNumberInputType())
+
+        useEditor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE)
+        assertTrue(service.isMultilineInputType())
+    }
+
+    @Test fun keyboardEventListenerReceivesDispatchedEvents() {
+        var textReceived = ""
+        var deleteCalled = false
+        var spaceCalled = false
+        
+        val listener = object : KeyboardEventListener {
+            override fun onTextInput(text: String) { textReceived += text }
+            override fun onDelete() { deleteCalled = true }
+            override fun onSpace() { spaceCalled = true }
+        }
+        
+        service.addKeyboardEventListener(listener)
+        
+        service.onKeyText("abc")
+        assertEquals("abc", textReceived)
+        
+        service.onKeySpace()
+        assertTrue(spaceCalled)
+        
+        service.onKeyDelete()
+        assertTrue(deleteCalled)
+        
+        service.removeKeyboardEventListener(listener)
+    }
+
+    @Test fun coreInputConnectionHelpersManipulateTextDirectly() {
+        text.clear()
+        Selection.setSelection(text, 0)
+        
+        service.commitTextToInput("first second")
+        assertEquals("first second", text.toString())
+        
+        assertEquals("first second", service.getTextBeforeCursor(50))
+        
+        service.deleteCharacters(beforeLength = 6, afterLength = 0)
+        assertEquals("first ", text.toString())
+    }
+
+    @Test fun ctrlZTriggersUndo() {
+        var undoCalled = false
+        val testService = object : KeyboardService() {
+            override fun onCreateInputView(): View = View(this)
+            override fun undoText() { undoCalled = true }
+        }
+        val ctrlZEvent = KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_Z, 0, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+        assertTrue(testService.onKeyDown(KeyEvent.KEYCODE_Z, ctrlZEvent))
+        assertTrue(undoCalled)
+    }
+
+    @Test fun forwardDeleteRemovesSelectedTextOrNextCharacter() {
+        text.clear()
+        text.append("hello world")
+        Selection.setSelection(text, 0, 5)
+        service.performForwardDelete()
+        assertEquals(" world", text.toString())
+
+        Selection.setSelection(text, 0)
+        service.performForwardDelete()
+        assertEquals("world", text.toString())
+    }
+
+    @Test fun proofreadingDoesNotSilentlyReplaceHeartWithEmoji() = kotlinx.coroutines.runBlocking {
+        val manager = AiPolishManager(service)
+        val sample = "She has a kind heart."
+        val proofread = manager.proofreadTextStream(sample).first()
+        assertFalse(proofread.contains("❤️"))
     }
 }

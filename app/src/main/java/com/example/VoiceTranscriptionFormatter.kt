@@ -72,25 +72,25 @@ object VoiceTranscriptionFormatter {
         Regex("(?i)\\b(todo item|to do item|task item)\\b") to "\n[ ] "
     )
 
-    // Spoken Emojis
+    // Spoken Emojis (require explicit emoji/symbol keyword)
     private val SPOKEN_EMOJIS = listOf(
-        Regex("(?i)\\b(thumbs? up)\\s*(?:emoji|symbol)?\\b") to "👍",
-        Regex("(?i)\\b(thumbs? down)\\s*(?:emoji|symbol)?\\b") to "👎",
-        Regex("(?i)\\b(?:red\\s+)?heart\\s*(?:emoji|symbol)?\\b") to "❤️",
-        Regex("(?i)\\b(smiling face|smiley face|smile emoji|smiley)\\b") to "😊",
-        Regex("(?i)\\b(laughing face|crying laughing|joy emoji)\\b") to "😂",
+        Regex("(?i)\\b(thumbs? up)\\s+(?:emoji|symbol)\\b") to "👍",
+        Regex("(?i)\\b(thumbs? down)\\s+(?:emoji|symbol)\\b") to "👎",
+        Regex("(?i)\\b(?:red\\s+)?heart\\s+(?:emoji|symbol)\\b") to "❤️",
+        Regex("(?i)\\b(smiling face emoji|smiley face emoji|smile emoji|smiley emoji)\\b") to "😊",
+        Regex("(?i)\\b(laughing face emoji|crying laughing emoji|joy emoji)\\b") to "😂",
         Regex("(?i)\\b(fire emoji|flame emoji|fire symbol)\\b") to "🔥",
-        Regex("(?i)\\b(rocket emoji|rocket ship)\\b") to "🚀",
-        Regex("(?i)\\b(party popper|celebration emoji|party emoji)\\b") to "🎉",
-        Regex("(?i)\\b(check mark|checkmark)\\s*(?:emoji|symbol)?\\b") to "✅",
-        Regex("(?i)\\b(cross mark|red x)\\s*(?:emoji|symbol)?\\b") to "❌",
-        Regex("(?i)\\b(sparkles?)\\s*(?:emoji)?\\b") to "✨",
-        Regex("(?i)\\b(thinking face|thinking emoji)\\b") to "🤔",
-        Regex("(?i)\\b(folded hands|praying hands|prayer emoji)\\b") to "🙏",
-        Regex("(?i)\\b(waving hand|wave emoji)\\b") to "👋",
+        Regex("(?i)\\b(rocket emoji|rocket ship emoji)\\b") to "🚀",
+        Regex("(?i)\\b(party popper emoji|celebration emoji|party emoji)\\b") to "🎉",
+        Regex("(?i)\\b(check mark|checkmark)\\s+(?:emoji|symbol)\\b") to "✅",
+        Regex("(?i)\\b(cross mark|red x)\\s+(?:emoji|symbol)\\b") to "❌",
+        Regex("(?i)\\b(sparkles?)\\s+emoji\\b") to "✨",
+        Regex("(?i)\\b(thinking face emoji|thinking emoji)\\b") to "🤔",
+        Regex("(?i)\\b(folded hands emoji|praying hands emoji|prayer emoji)\\b") to "🙏",
+        Regex("(?i)\\b(waving hand emoji|wave emoji)\\b") to "👋",
         Regex("(?i)\\b(eyes emoji|eye emoji)\\b") to "👀",
-        Regex("(?i)\\b(arrow right)\\b") to "→",
-        Regex("(?i)\\b(arrow left)\\b") to "←"
+        Regex("(?i)\\b(arrow right sign|arrow right symbol)\\b") to "→",
+        Regex("(?i)\\b(arrow left sign|arrow left symbol)\\b") to "←"
     )
 
     // Spoken Numbers to Digits
