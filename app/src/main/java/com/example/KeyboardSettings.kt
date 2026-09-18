@@ -274,9 +274,9 @@ class KeyboardSettings(context: Context) {
 
     /** Percentage of usable screen height used when the user selects Custom size. */
     var customKeyboardHeightPercent: Float
-        get() = prefs.getFloat(KEY_CUSTOM_KEYBOARD_HEIGHT_PERCENT, 28.5f).coerceIn(24f, 38f)
+        get() = prefs.getFloat(KEY_CUSTOM_KEYBOARD_HEIGHT_PERCENT, 28.5f).coerceIn(20f, 45f)
         set(value) {
-            prefs.edit().putFloat(KEY_CUSTOM_KEYBOARD_HEIGHT_PERCENT, value.coerceIn(24f, 38f)).apply()
+            prefs.edit().putFloat(KEY_CUSTOM_KEYBOARD_HEIGHT_PERCENT, value.coerceIn(20f, 45f)).apply()
         }
 
     var soundEnabled: Boolean

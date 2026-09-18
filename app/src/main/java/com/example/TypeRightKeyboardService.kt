@@ -1680,6 +1680,10 @@ val LocalKeyboardStyle = staticCompositionLocalOf<KeyboardStyle> {
     error("No KeyboardStyle provided")
 }
 
+val LocalKeyboardScale = staticCompositionLocalOf<Float> {
+    1.0f
+}
+
 private data class WaveConfig(
     val amplitudeMult: Float,
     val frequencyMult: Float,
@@ -2171,12 +2175,14 @@ fun KeyboardLayout(
 
     // Spacious key container height with comfortable proportions matching Gboard standard
     val keysHeight = when {
-        isLandscape -> (screenHeight * 0.44f).coerceIn(135f, 170f).dp
-        keyboardHeightState == KeyboardSettings.HEIGHT_SHORT -> (screenHeight * 0.25f).coerceIn(200f, 220f).dp
-        keyboardHeightState == KeyboardSettings.HEIGHT_TALL -> (screenHeight * 0.32f).coerceIn(250f, 280f).dp
-        keyboardHeightState == KeyboardSettings.HEIGHT_CUSTOM -> (screenHeight * (customKeyboardHeightPercent / 100f)).coerceIn(200f, 340f).dp
-        else -> (screenHeight * 0.285f).coerceIn(220f, 245f).dp
+        isLandscape -> (screenHeight * 0.44f).coerceIn(135f, 180f).dp
+        keyboardHeightState == KeyboardSettings.HEIGHT_SHORT -> (screenHeight * 0.23f).coerceIn(180f, 220f).dp
+        keyboardHeightState == KeyboardSettings.HEIGHT_TALL -> (screenHeight * 0.34f).coerceIn(260f, 320f).dp
+        keyboardHeightState == KeyboardSettings.HEIGHT_CUSTOM -> (screenHeight * (customKeyboardHeightPercent / 100f)).coerceIn(170f, 380f).dp
+        else -> (screenHeight * 0.285f).coerceIn(210f, 260f).dp
     }
+
+    val heightScaleFactor = (keysHeight.value / 225f).coerceIn(0.72f, 1.45f)
 
     val navBarsInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
@@ -2267,7 +2273,10 @@ fun KeyboardLayout(
         }
     }
 
-    CompositionLocalProvider(LocalKeyboardStyle provides style) {
+    CompositionLocalProvider(
+        LocalKeyboardStyle provides style,
+        LocalKeyboardScale provides heightScaleFactor
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2279,7 +2288,7 @@ fun KeyboardLayout(
                     .fillMaxWidth()
                     .widthIn(max = 660.dp)
             ) {
-        val toolbarHeight = if (aiRephraseSuggestions.isNotEmpty()) 46.dp else 38.dp
+        val toolbarHeight = ((if (aiRephraseSuggestions.isNotEmpty()) 46f else 38f) * heightScaleFactor.coerceIn(0.88f, 1.15f)).dp
         val effectiveKeysHeight = if (isEmojis) keysHeight + toolbarHeight + 1.dp else keysHeight
 
         // --- TOOLBAR ROW ---
@@ -3082,7 +3091,7 @@ fun KeyboardLayout(
                                                         )
                                                     }
 
-                                                    // 3. AI Proofread / Polish Pill button
+                                                    // 3. AI Polish Pill button
                                                     Box(
                                                         modifier = Modifier
                                                             .clip(RoundedCornerShape(18.dp))
@@ -3100,13 +3109,13 @@ fun KeyboardLayout(
                                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                         ) {
                                                             Icon(
-                                                                imageVector = Icons.Default.AutoFixHigh,
-                                                                contentDescription = "AI Proofread",
+                                                                imageVector = Icons.Default.AutoAwesome,
+                                                                contentDescription = "AI Polish",
                                                                 tint = accentColor,
                                                                 modifier = Modifier.size(16.dp)
                                                             )
                                                             Text(
-                                                                text = "Proofread",
+                                                                text = "AI Polish",
                                                                 color = accentColor,
                                                                 fontSize = 11.5.sp,
                                                                 fontWeight = FontWeight.SemiBold
@@ -3131,14 +3140,14 @@ fun KeyboardLayout(
                                                         )
                                                     }
 
-                                                    // 5. Translate / AI Rephrase
+                                                    // 5. AI Polish & Rephrase Modes
                                                     IconButton(
                                                         onClick = { onAiPolishClick() },
                                                         modifier = Modifier.size(36.dp).testTag("ai_polish_button")
                                                     ) {
                                                         Icon(
-                                                            imageVector = Icons.Default.Translate,
-                                                            contentDescription = "Translate & Polish",
+                                                            imageVector = Icons.Default.AutoFixHigh,
+                                                            contentDescription = "AI Polish Modes",
                                                             tint = if (isAssistant) accentColor else keyTextColor.copy(alpha = 0.8f),
                                                             modifier = Modifier.size(20.dp)
                                                         )
@@ -3283,8 +3292,8 @@ fun KeyboardLayout(
                                                         .testTag("ai_polish_button")
                                                 ) {
                                                     Icon(
-                                                        imageVector = Icons.Default.AutoFixHigh,
-                                                        contentDescription = "AI Polish Options",
+                                                        imageVector = Icons.Default.AutoAwesome,
+                                                        contentDescription = "AI Polish",
                                                         tint = if (isAssistant) accentColor else keyTextColor.copy(alpha = 0.85f),
                                                         modifier = Modifier.size(20.dp)
                                                     )
@@ -3445,6 +3454,7 @@ fun KeyboardLayout(
                             },
                             onToolClick = { tool ->
                                 when (tool) {
+                                    GboardTool.AI_POLISH,
                                     GboardTool.PROOFREAD -> {
                                         isToolsDrawerOpen = false
                                         isProofreadSheetOpen = true
@@ -3733,6 +3743,9 @@ fun QwertyLayout(
 
     val swipePoints = remember { androidx.compose.runtime.mutableStateListOf<Offset>() }
     val normalizedPath = remember { androidx.compose.runtime.mutableStateListOf<android.graphics.PointF>() }
+    val scale = LocalKeyboardScale.current
+    val rowSpacing = (6.5f * scale).coerceIn(3f, 8.5f).dp
+    val keySpacing = (4.5f * scale.coerceAtMost(1.15f)).coerceIn(2.5f, 6f).dp
     var isSwiping by remember { androidx.compose.runtime.mutableStateOf(false) }
     var columnSize by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
 
@@ -3878,14 +3891,14 @@ fun QwertyLayout(
                         }
                     }
                 },
-            verticalArrangement = Arrangement.spacedBy(7.dp)
+            verticalArrangement = Arrangement.spacedBy(rowSpacing)
         ) {
         if (showNumberRow) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(0.85f),
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                horizontalArrangement = Arrangement.spacedBy(keySpacing)
             ) {
                 numberRow.forEach { char ->
                     KeyButton(
@@ -3906,7 +3919,7 @@ fun QwertyLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(keySpacing)
         ) {
             row1.forEach { char ->
                 val dispChar = if (isShift) char.uppercaseChar() else char
@@ -3929,7 +3942,7 @@ fun QwertyLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(keySpacing)
         ) {
             Spacer(modifier = Modifier.weight(0.5f))
             row2.forEach { char ->
@@ -3952,7 +3965,7 @@ fun QwertyLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(keySpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Shift Key
@@ -3997,7 +4010,7 @@ fun QwertyLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(keySpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 1. ?123 Symbol Toggle
@@ -4187,18 +4200,22 @@ fun SymbolLayout(
     val activeRow2 = if (isSecondarySymbols) page2Row2 else page1Row2
     val activeRow3 = if (isSecondarySymbols) page2Row3 else page1Row3
 
+    val scale = LocalKeyboardScale.current
+    val rowSpacing = (6.5f * scale).coerceIn(3f, 8.5f).dp
+    val keySpacing = (4.5f * scale.coerceAtMost(1.15f)).coerceIn(2.5f, 6f).dp
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 2.dp, vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
+        verticalArrangement = Arrangement.spacedBy(rowSpacing)
     ) {
         // Row 1
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(keySpacing)
         ) {
             activeRow1.forEach { char ->
                 KeyButton(text = char, modifier = Modifier.weight(1.0f), keyBg = keyColor, textColor = textColor) {
@@ -4212,7 +4229,7 @@ fun SymbolLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(keySpacing)
         ) {
             activeRow2.forEach { char ->
                 KeyButton(text = char, modifier = Modifier.weight(1.0f), keyBg = keyColor, textColor = textColor) {
@@ -4226,7 +4243,7 @@ fun SymbolLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(keySpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             KeyButton(
@@ -4260,7 +4277,7 @@ fun SymbolLayout(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1.0f),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(keySpacing),
             verticalAlignment = Alignment.CenterVertically
         ) {
             KeyButton(text = "ABC", modifier = Modifier.weight(1.35f), keyBg = specialKeyBg, textColor = textColor) {
@@ -4331,6 +4348,7 @@ fun RowScope.KeyButton(
     onClick: () -> Unit
 ) {
     val style = LocalKeyboardStyle.current
+    val scale = LocalKeyboardScale.current
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
@@ -4451,7 +4469,7 @@ fun RowScope.KeyButton(
         if (style.showPressPopup && isPressed && text.isNotEmpty() && text.length == 1) {
             androidx.compose.ui.window.Popup(
                 alignment = Alignment.TopCenter,
-                offset = androidx.compose.ui.unit.IntOffset(0, -90)
+                offset = androidx.compose.ui.unit.IntOffset(0, (-80 * scale).toInt())
             ) {
                 Box(
                     modifier = Modifier
@@ -4467,13 +4485,13 @@ fun RowScope.KeyButton(
                             else if (style.isDark) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.12f),
                             RoundedCornerShape(10.dp)
                         )
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = (16f * scale).coerceIn(12f, 20f).dp, vertical = (10f * scale).coerceIn(8f, 14f).dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = text,
                         color = if (style.isRetro) style.keyTextColor else if (style.isDark) Color.White else Color(0xFF1D2024),
-                        fontSize = 24.sp,
+                        fontSize = (24f * scale).coerceIn(18f, 32f).sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = if (style.isMonospace) FontFamily.Monospace else FontFamily.SansSerif
                     )
@@ -4485,19 +4503,19 @@ fun RowScope.KeyButton(
             Text(
                 text = secondaryText,
                 color = effectiveTextColor.copy(alpha = 0.38f),
-                fontSize = 8.5.sp,
+                fontSize = (8.5f * scale).coerceIn(6.5f, 11f).sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = if (style.isMonospace) FontFamily.Monospace else FontFamily.SansSerif,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 1.5.dp, end = 3.dp)
+                    .padding(top = (1.5f * scale).coerceIn(1f, 3f).dp, end = (3f * scale).coerceIn(2f, 5f).dp)
             )
         }
 
         if (style.isRetro && style.spacebarLineColor != Color.Transparent && (text.contains("English") || text.contains("Manglish"))) {
             Box(
                 modifier = Modifier
-                    .width(42.dp)
+                    .width((42f * scale).coerceIn(30f, 60f).dp)
                     .height(2.dp)
                     .align(Alignment.Center)
                     .clip(RoundedCornerShape(1.dp))
@@ -4506,10 +4524,11 @@ fun RowScope.KeyButton(
         }
 
         val isMultiChar = text.length > 1
+        val calculatedFontSize = if (isMultiChar) ((13.5f * scale).coerceIn(10.5f, 17f).sp) else ((21f * scale).coerceIn(15f, 27f).sp)
         Text(
             text = text,
             color = effectiveTextColor,
-            fontSize = if (isMultiChar) 13.5.sp else 21.sp,
+            fontSize = calculatedFontSize,
             fontWeight = if (isMultiChar) FontWeight.Medium else (if (style.isRetro) FontWeight.Bold else FontWeight.Normal),
             fontFamily = if (style.isMonospace) FontFamily.Monospace else FontFamily.SansSerif,
             maxLines = 1,
@@ -4585,6 +4604,7 @@ fun RowScope.IconButtonKey(
     onSwipeLeft: (() -> Unit)? = null
 ) {
     val style = LocalKeyboardStyle.current
+    val scale = LocalKeyboardScale.current
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
@@ -4666,6 +4686,7 @@ fun RowScope.IconButtonKey(
         ) { onClick() }
     }
 
+    val iconSize = (21f * scale).coerceIn(15f, 28f).dp
     Box(
         modifier = finalModifier,
         contentAlignment = Alignment.Center
@@ -4674,7 +4695,7 @@ fun RowScope.IconButtonKey(
             imageVector = icon,
             contentDescription = null,
             tint = effectiveTint,
-            modifier = Modifier.size(21.dp)
+            modifier = Modifier.size(iconSize)
         )
     }
 }
@@ -5352,12 +5373,13 @@ fun OneHandedSideRail(
 }
 
 enum class GboardTool(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    PROOFREAD("Proofread", Icons.Default.AutoAwesome),
-    RAMBLE("Ramble Voice", Icons.Default.Mic),
+    AI_POLISH("AI Polish", Icons.Default.AutoAwesome),
+    PROOFREAD("AI Polish", Icons.Default.AutoAwesome),
+    RAMBLE("Voice Dictation", Icons.Default.Mic),
     CLIPBOARD("Clipboard", Icons.Default.ContentPaste),
     THEMES("Theme", Icons.Default.Palette),
     LANGUAGE("Language", Icons.Default.Language),
-    TRANSLATE("Translate", Icons.Default.Translate),
+    TRANSLATE("Rephrase", Icons.Default.AutoFixHigh),
     TEXT_EDIT("Text Editing", Icons.Default.Keyboard),
     ONE_HANDED("One-Handed", Icons.Default.PhoneAndroid),
     SETTINGS("Settings", Icons.Default.Settings)
@@ -5378,13 +5400,15 @@ fun GboardToolsDrawer(
     val currentHeight by rememberUpdatedState(heightPercent)
     val resize by rememberUpdatedState(onHeightPercentChange)
     var dragHeight by remember { mutableStateOf(heightPercent) }
+    val scale = LocalKeyboardScale.current
+
     // Keep this surface focused on the actions people need while typing. Less-used
     // settings remain available from the settings screen and the toolbar overflow.
     val tools = listOf(
-        GboardTool.TEXT_EDIT,
-        GboardTool.ONE_HANDED,
+        GboardTool.AI_POLISH,
         GboardTool.CLIPBOARD,
-        GboardTool.TRANSLATE
+        GboardTool.TEXT_EDIT,
+        GboardTool.ONE_HANDED
     )
     Column(
         modifier = Modifier
@@ -5395,7 +5419,7 @@ fun GboardToolsDrawer(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 6.dp),
+                .padding(bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -5412,7 +5436,7 @@ fun GboardToolsDrawer(
                 Text(
                     text = "Keyboard tools",
                     color = keyTextColor,
-                    fontSize = 13.sp,
+                    fontSize = (13f * scale).coerceIn(11f, 15f).sp,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -5429,63 +5453,118 @@ fun GboardToolsDrawer(
             }
         }
 
-        // Direct-manipulation resize control. The size is saved immediately and used by
-        // the keyboard without requiring a trip into the settings app.
+        // Direct-manipulation resize control with presets and slider
         Surface(
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(16.dp),
             color = keyColor.copy(alpha = 0.92f),
             border = BorderStroke(0.5.dp, keyTextColor.copy(alpha = 0.14f)),
             modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
         ) {
-            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AspectRatio, contentDescription = null, tint = accentColor, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Resize keyboard", color = keyTextColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Icon(Icons.Default.AspectRatio, contentDescription = null, tint = accentColor, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Keyboard Height", color = keyTextColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.weight(1f))
                     Text("${heightPercent.toInt()}%", color = accentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
+
+                // Quick size preset buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "Short" to 22f,
+                        "Normal" to 28.5f,
+                        "Tall" to 34f,
+                        "Extra" to 40f
+                    ).forEach { (label, preset) ->
+                        val isSel = kotlin.math.abs(heightPercent - preset) < 2.5f
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSel) accentColor.copy(alpha = 0.22f) else keyTextColor.copy(alpha = 0.07f))
+                                .border(0.5.dp, if (isSel) accentColor else Color.Transparent, RoundedCornerShape(8.dp))
+                                .clickable { resize(preset) }
+                                .padding(vertical = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSel) accentColor else keyTextColor.copy(alpha = 0.85f),
+                                fontSize = 10.5.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                // Interactive slider and drag handle
+                Slider(
+                    value = heightPercent.coerceIn(20f, 42f),
+                    onValueChange = { resize(it) },
+                    valueRange = 20f..42f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = accentColor,
+                        activeTrackColor = accentColor,
+                        inactiveTrackColor = keyTextColor.copy(alpha = 0.15f)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(28.dp)
+                        .testTag("keyboard_resize_slider")
+                )
+
+                // Drag handle area for direct gesture resize
                 Box(
-                    modifier = Modifier.fillMaxWidth().height(48.dp).padding(top = 4.dp)
-                        .border(1.dp, accentColor.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(24.dp)
                         .semantics {
                             contentDescription = "Keyboard height. Drag up to enlarge or down to shrink"
-                            progressBarRangeInfo = ProgressBarRangeInfo(heightPercent, 24f..38f)
-                            setProgress { resize(it.coerceIn(24f, 38f)); true }
+                            progressBarRangeInfo = ProgressBarRangeInfo(heightPercent, 20f..42f)
+                            setProgress { resize(it.coerceIn(20f, 42f)); true }
                         }
                         .pointerInput(density, screenHeightDp) {
                             detectDragGestures(onDragStart = { dragHeight = currentHeight }) { change, delta ->
                                 change.consume()
-                                dragHeight = (dragHeight - delta.y / density / screenHeightDp * 100f).coerceIn(24f, 38f)
+                                dragHeight = (dragHeight - delta.y / density / screenHeightDp * 100f).coerceIn(20f, 42f)
                                 resize(dragHeight)
                             }
-                        }.testTag("keyboard_resize_handle"),
+                        }
+                        .testTag("keyboard_resize_handle"),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.DragHandle, contentDescription = null, tint = accentColor)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Drag up or down to resize", color = keyTextColor, fontSize = 12.sp)
+                        Icon(Icons.Default.DragHandle, contentDescription = null, tint = accentColor.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Drag handle to resize", color = keyTextColor.copy(alpha = 0.6f), fontSize = 10.sp)
                     }
                 }
             }
         }
 
-        // Compact, Gboard-style tool grid
+        // Proportional, Gboard-style tool grid that fills remaining height without overflow
         Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceEvenly
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             val chunkedTools = tools.chunked(2)
             chunkedTools.forEach { rowTools ->
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     rowTools.forEach { tool ->
                         val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         val isPressed by interactionSource.collectIsPressedAsState()
-                        val scale by animateFloatAsState(
+                        val toolAnimScale by animateFloatAsState(
                             targetValue = if (isPressed) 0.93f else 1.0f,
                             animationSpec = tween(70),
                             label = "tool_scale"
@@ -5496,10 +5575,10 @@ fun GboardToolsDrawer(
                             border = BorderStroke(0.5.dp, keyTextColor.copy(alpha = 0.12f)),
                             modifier = Modifier
                                 .weight(1f)
-                                .height(54.dp)
+                                .fillMaxHeight()
                                 .graphicsLayer {
-                                    scaleX = scale
-                                    scaleY = scale
+                                    scaleX = toolAnimScale
+                                    scaleY = toolAnimScale
                                 }
                                 .clip(RoundedCornerShape(12.dp))
                                 .clickable(
@@ -5516,14 +5595,14 @@ fun GboardToolsDrawer(
                                 Icon(
                                     imageVector = tool.icon,
                                     contentDescription = tool.title,
-                                    tint = if (tool == GboardTool.PROOFREAD) accentColor else keyTextColor,
-                                    modifier = Modifier.size(18.dp)
+                                    tint = if (tool == GboardTool.AI_POLISH || tool == GboardTool.PROOFREAD) accentColor else keyTextColor,
+                                    modifier = Modifier.size((18f * scale).coerceIn(15f, 24f).dp)
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = tool.title,
                                     color = keyTextColor,
-                                    fontSize = 9.5.sp,
+                                    fontSize = (9.5f * scale).coerceIn(8.5f, 12f).sp,
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1
                                 )
