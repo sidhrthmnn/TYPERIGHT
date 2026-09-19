@@ -83,6 +83,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.text.TextStyle
 import android.util.Log
@@ -146,7 +148,7 @@ class TypeRightKeyboardService : KeyboardService() {
     private val localPredictor by lazy { LocalGrammarSpellPredictor(this) }
     private val manglishEngine by lazy { ManglishTransliterationEngine.getInstance(this) }
 
-    private enum class FeedbackType {
+    enum class FeedbackType {
         Standard, Space, Delete, Enter
     }
 
@@ -418,11 +420,40 @@ class TypeRightKeyboardService : KeyboardService() {
         lastCursorPosition = newSelStart
         lastComposedStart = candidatesStart
         lastComposedEnd = candidatesEnd
-        if (!atComposingEnd) updatePreviousWord()
+        if (!atComposingEnd) {
+            updatePreviousWord()
+        } else {
+            // Even when at composing end, ensure surrounding word tokens and buffer reflect current word
+            notifyTextBufferChanged()
+        }
     }
 
     private fun isWordChar(c: Char): Boolean {
         return c.isLetterOrDigit() || c == '\'' || c == '-' || c == '_'
+    }
+
+    /**
+     * Extracts the surrounding word tokens before and after the cursor.
+     * Returns Pair(partBeforeCursor, partAfterCursor).
+     * The full word at the cursor is partBeforeCursor + partAfterCursor.
+     */
+    private fun getSurroundingWordTokens(ic: InputConnection): Pair<String, String> {
+        val before = ic.getTextBeforeCursor(64, 0)?.toString() ?: ""
+        val after = ic.getTextAfterCursor(64, 0)?.toString() ?: ""
+
+        var startIdx = before.length
+        while (startIdx > 0 && isWordChar(before[startIdx - 1])) {
+            startIdx--
+        }
+        val partBefore = before.substring(startIdx)
+
+        var endIdx = 0
+        while (endIdx < after.length && isWordChar(after[endIdx])) {
+            endIdx++
+        }
+        val partAfter = after.substring(0, endIdx)
+
+        return Pair(partBefore, partAfter)
     }
 
     private fun getWordBeforeCursor(ic: InputConnection): String {
@@ -448,7 +479,6 @@ class TypeRightKeyboardService : KeyboardService() {
         }
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(150, 0)?.toString() ?: ""
-        val after = ic.getTextAfterCursor(50, 0)?.toString() ?: ""
 
         // 1. Calculate previousWord & previousThreeWords from single IPC fetch
         val trimmed = before.trim()
@@ -478,19 +508,8 @@ class TypeRightKeyboardService : KeyboardService() {
         val contextTokens = if (endsWithSpace) tokens else if (tokens.isNotEmpty()) tokens.dropLast(1) else emptyList()
         previousWords.value = if (contextTokens.size > 3) contextTokens.takeLast(3) else contextTokens
 
-        // 2. Calculate wordUnderCursor
-        fun isCursorWordChar(c: Char): Boolean = c.isLetterOrDigit() || c in "._-/:@#$!*?"
-        var wordStartIdx = before.length
-        while (wordStartIdx > 0 && isCursorWordChar(before[wordStartIdx - 1])) {
-            wordStartIdx--
-        }
-        val partBefore = before.substring(wordStartIdx)
-
-        var wordEndIdx = 0
-        while (wordEndIdx < after.length && isCursorWordChar(after[wordEndIdx])) {
-            wordEndIdx++
-        }
-        val partAfter = after.substring(0, wordEndIdx)
+        // 2. Calculate full word under cursor (combining text before and after cursor)
+        val (partBefore, partAfter) = getSurroundingWordTokens(ic)
         wordUnderCursor.value = partBefore + partAfter
 
         if (currentTypedWord.value.isEmpty()) {
@@ -518,7 +537,12 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     fun notifyTextBufferChanged() {
-        val active = if (currentTypedWord.value.isNotEmpty()) currentTypedWord.value else wordUnderCursor.value
+        val ic = currentInputConnection
+        val (partBefore, partAfter) = if (ic != null) getSurroundingWordTokens(ic) else Pair(currentTypedWord.value, "")
+        val fullWord = (partBefore + partAfter).trim()
+        val active = if (fullWord.isNotEmpty()) fullWord else currentTypedWord.value.ifEmpty { wordUnderCursor.value }
+        wordUnderCursor.value = active
+
         val buffer = if (!allowsTextAssistance()) TextInputBufferState(isSensitive = true, timestamp = ++bufferGeneration)
         else TextInputBufferState(
             typedWord = currentTypedWord.value, activePrefix = active,
@@ -932,8 +956,15 @@ class TypeRightKeyboardService : KeyboardService() {
 
             val wasEmpty = currentTypedWord.value.isEmpty()
             if (wasEmpty) {
-                ic.finishComposingText()
-                currentWordTapCoords.clear()
+                // If cursor is within an already typed word, adopt the full surrounding word context
+                val (partBefore, partAfter) = getSurroundingWordTokens(ic)
+                if (partBefore.isNotEmpty() || partAfter.isNotEmpty()) {
+                    currentTypedWord.value = partBefore
+                    currentWordTapCoords.clear()
+                } else {
+                    ic.finishComposingText()
+                    currentWordTapCoords.clear()
+                }
             }
 
             currentTypedWord.value += letter
@@ -943,7 +974,9 @@ class TypeRightKeyboardService : KeyboardService() {
             currentWordTapCoords.add(PointF(tapX, tapY))
             
             ic.setComposingText(currentTypedWord.value, 1)
-            wordUnderCursor.value = currentTypedWord.value
+            val (partB, partA) = getSurroundingWordTokens(ic)
+            val fullCurrentWord = (partB + partA).ifEmpty { currentTypedWord.value }
+            wordUnderCursor.value = fullCurrentWord
 
             notifyTextBufferChanged()
 
@@ -1056,11 +1089,28 @@ class TypeRightKeyboardService : KeyboardService() {
         if (isVoiceTypingActive.value) stopVoiceTyping(shouldPolish = false)
         val ic = currentInputConnection ?: return
         val now = android.os.SystemClock.uptimeMillis()
-        val prefix = currentTypedWord.value
+        ic.finishComposingText()
+
+        val (partBefore, partAfter) = getSurroundingWordTokens(ic)
+        val fullWord = partBefore + partAfter
+
         ic.beginBatchEdit()
         try {
-            if (prefix.isNotEmpty()) {
-                commitWordWithSmartCorrection(ic, prefix, " ")
+            if (fullWord.isNotEmpty()) {
+                val corrected = getAutoCorrectedWord(fullWord)
+                if (corrected != null && !corrected.equals(fullWord, ignoreCase = true)) {
+                    ic.deleteSurroundingText(partBefore.length, partAfter.length)
+                    ic.commitText("$corrected ", 1)
+                    lastOriginalWord = fullWord
+                    lastCorrectedWord = corrected
+                    justAutocorrected = true
+                    lastCorrectedWasSpace = true
+                    learnWordAndContext(corrected)
+                } else {
+                    ic.commitText(" ", 1)
+                    justAutocorrected = false
+                    lastCorrectedWasSpace = false
+                }
             } else {
                 val before = if (allowsTextAssistance()) ic.getTextBeforeCursor(2, 0)?.toString().orEmpty() else ""
                 if (lastSpaceTime != 0L && TypingPolicy.shouldInsertPeriod(before, settings.doubleSpacePeriod, now - lastSpaceTime)) {
@@ -1242,11 +1292,12 @@ class TypeRightKeyboardService : KeyboardService() {
         cancelPendingPolish()
         playFeedback()
         val ic = currentInputConnection ?: return
-        
-        val rawTyped = currentTypedWord.value
-        val isComposing = rawTyped.isNotEmpty() || (lastComposedStart != -1 && lastComposedEnd != -1)
+        ic.finishComposingText()
+
+        val (partBefore, partAfter) = getSurroundingWordTokens(ic)
+        val rawTyped = (partBefore + partAfter).ifEmpty { currentTypedWord.value }
         val isExplicitRawAccept = rawTyped.isNotEmpty() && word.lowercase() == rawTyped.lowercase()
-        
+
         // If user selected their exact typed word (e.g. Left Slot), suppress auto-correction & save to local memory
         if (isExplicitRawAccept) {
             val autoCorrect = getAutoCorrectedWord(rawTyped)
@@ -1255,40 +1306,18 @@ class TypeRightKeyboardService : KeyboardService() {
             }
         }
 
-        if (isComposing) {
-            val after = ic.getTextAfterCursor(50, 0) ?: ""
-            var wordEndIdx = 0
-            while (wordEndIdx < after.length && (after[wordEndIdx].isLetterOrDigit() || after[wordEndIdx] == '\'')) {
-                wordEndIdx++
-            }
-            if (wordEndIdx > 0) {
-                ic.deleteSurroundingText(0, wordEndIdx)
+        ic.beginBatchEdit()
+        try {
+            if (partBefore.isNotEmpty() || partAfter.isNotEmpty()) {
+                ic.deleteSurroundingText(partBefore.length, partAfter.length)
             }
             ic.commitText("$word ", 1)
             lastComposedStart = -1
             lastComposedEnd = -1
-        } else {
-            val before = ic.getTextBeforeCursor(50, 0) ?: ""
-            val after = ic.getTextAfterCursor(50, 0) ?: ""
-            
-            var wordStartIdx = before.length
-            while (wordStartIdx > 0 && before[wordStartIdx - 1].isLetterOrDigit()) {
-                wordStartIdx--
-            }
-            val partBeforeLength = before.length - wordStartIdx
-            
-            var wordEndIdx = 0
-            while (wordEndIdx < after.length && after[wordEndIdx].isLetterOrDigit()) {
-                wordEndIdx++
-            }
-            val partAfterLength = wordEndIdx
-            
-            if (partBeforeLength > 0) {
-                ic.deleteSurroundingText(partBeforeLength, partAfterLength)
-            }
-            ic.commitText("$word ", 1)
+        } finally {
+            ic.endBatchEdit()
         }
-        
+
         suggestionSpacePending = true
         learnWordAndContext(word, explicit = isExplicitRawAccept)
 
@@ -1668,7 +1697,7 @@ class TypeRightKeyboardService : KeyboardService() {
         }
     }
 
-    private fun playFeedback(type: FeedbackType = FeedbackType.Standard) {
+    fun playFeedback(type: FeedbackType = FeedbackType.Standard) {
         if (isVoiceTypingActive.value) return
         try {
             if (settings.soundEnabled) {
@@ -2298,6 +2327,35 @@ fun KeyboardLayout(
     var isWisprVoiceOpen by remember { mutableStateOf(false) }
     var activeAiEngineState by remember { mutableStateOf(settings.activeAiEngine) }
 
+    // Detect typing pause/stop and check for spelling errors
+    var isUserStoppedTyping by remember { mutableStateOf(false) }
+    LaunchedEffect(currentTypedWord, wordUnderCursor) {
+        isUserStoppedTyping = false
+        if (currentTypedWord.isNotEmpty() || wordUnderCursor.isNotEmpty()) {
+            // User paused typing for 500ms
+            kotlinx.coroutines.delay(500)
+            isUserStoppedTyping = true
+        }
+    }
+
+    // Determine if active word has spelling errors
+    val hasSpellingError = remember(activePrefix, isUserStoppedTyping, gboardResult, suggestions) {
+        val word = activePrefix.trim()
+        if (word.length >= 2 && !dictionaryManager.isCodeOrSpecialToken(word)) {
+            val lower = word.lowercase()
+            val inDict = dictionaryManager.isWordInDictionary(lower)
+            if (!inDict) {
+                // If not in dictionary and not all digits, check if suggestions suggest a correction
+                val hasCorrectionCandidate = suggestions.any { it.isNotBlank() && !it.equals(word, ignoreCase = true) }
+                val isAutocorrecting = gboardResult.isCenterAutocorrecting ||
+                    dictionaryManager.isSpellingCorrection(word, gboardResult.centerCandidate, previousWord)
+                !inDict && (hasCorrectionCandidate || isAutocorrecting || word.all { it.isLetter() })
+            } else false
+        } else false
+    }
+
+    val showAiPolishInSuggestions = isUserStoppedTyping && hasSpellingError
+
     DisposableEffect(Unit) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == KeyboardSettings.KEY_OFFLINE_AI_ENABLED || key == KeyboardSettings.KEY_GEMINI_AI_ENABLED) {
@@ -2333,10 +2391,10 @@ fun KeyboardLayout(
                     .widthIn(max = 660.dp)
             ) {
         val toolbarHeight = ((if (aiRephraseSuggestions.isNotEmpty()) 46f else 38f) * heightScaleFactor.coerceIn(0.88f, 1.15f)).dp
-        val effectiveKeysHeight = if (isEmojis) keysHeight + toolbarHeight + 1.dp else keysHeight
+        val effectiveKeysHeight = if (isEmojis) keysHeight + toolbarHeight + 8.dp else if (isProofreadSheetOpen) keysHeight + toolbarHeight + 36.dp else keysHeight
 
         // --- TOOLBAR ROW ---
-        if (!isEmojis) {
+        if (!isEmojis && !isProofreadSheetOpen) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2852,6 +2910,45 @@ fun KeyboardLayout(
                                                             modifier = Modifier.size(19.dp)
                                                         )
                                                     }
+
+                                                    // Auto-loaded AI Polish / Writing tools button when typing pauses with spelling errors
+                                                    AnimatedVisibility(
+                                                        visible = showAiPolishInSuggestions,
+                                                        enter = fadeIn(animationSpec = tween(180)) + expandHorizontally(animationSpec = tween(200)),
+                                                        exit = fadeOut(animationSpec = tween(140)) + shrinkHorizontally(animationSpec = tween(160))
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .padding(end = 6.dp)
+                                                                .clip(RoundedCornerShape(18.dp))
+                                                                .background(accentColor.copy(alpha = 0.22f))
+                                                                .clickable {
+                                                                    isProofreadSheetOpen = true
+                                                                    isToolsDrawerOpen = false
+                                                                }
+                                                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                                                                .testTag("suggestion_bar_ai_polish_button"),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.AutoAwesome,
+                                                                    contentDescription = "Writing tools",
+                                                                    tint = accentColor,
+                                                                    modifier = Modifier.size(14.dp)
+                                                                )
+                                                                Text(
+                                                                    text = "AI Polish",
+                                                                    color = accentColor,
+                                                                    fontSize = 11.5.sp,
+                                                                    fontWeight = FontWeight.SemiBold
+                                                                )
+                                                            }
+                                                        }
+                                                    }
                                                     
                                                     // Suggestions list with smooth animated morphing
                                                     Row(
@@ -3240,11 +3337,10 @@ fun KeyboardLayout(
                                                     accentColor = accentColor,
                                                     keyTextColor = keyTextColor,
                                                     onClick = {
-                                                        val next = when (activeAiEngineState) {
-                                                            ActiveAiEngine.BOTH -> ActiveAiEngine.OFFLINE
-                                                            ActiveAiEngine.OFFLINE -> ActiveAiEngine.ONLINE
-                                                            ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> ActiveAiEngine.NONE
-                                                            ActiveAiEngine.NONE -> ActiveAiEngine.BOTH
+                                                        val next = if (activeAiEngineState == ActiveAiEngine.ONLINE || activeAiEngineState == ActiveAiEngine.BOTH) {
+                                                            ActiveAiEngine.NONE
+                                                        } else {
+                                                            ActiveAiEngine.ONLINE
                                                         }
                                                         settings.setActiveAiEngine(next)
                                                         activeAiEngineState = next
@@ -3481,7 +3577,8 @@ fun KeyboardLayout(
                             accentColor = accentColor,
                             keyColor = normalKeyBg,
                             onApplyText = { isProofreadSheetOpen = false },
-                            onClose = { isProofreadSheetOpen = false }
+                            onClose = { isProofreadSheetOpen = false },
+                            onToggleLanguage = onToggleLanguage
                         )
                     }
                     KeyboardLayer.ToolsDrawer -> {
@@ -3696,36 +3793,8 @@ fun KeyboardLayout(
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Left side: Dismiss / Collapse Keyboard button
-                    IconButton(
-                        onClick = {
-                            (context as? InputMethodService)?.requestHideSelf(0)
-                        },
-                        modifier = Modifier
-                            .size(36.dp)
-                            .testTag("dismiss_keyboard_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Dismiss Keyboard",
-                            tint = keyTextColor.copy(alpha = 0.5f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Center: Spacious clearance for Android system navigation gesture bar / 3-button pill
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // Right side: Dedicated clearance for Android system IME switcher button (the globe icon)
-                    Spacer(modifier = Modifier.width(42.dp))
-                }
+                // Clean empty clearance layer reserved for system navigation bar and system IME switcher
+                Spacer(modifier = Modifier.fillMaxSize())
             }
         }
     }
@@ -5267,33 +5336,11 @@ fun AiEngineIndicatorBadge(
     compact: Boolean = false,
     onClick: () -> Unit
 ) {
-    val bgColor = when (activeEngine) {
-        ActiveAiEngine.BOTH -> accentColor.copy(alpha = 0.16f)
-        ActiveAiEngine.OFFLINE -> Color(0xFF10B981).copy(alpha = 0.16f)
-        ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> Color(0xFF3B82F6).copy(alpha = 0.16f)
-        ActiveAiEngine.NONE -> keyTextColor.copy(alpha = 0.06f)
-    }
-
-    val borderColor = when (activeEngine) {
-        ActiveAiEngine.BOTH -> accentColor.copy(alpha = 0.50f)
-        ActiveAiEngine.OFFLINE -> Color(0xFF10B981).copy(alpha = 0.50f)
-        ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> Color(0xFF3B82F6).copy(alpha = 0.50f)
-        ActiveAiEngine.NONE -> keyTextColor.copy(alpha = 0.18f)
-    }
-
-    val contentColor = when (activeEngine) {
-        ActiveAiEngine.BOTH -> accentColor
-        ActiveAiEngine.OFFLINE -> Color(0xFF10B981)
-        ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> Color(0xFF3B82F6)
-        ActiveAiEngine.NONE -> keyTextColor.copy(alpha = 0.55f)
-    }
-
-    val icon = when (activeEngine) {
-        ActiveAiEngine.BOTH -> Icons.Default.AutoAwesome
-        ActiveAiEngine.OFFLINE -> Icons.Default.Bolt
-        ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> Icons.Default.Cloud
-        ActiveAiEngine.NONE -> Icons.Default.CloudOff
-    }
+    val isEngineOn = activeEngine == ActiveAiEngine.ONLINE || activeEngine == ActiveAiEngine.BOTH || activeEngine == ActiveAiEngine.OFFLINE || activeEngine == ActiveAiEngine.NEMOTRON
+    val bgColor = if (isEngineOn) Color(0xFF3B82F6).copy(alpha = 0.16f) else keyTextColor.copy(alpha = 0.06f)
+    val borderColor = if (isEngineOn) Color(0xFF3B82F6).copy(alpha = 0.50f) else keyTextColor.copy(alpha = 0.18f)
+    val contentColor = if (isEngineOn) Color(0xFF3B82F6) else keyTextColor.copy(alpha = 0.55f)
+    val icon = if (isEngineOn) Icons.Default.Cloud else Icons.Default.CloudOff
 
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -5411,9 +5458,9 @@ fun OneHandedSideRail(
 }
 
 enum class GboardTool(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    AI_POLISH("AI Polish", Icons.Default.AutoAwesome),
+    AI_POLISH("Writing tools", Icons.Default.AutoAwesome),
     OFFLINE_AI("Offline AI", Icons.Default.Memory),
-    PROOFREAD("AI Polish", Icons.Default.AutoAwesome),
+    PROOFREAD("Writing tools", Icons.Default.AutoAwesome),
     RAMBLE("Voice Dictation", Icons.Default.Mic),
     CLIPBOARD("Clipboard", Icons.Default.ContentPaste),
     THEMES("Theme", Icons.Default.Palette),
@@ -5436,8 +5483,8 @@ fun GboardToolsDrawer(
 
     val tools = listOf(
         GboardTool.AI_POLISH,
-        GboardTool.OFFLINE_AI,
         GboardTool.CLIPBOARD,
+        GboardTool.THEMES,
         GboardTool.TEXT_EDIT,
         GboardTool.ONE_HANDED,
         GboardTool.SETTINGS
@@ -5558,21 +5605,92 @@ fun GboardToolsDrawer(
     }
 }
 
+// Helper to compute token-level diff and highlight changes like in the reference image
+private fun buildHighlightedDiffText(
+    original: String,
+    revised: String,
+    textColor: Color,
+    highlightColor: Color
+): AnnotatedString {
+    if (original == revised || original.isBlank() || revised.isBlank()) {
+        return AnnotatedString(revised)
+    }
+
+    // Split into tokens preserving all whitespace, words, and individual punctuation marks
+    val tokenRegex = Regex("""\w+|[^\w\s]|\s+""")
+    val origTokens = tokenRegex.findAll(original).map { it.value }.toList()
+    val revTokens = tokenRegex.findAll(revised).map { it.value }.toList()
+
+    if (origTokens.isEmpty()) return AnnotatedString(revised)
+
+    val n = origTokens.size
+    val m = revTokens.size
+
+    // Guard against excessively large text
+    if (n > 250 || m > 250) {
+        return AnnotatedString(revised)
+    }
+
+    val dp = Array(n + 1) { IntArray(m + 1) }
+    for (i in 0 until n) {
+        for (j in 0 until m) {
+            if (origTokens[i] == revTokens[j]) {
+                dp[i + 1][j + 1] = dp[i][j] + 1
+            } else {
+                dp[i + 1][j + 1] = maxOf(dp[i + 1][j], dp[i][j + 1])
+            }
+        }
+    }
+
+    // Backtrack to identify matched tokens in the revised text
+    val matchedInRev = BooleanArray(m)
+    var i = n
+    var j = m
+    while (i > 0 && j > 0) {
+        if (origTokens[i - 1] == revTokens[j - 1]) {
+            matchedInRev[j - 1] = true
+            i--
+            j--
+        } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+            i--
+        } else {
+            j--
+        }
+    }
+
+    val builder = AnnotatedString.Builder()
+    for (idx in revTokens.indices) {
+        val token = revTokens[idx]
+        val isAddedOrChanged = !matchedInRev[idx] && token.isNotBlank()
+        if (isAddedOrChanged) {
+            builder.pushStyle(
+                SpanStyle(
+                    background = highlightColor,
+                    color = textColor
+                )
+            )
+            builder.append(token)
+            builder.pop()
+        } else {
+            builder.append(token)
+        }
+    }
+    return builder.toAnnotatedString()
+}
+
 @Composable
 fun GboardProofreadPanel(
     keyTextColor: Color,
     accentColor: Color,
     keyColor: Color,
     onApplyText: (String) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onToggleLanguage: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val editorService = context as? TypeRightKeyboardService
     val snapshot = remember { editorService?.captureEditorText() }
     val coordinator = remember { PolishCoordinator.getInstance(context) }
-    val repository = remember { ModelRepository.getInstance(context) }
-    val modelStatus by repository.status.collectAsState()
-    val isModelInstalled = remember(modelStatus) { repository.isModelInstalled() }
 
     val editorSnapshot = remember(snapshot) {
         if (snapshot != null) {
@@ -5587,332 +5705,302 @@ fun GboardProofreadPanel(
     }
 
     var selectedTone by remember { mutableStateOf(PolishMode.PROOFREAD) }
-    var useBasicOfflineOnly by remember { mutableStateOf(!isModelInstalled) }
     var hasApplied by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
 
     val uiState by coordinator.uiState.collectAsState()
 
     val tones = listOf(
-        PolishMode.PROOFREAD to "✨ Fix All",
-        PolishMode.PROFESSIONAL to "👔 Professional",
-        PolishMode.CASUAL to "💬 Friendly",
-        PolishMode.SHORTEN to "⚡ Concise"
+        Triple(PolishMode.PROOFREAD, "Proofread", Icons.Default.Spellcheck),
+        Triple(PolishMode.REPHRASE, "Rephrase", Icons.AutoMirrored.Filled.Subject),
+        Triple(PolishMode.PROFESSIONAL, "Professional", Icons.Default.Work),
+        Triple(PolishMode.CASUAL, "Friendly", Icons.Default.ChatBubbleOutline),
+        Triple(PolishMode.SHORTEN, "Concise", Icons.Default.Bolt),
+        Triple(PolishMode.EXPAND, "Elaborate", Icons.Default.Notes)
     )
 
-    fun runPolish(mode: PolishMode = selectedTone, basicOnly: Boolean = useBasicOfflineOnly) {
+    fun runPolish(mode: PolishMode = selectedTone) {
         val snap = editorSnapshot ?: return
         hasApplied = false
         coordinator.triggerPolish(
             snapshot = snap,
             mode = mode,
-            preferredBackend = ModelBackend.AUTO,
-            forceBasicOffline = basicOnly
+            forceBasicOffline = false
         )
     }
 
     LaunchedEffect(Unit) {
         if (editorSnapshot != null && editorSnapshot.originalText.isNotBlank()) {
-            runPolish(selectedTone, useBasicOfflineOnly)
+            runPolish(selectedTone)
         }
     }
+
+    val panelBg = Color(0xFF1B1B1F)
+    val cardBg = Color(0xFF2E3137)
+    val elementBg = Color(0xFF2E3137)
+    val titleAndIconColor = Color(0xFFE2E2E6)
+    val activePillBg = Color(0xFFA8C7FA)
+    val activePillContent = Color(0xFF041E49)
+    val highlightColor = Color(0xFF505A6B).copy(alpha = 0.65f)
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .background(panelBg)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
-        // Header
+        // --- 1. TOP HEADER (Circular Back arrow, "Writing tools" title, Circular More options) ---
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 4.dp),
+                .padding(top = 4.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = "AI Polish",
-                    color = keyTextColor,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                // Truthful engine badge
-                val activeEngineLabel = if (isModelInstalled && !useBasicOfflineOnly) {
-                    "Offline AI — Qwen3 1.7B"
-                } else {
-                    "Basic offline correction"
-                }
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isModelInstalled && !useBasicOfflineOnly) Color(0xFF10B981).copy(alpha = 0.15f) else keyTextColor.copy(alpha = 0.08f),
-                    border = BorderStroke(0.5.dp, if (isModelInstalled && !useBasicOfflineOnly) Color(0xFF10B981).copy(alpha = 0.4f) else keyTextColor.copy(alpha = 0.2f)),
-                    modifier = Modifier.clickable {
-                        if (isModelInstalled) {
-                            useBasicOfflineOnly = !useBasicOfflineOnly
-                            runPolish(selectedTone, useBasicOfflineOnly)
-                        } else {
-                            try {
-                                val intent = Intent(context, MainActivity::class.java).apply {
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                }
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
-                        }
-                    }
-                ) {
-                    Text(
-                        text = if (isModelInstalled) "$activeEngineLabel ▾" else "$activeEngineLabel (Model not downloaded)",
-                        color = if (isModelInstalled && !useBasicOfflineOnly) Color(0xFF10B981) else keyTextColor.copy(alpha = 0.8f),
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-            }
-
-            IconButton(
-                onClick = {
-                    coordinator.cancelCurrent()
-                    onClose()
-                },
-                modifier = Modifier.size(26.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close",
-                    tint = keyTextColor.copy(alpha = 0.6f),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-
-        // Mode chips
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(bottom = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            tones.forEach { (toneMode, toneLabel) ->
-                val isSelected = selectedTone == toneMode
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = if (isSelected) accentColor else keyColor,
-                    border = BorderStroke(0.5.dp, if (isSelected) accentColor else keyTextColor.copy(alpha = 0.15f)),
+                Box(
                     modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(elementBg)
                         .clickable {
-                            selectedTone = toneMode
-                            runPolish(toneMode, useBasicOfflineOnly)
-                        }
-                        .testTag("proofread_tone_${toneMode.name.lowercase()}")
+                            coordinator.cancelCurrent()
+                            onClose()
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = toneLabel,
-                        color = if (isSelected) Color.White else keyTextColor,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = titleAndIconColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Text(
+                    text = "Writing tools",
+                    color = titleAndIconColor,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Normal
+                )
+            }
+
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(elementBg)
+                        .clickable { showOverflowMenu = !showOverflowMenu },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More options",
+                        tint = titleAndIconColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showOverflowMenu,
+                    onDismissRequest = { showOverflowMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Copy to clipboard") },
+                        leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                        onClick = {
+                            showOverflowMenu = false
+                            val readyState = uiState as? PolishUiState.Ready
+                            val textToCopy = readyState?.result?.text ?: editorSnapshot?.originalText.orEmpty()
+                            if (textToCopy.isNotEmpty()) {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                clipboard?.setPrimaryClip(ClipData.newPlainText("Writing Tools Text", textToCopy))
+                            }
+                        }
+                    )
+                    if (hasApplied) {
+                        DropdownMenuItem(
+                            text = { Text("Undo replacement") },
+                            leadingIcon = { Icon(Icons.Default.Undo, contentDescription = null) },
+                            onClick = {
+                                showOverflowMenu = false
+                                if (editorService?.undoEditorReplacement(snapshot) == true) {
+                                    hasApplied = false
+                                }
+                            }
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Revert to original") },
+                        leadingIcon = { Icon(Icons.Default.Restore, contentDescription = null) },
+                        onClick = {
+                            showOverflowMenu = false
+                            val original = editorSnapshot?.originalText.orEmpty()
+                            if (original.isNotEmpty()) {
+                                editorService?.applyEditorReplacement(snapshot, original, PolishMode.PROOFREAD)
+                                hasApplied = false
+                            }
+                        }
                     )
                 }
             }
         }
 
-        // Main content card
+        // --- 2. MAIN SPACIOUS CONTENT CARD (Tapping box automatically applies text) ---
+        val original = editorSnapshot?.originalText.orEmpty()
+
         Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = keyColor.copy(alpha = 0.6f),
-            border = BorderStroke(1.dp, keyTextColor.copy(alpha = 0.12f)),
+            shape = RoundedCornerShape(28.dp),
+            color = cardBg,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(28.dp))
+                .clickable(enabled = original.isNotBlank() && uiState is PolishUiState.Ready) {
+                    val readyState = uiState as? PolishUiState.Ready
+                    if (readyState != null) {
+                        val textToApply = if (readyState.result.text.isNotBlank()) readyState.result.text else original
+                        if (editorService?.applyEditorReplacement(snapshot, textToApply, readyState.result.mode) == true) {
+                            hasApplied = true
+                            editorService?.playFeedback()
+                            onApplyText(textToApply)
+                        }
+                    }
+                }
         ) {
-            val original = editorSnapshot?.originalText.orEmpty()
-
             if (original.isBlank()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                     Text(
-                        text = "Type some text in any input field to polish.",
-                        color = keyTextColor.copy(alpha = 0.5f),
-                        fontSize = 12.sp
+                        text = "Type or select text, then open Writing tools to polish and rephrase.",
+                        color = titleAndIconColor.copy(alpha = 0.6f),
+                        fontSize = 15.sp,
+                        textAlign = TextAlign.Center
                     )
                 }
             } else {
                 when (val state = uiState) {
-                    is PolishUiState.Generating, is PolishUiState.PreparingModel -> {
-                        val statusMsg = if (state is PolishUiState.PreparingModel) {
-                            "Preparing on-device model (${state.backend})..."
-                        } else {
-                            if (isModelInstalled && !useBasicOfflineOnly) {
-                                "Generating with Offline AI (Qwen3 1.7B)..."
-                            } else {
-                                "Running basic offline correction..."
-                            }
-                        }
+                    is PolishUiState.Generating, is PolishUiState.PreparingModel, is PolishUiState.ModelNotDownloaded -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                CircularProgressIndicator(color = accentColor, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                CircularProgressIndicator(color = activePillBg, modifier = Modifier.size(32.dp), strokeWidth = 3.5.dp)
                                 Text(
-                                    text = statusMsg,
-                                    color = keyTextColor.copy(alpha = 0.7f),
-                                    fontSize = 12.sp
+                                    text = "Polishing text...",
+                                    color = titleAndIconColor.copy(alpha = 0.8f),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Normal
                                 )
                             }
                         }
                     }
-                    is PolishUiState.ModelNotDownloaded -> {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "Model not downloaded (931 MB)",
-                                color = keyTextColor,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Using Basic offline correction. For genuine on-device LLM inference, download Qwen3-1.7B in settings.",
-                                color = keyTextColor.copy(alpha = 0.7f),
-                                fontSize = 11.sp,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
                     is PolishUiState.Error -> {
-                        Box(modifier = Modifier.fillMaxSize().padding(12.dp), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "Error: ${state.message}",
-                                color = MaterialTheme.colorScheme.error,
-                                fontSize = 12.sp,
-                                textAlign = TextAlign.Center
-                            )
+                        Box(modifier = Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = "Could not polish: ${state.message}",
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontSize = 13.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                Button(
+                                    onClick = { runPolish(selectedTone) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Text("Retry", color = activePillContent, fontSize = 13.sp)
+                                }
+                            }
                         }
                     }
                     is PolishUiState.Ready -> {
                         val result = state.result
-                        Column(
+                        val displayText = if (result.text.isNotBlank()) result.text else original
+                        val annotatedText = remember(original, displayText) {
+                            buildHighlightedDiffText(
+                                original = original,
+                                revised = displayText,
+                                textColor = titleAndIconColor,
+                                highlightColor = highlightColor
+                            )
+                        }
+
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(8.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
+                                .padding(horizontal = 22.dp, vertical = 20.dp)
                         ) {
                             Column(
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .fillMaxSize()
                                     .verticalScroll(rememberScrollState())
                             ) {
-                                // Diagnostic status bar
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = accentColor.copy(alpha = 0.12f),
-                                    border = BorderStroke(0.5.dp, accentColor.copy(alpha = 0.35f)),
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-                                ) {
-                                    Text(
-                                        text = "${result.modelLabel} • ${result.backend} • ${result.durationMs}ms",
-                                        color = accentColor,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-
-                                if (result.isChanged && result.text.isNotBlank()) {
-                                    Text(
-                                        text = "Original: $original",
-                                        color = keyTextColor.copy(alpha = 0.45f),
-                                        fontSize = 11.5.sp,
-                                        textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
-                                        modifier = Modifier.padding(bottom = 4.dp)
-                                    )
-                                }
                                 Text(
-                                    text = if (result.text.isNotBlank()) result.text else original,
-                                    color = keyTextColor,
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    lineHeight = 18.sp
+                                    text = annotatedText,
+                                    color = titleAndIconColor,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    lineHeight = 26.sp
                                 )
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                if (hasApplied) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            if (editorService?.undoEditorReplacement(snapshot) == true) {
-                                                hasApplied = false
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(20.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(38.dp)
-                                            .testTag("undo_proofread_button")
-                                    ) {
-                                        Icon(Icons.Default.Undo, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Undo", fontSize = 12.sp)
-                                    }
-                                }
-
-                                Button(
-                                    onClick = {
-                                        val textToApply = if (result.text.isNotBlank()) result.text else original
-                                        if (editorService?.applyEditorReplacement(snapshot, textToApply, result.mode) == true) {
-                                            hasApplied = true
-                                            onApplyText(textToApply)
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                                    shape = RoundedCornerShape(20.dp),
-                                    modifier = Modifier
-                                        .weight(if (hasApplied) 1.5f else 1f)
-                                        .height(38.dp)
-                                        .testTag("apply_proofread_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = if (hasApplied) "Applied ✓" else if (result.isChanged) "Apply Fix" else "Keep Text",
-                                        color = Color.White,
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
                             }
                         }
                     }
                     is PolishUiState.Idle -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("Ready to polish text", color = keyTextColor.copy(alpha = 0.5f), fontSize = 12.sp)
+                            Text("Ready to polish text", color = titleAndIconColor.copy(alpha = 0.5f), fontSize = 14.sp)
                         }
+                    }
+                }
+            }
+        }
+
+        // --- 3. MODE PILLS ROW (Below Card) ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(top = 14.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            tones.forEach { (toneMode, toneLabel, toneIcon) ->
+                val isSelected = selectedTone == toneMode
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = if (isSelected) activePillBg else elementBg,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .clickable {
+                            selectedTone = toneMode
+                            runPolish(toneMode)
+                        }
+                        .testTag("proofread_tone_${toneMode.name.lowercase()}")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = toneIcon,
+                            contentDescription = null,
+                            tint = if (isSelected) activePillContent else titleAndIconColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = toneLabel,
+                            color = if (isSelected) activePillContent else titleAndIconColor,
+                            fontSize = 15.sp,
+                            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
+                        )
                     }
                 }
             }

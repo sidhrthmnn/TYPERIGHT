@@ -187,7 +187,7 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
     }
 
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Setup", "Typing Sandbox", "Appearance", "AI Engine", "Diagnostics")
+    val tabs = listOf("Setup", "Typing Sandbox", "Appearance", "Gemini & Settings")
 
     var testInputText by remember { mutableStateOf("") }
 
@@ -400,7 +400,7 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
                 )
             }
             3 -> {
-                // AI & ENGINE TAB
+                // GEMINI & SETTINGS TAB
                 AiEngineSection(
                     settings = settings,
                     autocorrectEnabled = autocorrectEnabled,
@@ -420,10 +420,6 @@ fun OnboardingScreen(modifier: Modifier = Modifier) {
                     activeVoiceInputMode = activeVoiceInputMode,
                     activeWisprFlowMode = activeWisprFlowMode
                 )
-            }
-            4 -> {
-                // DIAGNOSTICS TAB
-                CrashDebugSection()
             }
         }
     }
@@ -878,71 +874,68 @@ fun AestheticsSection(
     )
 
     val heightOptions = listOf(
-        KeyboardSettings.HEIGHT_SHORT to "Compact",
-        KeyboardSettings.HEIGHT_NORMAL to "Default",
+        KeyboardSettings.HEIGHT_SHORT to "Compact (Default)",
+        KeyboardSettings.HEIGHT_NORMAL to "Normal",
         KeyboardSettings.HEIGHT_TALL to "Tall",
-        KeyboardSettings.HEIGHT_CUSTOM to "Custom (use keyboard resize)"
+        KeyboardSettings.HEIGHT_CUSTOM to "Custom"
     )
 
-    Card(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        // --- 1. THEMES & COLOR PALETTE ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
         ) {
-            Text(
-                text = "Keyboard appearance",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-            // Modern defaults, with retro treatments retained as opt-in choices.
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(2.dp)
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        modifier = Modifier.size(36.dp)
                     ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Column {
                         Text(
-                            text = "MODERN",
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onPrimary
+                            text = "Themes & Colors",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Choose from modern Material themes or classic retro computer aesthetics",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Text(
-                        text = "Theme presets",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "A calm, rounded dark theme is the default. Retro treatments remain available when you want them.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
                 val retroThemes = listOf(
-                    Triple(KeyboardSettings.THEME_DARK, "Modern Dark", "Neutral charcoal surfaces and a soft indigo accent"),
-                    Triple(KeyboardSettings.THEME_LIGHT, "Modern Light", "Clean bright surfaces with restrained color"),
+                    Triple(KeyboardSettings.THEME_DARK, "Modern Dark", "Neutral charcoal surfaces and soft indigo accent"),
+                    Triple(KeyboardSettings.THEME_LIGHT, "Modern Light", "Clean bright surfaces with high legibility"),
+                    Triple(KeyboardSettings.THEME_AMOLED, "AMOLED Black", "Pure #000000 pixels for maximum OLED battery saving"),
                     Triple(KeyboardSettings.THEME_RETRO_BEIGE, "IBM Model M (Beige)", "1980s putty chassis, eggshell keys, burnt orange return"),
                     Triple(KeyboardSettings.THEME_RETRO_CRT_GREEN, "CRT Phosphor Green", "Mainframe cyber terminal with glowing emerald phosphor"),
                     Triple(KeyboardSettings.THEME_RETRO_AMBER, "CRT Amber Terminal", "Monochrome warm amber glow with high-contrast chassis"),
@@ -969,7 +962,7 @@ fun AestheticsSection(
                             color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
                             border = BorderStroke(
                                 if (isSelected) 1.5.dp else 1.dp,
-                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
                             )
                         ) {
                             Row(
@@ -981,13 +974,14 @@ fun AestheticsSection(
                             ) {
                                 Surface(
                                     modifier = Modifier.size(36.dp),
-                                    shape = RoundedCornerShape(6.dp),
+                                    shape = RoundedCornerShape(8.dp),
                                     color = when (themeKey) {
                                         KeyboardSettings.THEME_RETRO_BEIGE -> Color(0xFFDDD4C4)
                                         KeyboardSettings.THEME_RETRO_CRT_GREEN -> Color(0xFF0F1411)
                                         KeyboardSettings.THEME_RETRO_AMBER -> Color(0xFF16120C)
                                         KeyboardSettings.THEME_RETRO_MAC1984 -> Color(0xFFD2D5D6)
                                         KeyboardSettings.THEME_RETRO_SYNTHWAVE -> Color(0xFF140C24)
+                                        KeyboardSettings.THEME_AMOLED -> Color(0xFF000000)
                                         KeyboardSettings.THEME_DARK -> Color(0xFF1E1F23)
                                         else -> Color(0xFFECEFF2)
                                     },
@@ -1001,7 +995,7 @@ fun AestheticsSection(
                                                 KeyboardSettings.THEME_RETRO_CRT_GREEN -> Color(0xFF39FF14)
                                                 KeyboardSettings.THEME_RETRO_AMBER -> Color(0xFFFFB000)
                                                 KeyboardSettings.THEME_RETRO_SYNTHWAVE -> Color(0xFF00F0FF)
-                                                KeyboardSettings.THEME_DARK -> Color(0xFFF1F3F5)
+                                                KeyboardSettings.THEME_DARK, KeyboardSettings.THEME_AMOLED -> Color(0xFFF1F3F5)
                                                 else -> Color(0xFF2B251D)
                                             }
                                         )
@@ -1035,406 +1029,373 @@ fun AestheticsSection(
                         }
                     }
                 }
-            }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
-            ModernPreferenceSwitchRow(
-                title = "3D Mechanical Key Bevels",
-                description = "Authentic stepped keycaps with physical tactile drop shadows and mechanical key switch travel.",
-                checked = activeKeyBevelEnabled.value,
-                testTag = "key_bevel_switch",
-                onCheckedChange = {
-                    activeKeyBevelEnabled.value = it
-                    settings.keyBevelEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            ModernPreferenceSwitchRow(
-                title = "Retro Terminal Monospace Font",
-                description = "Classic fixed-width computer terminal typography across key legends, spacebar, and suggestion pills.",
-                checked = activeRetroMonospace.value,
-                testTag = "retro_monospace_switch",
-                onCheckedChange = {
-                    activeRetroMonospace.value = it
-                    settings.retroMonospaceEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            ModernPreferenceSwitchRow(
-                title = "Vintage Mechanical Click Audio",
-                description = "Satisfying tactile acoustic snap of buckling spring and mechanical switches.",
-                checked = activeMechanicalSound.value,
-                testTag = "mechanical_sound_switch",
-                onCheckedChange = {
-                    activeMechanicalSound.value = it
-                    settings.mechanicalSoundEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            ModernPreferenceSwitchRow(
-                title = "Material You Dynamic Colors",
-                description = "Extract accent and background hues from your Android system wallpaper.",
-                checked = activeDynamicThemeEnabled.value,
-                testTag = "dynamic_theme_switch",
-                onCheckedChange = {
-                    activeDynamicThemeEnabled.value = it
-                    settings.dynamicThemeEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            ModernPreferenceSwitchRow(
-                title = "Dark Theme",
-                description = "Use high-contrast OLED dark mode for night typing.",
-                checked = activeIsDarkMode.value,
-                testTag = "dark_mode_switch",
-                onCheckedChange = {
-                    activeIsDarkMode.value = it
-                    settings.isDarkMode = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            ModernPreferenceSwitchRow(
-                title = "Dedicated Number Row",
-                description = "Display numerical keys directly above the QWERTY row for rapid digits.",
-                checked = activeNumberRowEnabled.value,
-                testTag = "number_row_switch",
-                onCheckedChange = {
-                    activeNumberRowEnabled.value = it
-                    settings.numberRowEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            // Keyboard Height Selector
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Keyboard Height",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Adjust key button vertical reach and spacing.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    heightOptions.forEach { (key, label) ->
-                        val isSelected = activeHeight.value == key
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    activeHeight.value = key
-                                    settings.height = key
-                                },
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                            )
-                        ) {
-                            Text(
-                                text = label,
-                                modifier = Modifier.padding(vertical = 10.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                textAlign = TextAlign.Center,
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
+                ModernPreferenceSwitchRow(
+                    title = "Material You Dynamic Colors",
+                    description = "Extract accent and background hues from your Android wallpaper.",
+                    checked = activeDynamicThemeEnabled.value,
+                    testTag = "dynamic_theme_switch",
+                    onCheckedChange = {
+                        activeDynamicThemeEnabled.value = it
+                        settings.dynamicThemeEnabled = it
                     }
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            // Accent Color Palette
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Accent Color Palette",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Personalize highlight badges, enter key, and suggestion pills.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    accentColors.forEach { (hex, name) ->
-                        val isSelected = activeAccentColor.value.equals(hex, ignoreCase = true)
-                        val color = try {
-                            Color(android.graphics.Color.parseColor(hex))
-                        } catch (e: Exception) {
-                            MaterialTheme.colorScheme.primary
-                        }
 
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(color)
-                                .border(
-                                    width = if (isSelected) 3.dp else 1.dp,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-                                    shape = CircleShape
-                                )
-                                .clickable {
-                                    activeAccentColor.value = hex
-                                    settings.accentColor = hex
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = name,
-                                    tint = if (hex == "#212121") Color.White else Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                ModernPreferenceSwitchRow(
+                    title = "Dark Theme",
+                    description = "Use high-contrast dark palette for comfortable typing in low light.",
+                    checked = activeIsDarkMode.value,
+                    testTag = "dark_mode_switch",
+                    onCheckedChange = {
+                        activeIsDarkMode.value = it
+                        settings.isDarkMode = it
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                // Accent Color Palette
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Accent Color Palette",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Personalize highlight badges, enter key, and suggestion pills.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        accentColors.forEach { (hex, name) ->
+                            val isSelected = activeAccentColor.value.equals(hex, ignoreCase = true)
+                            val color = try {
+                                Color(android.graphics.Color.parseColor(hex))
+                            } catch (e: Exception) {
+                                MaterialTheme.colorScheme.primary
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                                    .border(
+                                        width = if (isSelected) 3.dp else 1.dp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                        shape = CircleShape
+                                    )
+                                    .clickable {
+                                        activeAccentColor.value = hex
+                                        settings.accentColor = hex
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = name,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+        }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            ModernPreferenceSwitchRow(
-                title = "Haptic Vibration Feedback",
-                description = "Tactile physical vibration impulse on keystrokes.",
-                checked = hapticEnabled.value,
-                testTag = "haptic_switch",
-                onCheckedChange = {
-                    hapticEnabled.value = it
-                    settings.hapticEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            ModernPreferenceSwitchRow(
-                title = "Key Click Sound",
-                description = "Snappy mechanical key sound on every character tap.",
-                checked = soundEnabled.value,
-                testTag = "sound_switch",
-                onCheckedChange = {
-                    soundEnabled.value = it
-                    settings.soundEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            var keyBorders by remember { mutableStateOf(settings.keyBordersEnabled) }
-            ModernPreferenceSwitchRow(
-                title = "Key Borders",
-                description = "Display distinct rectangular outlines framing individual keys for enhanced visual contrast.",
-                checked = keyBorders,
-                testTag = "key_borders_switch",
-                onCheckedChange = {
-                    keyBorders = it
-                    settings.keyBordersEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            var spaceSwipe by remember { mutableStateOf(settings.spaceSwipeEnabled) }
-            ModernPreferenceSwitchRow(
-                title = "Spacebar Cursor Trackpad",
-                description = "Slide your finger horizontally across the spacebar to scrub and position the text cursor precisely.",
-                checked = spaceSwipe,
-                testTag = "space_swipe_switch",
-                onCheckedChange = {
-                    spaceSwipe = it
-                    settings.spaceSwipeEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            var backspaceSwipe by remember { mutableStateOf(settings.backspaceSwipeEnabled) }
-            ModernPreferenceSwitchRow(
-                title = "Swipe to Delete",
-                description = "Slide left from the backspace key to quickly highlight and delete whole words.",
-                checked = backspaceSwipe,
-                testTag = "backspace_swipe_switch",
-                onCheckedChange = {
-                    backspaceSwipe = it
-                    settings.backspaceSwipeEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            var doubleSpace by remember { mutableStateOf(settings.doubleSpacePeriod) }
-            ModernPreferenceSwitchRow(
-                title = "Double-Space Period",
-                description = "Double tap the spacebar to automatically insert a full stop followed by a space.",
-                checked = doubleSpace,
-                testTag = "double_space_switch",
-                onCheckedChange = {
-                    doubleSpace = it
-                    settings.doubleSpacePeriod = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            var popupKeypress by remember { mutableStateOf(settings.popupOnKeypress) }
-            ModernPreferenceSwitchRow(
-                title = "Popup on Keypress",
-                description = "Show visual character preview bubble floating above keys upon touch.",
-                checked = popupKeypress,
-                testTag = "popup_keypress_switch",
-                onCheckedChange = {
-                    popupKeypress = it
-                    settings.popupOnKeypress = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            var oneHanded by remember { mutableStateOf(settings.oneHandedMode) }
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "One-Handed Mode",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Shrink keyboard to the left or right edge for effortless single-handed typing.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                val oneHandedOptions = listOf(
-                    "off" to "Full Width",
-                    "right" to "Right Hand",
-                    "left" to "Left Hand"
-                )
+        // --- 2. KEYCAPS & VISUAL STYLING ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    oneHandedOptions.forEach { (mode, label) ->
-                        val isSelected = oneHanded == mode
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable {
-                                    oneHanded = mode
-                                    settings.oneHandedMode = mode
-                                }
-                                .testTag("one_handed_option_$mode"),
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                            )
-                        ) {
-                            Text(
-                                text = label,
-                                modifier = Modifier.padding(vertical = 10.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                textAlign = TextAlign.Center,
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Keyboard,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
+                    Column {
+                        Text(
+                            text = "Keycaps & Visuals",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Customize tactile bevels, key outlines, and font rendering",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                ModernPreferenceSwitchRow(
+                    title = "3D Mechanical Key Bevels",
+                    description = "Authentic stepped keycaps with physical tactile drop shadows and mechanical switch look.",
+                    checked = activeKeyBevelEnabled.value,
+                    testTag = "key_bevel_switch",
+                    onCheckedChange = {
+                        activeKeyBevelEnabled.value = it
+                        settings.keyBevelEnabled = it
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                var keyBorders by remember { mutableStateOf(settings.keyBordersEnabled) }
+                ModernPreferenceSwitchRow(
+                    title = "Key Borders & Outlines",
+                    description = "Display distinct rectangular outlines framing individual keys for enhanced contrast.",
+                    checked = keyBorders,
+                    testTag = "key_borders_switch",
+                    onCheckedChange = {
+                        keyBorders = it
+                        settings.keyBordersEnabled = it
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                ModernPreferenceSwitchRow(
+                    title = "Retro Terminal Monospace Font",
+                    description = "Classic fixed-width computer typography across key legends, spacebar, and suggestion pills.",
+                    checked = activeRetroMonospace.value,
+                    testTag = "retro_monospace_switch",
+                    onCheckedChange = {
+                        activeRetroMonospace.value = it
+                        settings.retroMonospaceEnabled = it
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                var popupKeypress by remember { mutableStateOf(settings.popupOnKeypress) }
+                ModernPreferenceSwitchRow(
+                    title = "Popup on Keypress",
+                    description = "Show visual character preview bubble floating above keys upon touch.",
+                    checked = popupKeypress,
+                    testTag = "popup_keypress_switch",
+                    onCheckedChange = {
+                        popupKeypress = it
+                        settings.popupOnKeypress = it
+                    }
+                )
             }
+        }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            var emojiSuggestions by remember { mutableStateOf(settings.emojiSuggestionsEnabled) }
-            ModernPreferenceSwitchRow(
-                title = "Smart Emoji Suggestions",
-                description = "Suggest contextual emojis dynamically in the suggestion strip based on what you type.",
-                checked = emojiSuggestions,
-                testTag = "emoji_suggestions_switch",
-                onCheckedChange = {
-                    emojiSuggestions = it
-                    settings.emojiSuggestionsEnabled = it
-                }
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            var navBarClearance by remember { mutableStateOf(settings.navBarClearance) }
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "System Navigation Bar Clearance",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Prevents keyboard keys from covering or overlapping the bottom system buttons (Back, Home, Recents) or gesture bar.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                val row1 = listOf(
-                    "auto" to "Auto",
-                    "gesture" to "Gesture (48dp)",
-                    "none" to "Minimal"
-                )
-                val row2 = listOf(
-                    "3button" to "3-Button (56dp)",
-                    "extra" to "Extra High (64dp)"
-                )
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+        // --- 3. SOUND & HAPTICS ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFFF59E0B).copy(alpha = 0.15f),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.VolumeUp,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = "Sound & Haptics",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Acoustic audio snaps and physical vibration tactile response",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                ModernPreferenceSwitchRow(
+                    title = "Vintage Mechanical Click Audio",
+                    description = "Satisfying tactile acoustic snap of vintage mechanical buckling spring switches.",
+                    checked = activeMechanicalSound.value,
+                    testTag = "mechanical_sound_switch",
+                    onCheckedChange = {
+                        activeMechanicalSound.value = it
+                        settings.mechanicalSoundEnabled = it
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                ModernPreferenceSwitchRow(
+                    title = "Key Click Sound",
+                    description = "Standard tactile tap click on keystrokes.",
+                    checked = soundEnabled.value,
+                    testTag = "sound_switch",
+                    onCheckedChange = {
+                        soundEnabled.value = it
+                        settings.soundEnabled = it
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                ModernPreferenceSwitchRow(
+                    title = "Haptic Vibration Feedback",
+                    description = "Subtle tactile vibration impulse on keystrokes.",
+                    checked = hapticEnabled.value,
+                    testTag = "haptic_switch",
+                    onCheckedChange = {
+                        hapticEnabled.value = it
+                        settings.hapticEnabled = it
+                    }
+                )
+            }
+        }
+
+        // --- 4. LAYOUT & ERGONOMICS ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF10B981).copy(alpha = 0.15f),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Straighten,
+                                contentDescription = null,
+                                tint = Color(0xFF10B981),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = "Layout & Ergonomics",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Reachability, keyboard height, gestures, and system bar clearance",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                ModernPreferenceSwitchRow(
+                    title = "Dedicated Number Row",
+                    description = "Display numerical keys directly above the QWERTY row for rapid digits.",
+                    checked = activeNumberRowEnabled.value,
+                    testTag = "number_row_switch",
+                    onCheckedChange = {
+                        activeNumberRowEnabled.value = it
+                        settings.numberRowEnabled = it
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                // Keyboard Height
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Keyboard Height",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Adjust key vertical reach. Compact is recommended to maximize screen visibility.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        row1.forEach { (mode, label) ->
-                            val isSelected = navBarClearance == mode
+                        heightOptions.forEach { (key, label) ->
+                            val isSelected = activeHeight.value == key
                             Surface(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
-                                        navBarClearance = mode
-                                        settings.navBarClearance = mode
-                                    }
-                                    .testTag("nav_clearance_$mode"),
+                                        activeHeight.value = key
+                                        settings.height = key
+                                    },
                                 shape = RoundedCornerShape(10.dp),
                                 color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
                                 border = BorderStroke(
@@ -1453,11 +1414,122 @@ fun AestheticsSection(
                             }
                         }
                     }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                // One-Handed Mode
+                var oneHanded by remember { mutableStateOf(settings.oneHandedMode) }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "One-Handed Mode",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Shrink keyboard toward the left or right edge for effortless thumb reach.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    val oneHandedOptions = listOf(
+                        "off" to "Full Width",
+                        "right" to "Right Hand",
+                        "left" to "Left Hand"
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        row2.forEach { (mode, label) ->
+                        oneHandedOptions.forEach { (mode, label) ->
+                            val isSelected = oneHanded == mode
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        oneHanded = mode
+                                        settings.oneHandedMode = mode
+                                    }
+                                    .testTag("one_handed_option_$mode"),
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                )
+                            ) {
+                                Text(
+                                    text = label,
+                                    modifier = Modifier.padding(vertical = 10.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    textAlign = TextAlign.Center,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                var spaceSwipe by remember { mutableStateOf(settings.spaceSwipeEnabled) }
+                ModernPreferenceSwitchRow(
+                    title = "Spacebar Cursor Trackpad",
+                    description = "Slide finger horizontally across spacebar to scrub and position the text cursor precisely.",
+                    checked = spaceSwipe,
+                    testTag = "space_swipe_switch",
+                    onCheckedChange = {
+                        spaceSwipe = it
+                        settings.spaceSwipeEnabled = it
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                var backspaceSwipe by remember { mutableStateOf(settings.backspaceSwipeEnabled) }
+                ModernPreferenceSwitchRow(
+                    title = "Swipe to Delete",
+                    description = "Slide left from backspace to rapidly highlight and delete entire words.",
+                    checked = backspaceSwipe,
+                    testTag = "backspace_swipe_switch",
+                    onCheckedChange = {
+                        backspaceSwipe = it
+                        settings.backspaceSwipeEnabled = it
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                // System Navigation Bar Clearance
+                var navBarClearance by remember { mutableStateOf(settings.navBarClearance) }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "System Navigation Bar Clearance",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Prevents keys from overlapping the bottom Android system bar or gesture indicator.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    val clearanceOptions = listOf(
+                        "auto" to "Auto",
+                        "gesture" to "Gesture (48dp)",
+                        "3button" to "3-Button (56dp)",
+                        "none" to "Minimal"
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        clearanceOptions.forEach { (mode, label) ->
                             val isSelected = navBarClearance == mode
                             Surface(
                                 modifier = Modifier
@@ -1523,495 +1595,412 @@ fun AiEngineSection(
         "French" to "French (Français)",
         "German" to "German (Deutsch)"
     )
+
     val keyboardLanguages = listOf(
-        "English" to "English (QWERTY)",
-        "Malayalam" to "മലയാളം (Manglish)"
+        "en" to "English (QWERTY)",
+        "ml" to "Malayalam (Manglish)"
     )
 
-    var selectedSubTab by remember { mutableStateOf(0) } // 0: AI Engine Pipeline, 1: Auxiliary Settings
-
-    // Live Benchmark State
+    var testInputText by remember { mutableStateOf("i has went to store yesterday and buyed three no wait four apples") }
     var isRunningBenchmark by remember { mutableStateOf(false) }
     var benchmarkResultText by remember { mutableStateOf<String?>(null) }
     var benchmarkDurationMs by remember { mutableStateOf<Long?>(null) }
     var benchmarkEngineUsed by remember { mutableStateOf<String?>(null) }
 
-    val isOfflineOn = activeOfflineAiEnabled.value
     val isGeminiOn = activeGeminiAiEnabled.value
 
-    Card(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        // --- 1. GOOGLE GEMINI FREE CLOUD AI ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF3B82F6).copy(alpha = 0.15f),
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudQueue,
+                                    contentDescription = null,
+                                    tint = Color(0xFF3B82F6),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Google Gemini Free AI",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF10B981).copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "FREE API",
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF10B981),
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                            Text(
+                                text = if (isGeminiOn) "Cloud Intelligence Active" else "Disabled",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isGeminiOn) Color(0xFF3B82F6) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = isGeminiOn,
+                        onCheckedChange = {
+                            activeGeminiAiEnabled.value = it
+                            settings.geminiAiEnabled = it
+                        },
+                        modifier = Modifier.testTag("gemini_ai_switch")
+                    )
+                }
+
+                Text(
+                    text = "Cloud-powered contextual proofreading, nuance tone transformations (Professional, Casual, Rephrase, Shorten, Expand), and grammar reasoning via Google Gemini Free API.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 16.sp
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                // Gemini Model Tier Selector
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "AI & Proofreading Engines",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
+                        text = "Gemini Model Tier",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Configure On-Device NLP and Google Gemini Cloud pipelines",
+                        text = "Select model tier balancing processing speed and linguistic nuance.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-            }
+                    Spacer(modifier = Modifier.height(10.dp))
 
-            // Sub-Tab Switcher: AI Engines vs Auxiliary Settings vs SLM Vocab Sync
-            TabRow(
-                selectedTabIndex = selectedSubTab,
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .padding(2.dp),
-                divider = {}
-            ) {
-                Tab(
-                    selected = selectedSubTab == 0,
-                    onClick = { selectedSubTab = 0 },
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = Color(0xFF10B981)
-                            )
-                            Text(
-                                text = "Engines",
-                                fontWeight = if (selectedSubTab == 0) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                )
-                Tab(
-                    selected = selectedSubTab == 1,
-                    onClick = { selectedSubTab = 1 },
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Tune,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "Auxiliary",
-                                fontWeight = if (selectedSubTab == 1) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                )
-                Tab(
-                    selected = selectedSubTab == 2,
-                    onClick = { selectedSubTab = 2 },
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Sync,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = Color(0xFF8B5CF6)
-                            )
-                            Text(
-                                text = "Vocab Sync",
-                                fontWeight = if (selectedSubTab == 2) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                )
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-            if (selectedSubTab == 0) {
-                // --- ENGINE TOGGLE SWITCHES ---
-
-                // 1. Offline AI Engine Toggle
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                    border = BorderStroke(
-                        1.dp,
-                        if (isOfflineOn) Color(0xFF10B981).copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    val modelTiers = listOf(
+                        Triple("gemini-2.5-flash", "Gemini 2.5 Flash", "Recommended: Balanced speed and superior quality"),
+                        Triple("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", "Ultra-fast latency for instant suggestions"),
+                        Triple("gemini-1.5-flash", "Gemini 1.5 Flash", "High stability and broad context")
                     )
-                ) {
+
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (isOfflineOn) Color(0xFF10B981).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.Memory,
-                                            contentDescription = null,
-                                            tint = if (isOfflineOn) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                                Column {
-                                    Text(
-                                        text = "1. Offline AI Engine",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = if (isOfflineOn) "On-Device Neural Model Active (0ms)" else "Disabled",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isOfflineOn) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            Switch(
-                                checked = isOfflineOn,
-                                onCheckedChange = {
-                                    activeOfflineAiEnabled.value = it
-                                    settings.offlineAiEnabled = it
-                                },
-                                modifier = Modifier.testTag("offline_ai_switch")
-                            )
-                        }
-
-                        Text(
-                            text = "On-Device Neural NLP correction, deterministic grammar rules, contraction and spell correction running 100% locally on CPU/NPU with 0ms latency and total privacy.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 15.sp
-                        )
-                    }
-                }
-
-                // 2. Google Gemini Toggle
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                    border = BorderStroke(
-                        1.dp,
-                        if (isGeminiOn) Color(0xFF3B82F6).copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (isGeminiOn) Color(0xFF3B82F6).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.CloudQueue,
-                                            contentDescription = null,
-                                            tint = if (isGeminiOn) Color(0xFF3B82F6) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                                Column {
-                                    Text(
-                                        text = "2. Gemini (Cloud AI)",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = if (isGeminiOn) "Cloud Intelligence Active" else "Disabled",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isGeminiOn) Color(0xFF3B82F6) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-
-                            Switch(
-                                checked = isGeminiOn,
-                                onCheckedChange = {
-                                    activeGeminiAiEnabled.value = it
-                                    settings.geminiAiEnabled = it
-                                },
-                                modifier = Modifier.testTag("gemini_ai_switch")
-                            )
-                        }
-
-                        Text(
-                            text = "Google Gemini Flash API for deep context proofreading, complex grammar reasoning, and nuance tone transformations (Professional, Casual, Rephrase, Shorten, Expand).",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 15.sp
-                        )
-                    }
-                }
-
-                // --- ACTIVE ARCHITECTURE STATUS BANNER ---
-                val (archTitle, archDesc, archColor, archBadge) = when {
-                    isOfflineOn && isGeminiOn -> Quadruple(
-                        "Hybrid Intelligent Pipeline",
-                        "Offline TFLite model processes text first with 0ms latency. If complex styling or low local confidence is detected, automatically escalates to Google Gemini Cloud with seamless offline fallback.",
-                        Color(0xFF10B981),
-                        "HYBRID (RECOMMENDED)"
-                    )
-                    isOfflineOn && !isGeminiOn -> Quadruple(
-                        "100% On-Device Private Mode",
-                        "All proofreading and style transformations run entirely locally via TFLite neural models and rule matrices. Zero cloud calls or network requests are performed.",
-                        Color(0xFF0D9488),
-                        "OFFLINE ONLY"
-                    )
-                    !isOfflineOn && isGeminiOn -> Quadruple(
-                        "Gemini Cloud Direct Mode",
-                        "All text proofreading and tone styling are sent directly to Google Gemini Cloud API. Local on-device NLP processing is bypassed.",
-                        Color(0xFF3B82F6),
-                        "CLOUD ONLY"
-                    )
-                    else -> Quadruple(
-                        "All AI Engines Disabled",
-                        "AI proofreading and tone transformations are turned off. Standard keyboard typing and basic dictionary lookups remain active.",
-                        MaterialTheme.colorScheme.error,
-                        "AI OFF"
-                    )
-                }
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = archColor.copy(alpha = 0.10f),
-                    border = BorderStroke(1.dp, archColor.copy(alpha = 0.35f))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = archTitle,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                        modelTiers.forEach { (modelId, modelName, modelDesc) ->
+                            val isSelected = activeAiModel.value == modelId
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = archColor.copy(alpha = 0.2f)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        activeAiModel.value = modelId
+                                        settings.aiModel = modelId
+                                    }
+                                    .testTag("gemini_model_$modelId"),
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(
+                                    if (isSelected) 1.5.dp else 1.dp,
+                                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = {
+                                            activeAiModel.value = modelId
+                                            settings.aiModel = modelId
+                                        }
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = modelName,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = modelDesc,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                // Capabilities Preview Chips
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Active AI Capabilities",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val capabilities = listOf(
+                            "⚡ Proofread & Fix All",
+                            "👔 Professional Tone",
+                            "💬 Friendly & Casual",
+                            "⚡ Concise & Shorten",
+                            "📝 Expand & Rephrase"
+                        )
+                        capabilities.forEach { cap ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
                             ) {
                                 Text(
-                                    text = archBadge,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    text = cap,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = archColor,
-                                    fontFamily = FontFamily.Monospace
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
-
-                        Text(
-                            text = archDesc,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 16.sp
-                        )
                     }
                 }
 
-                // Architecture Pipeline Breakdown
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                // Interactive Live Test Playground
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                        .padding(14.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Pipeline Execution Flow",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        text = "Live Gemini Polish Playground",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
-                    AiArchitectureRow(
-                        title = "1. On-Device TFLite & Local Rule Engine",
-                        subtitle = if (isOfflineOn) "Active: Neural model + SymSpell + Grammar rules (0ms latency)" else "Bypassed: Offline AI Engine is toggled off",
-                        isPassed = isOfflineOn
+                    OutlinedTextField(
+                        value = testInputText,
+                        onValueChange = { testInputText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("gemini_test_input"),
+                        label = { Text("Sample sentence to polish") },
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = false,
+                        maxLines = 3
                     )
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                isRunningBenchmark = true
+                                val start = System.currentTimeMillis()
+                                val aiPolish = AiPolishManager(context)
+                                val result = aiPolish.proofreadText(testInputText)
+                                val duration = System.currentTimeMillis() - start
 
-                    AiArchitectureRow(
-                        title = "2. Google Gemini Cloud Escalation",
-                        subtitle = if (isGeminiOn) "Active: Gemini Flash API escalation for deep nuance & tones" else "Disabled: Gemini Cloud AI is toggled off",
-                        isPassed = isGeminiOn
-                    )
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                    AiArchitectureRow(
-                        title = "3. Spatial Keyboard Predictions",
-                        subtitle = "Prefix Trie & Key Proximity Matrix (Always Active on CPU)",
-                        isPassed = true
-                    )
-                }
-
-                // Live Test Action Button
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            isRunningBenchmark = true
-                            val sampleText = "i has went to store yesterday and buyed three no wait four apples"
-                            val start = System.currentTimeMillis()
-                            val aiPolish = AiPolishManager(context)
-                            val result = aiPolish.proofreadText(sampleText)
-                            val duration = System.currentTimeMillis() - start
-
-                            benchmarkResultText = result
-                            benchmarkDurationMs = duration
-                            benchmarkEngineUsed = when {
-                                isOfflineOn && isGeminiOn -> "Hybrid Pipeline (Local + Gemini Fallback)"
-                                isOfflineOn -> "On-Device Offline Engine (TFLite)"
-                                isGeminiOn -> "Google Gemini Cloud API"
-                                else -> "AI Engines Disabled (Raw Text)"
+                                benchmarkResultText = result
+                                benchmarkDurationMs = duration
+                                benchmarkEngineUsed = "Google Gemini (${activeAiModel.value})"
+                                isRunningBenchmark = false
                             }
-                            isRunningBenchmark = false
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("test_gemini_inference_button"),
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = !isRunningBenchmark && isGeminiOn
+                    ) {
+                        if (isRunningBenchmark) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Calling Gemini API...")
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = "Test",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Test Gemini Polish")
                         }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("test_gemini_inference_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = !isRunningBenchmark
-                ) {
-                    if (isRunningBenchmark) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Running AI Pipeline...")
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Bolt,
-                            contentDescription = "Test",
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Run Live Pipeline Benchmark")
+                    }
+
+                    if (benchmarkResultText != null) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = benchmarkEngineUsed ?: "Google Gemini",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "${benchmarkDurationMs ?: 0} ms",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color(0xFF10B981)
+                                    )
+                                }
+                                Text(
+                                    text = benchmarkResultText ?: "",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                     }
                 }
+            }
+        }
 
-                // Benchmark output card if available
-                if (benchmarkResultText != null) {
+        // --- 2. TYPING & AUTOCORRECT CONTROLS ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        modifier = Modifier.size(36.dp)
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Output: ${benchmarkEngineUsed ?: "AI Pipeline"}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = "${benchmarkDurationMs ?: 0} ms",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = Color(0xFF10B981)
-                                )
-                            }
-                            Text(
-                                text = benchmarkResultText ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.Medium
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
+                    Column {
+                        Text(
+                            text = "Typing & Autocorrect",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Statistical n-gram suggestions, predictive text, and gestures",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
-            } else if (selectedSubTab == 1) {
-                // --- AUXILIARY SETTINGS SUB-TAB ---
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
                 ModernPreferenceSwitchRow(
                     title = "Next-Word Prediction & Auto-Correct",
-                    description = "Instant neural prefix completions and statistical n-gram suggestions.",
+                    description = "Instant prefix completions and statistical n-gram suggestions on the toolbar strip.",
                     checked = autocorrectEnabled.value,
                     testTag = "autocorrect_switch",
                     onCheckedChange = {
                         autocorrectEnabled.value = it
                         settings.autocorrectEnabled = it
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                ModernPreferenceSwitchRow(
+                    title = "Gesture & Glide Typing",
+                    description = "Swipe finger continuously across letters to form words effortlessly.",
+                    checked = swipeEnabled.value,
+                    testTag = "swipe_typing_switch",
+                    onCheckedChange = {
+                        swipeEnabled.value = it
+                        settings.swipeEnabled = it
                     }
                 )
 
@@ -2032,7 +2021,7 @@ fun AiEngineSection(
 
                 ModernPreferenceSwitchRow(
                     title = "Contextual Emoji Suggestions",
-                    description = "Predict and show relevant emojis in the suggestion strip based on your input.",
+                    description = "Predict and display relevant emojis dynamically based on typed text.",
                     checked = emojiSuggestionsEnabled.value,
                     testTag = "emoji_suggestions_switch",
                     onCheckedChange = {
@@ -2044,21 +2033,82 @@ fun AiEngineSection(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
                 ModernPreferenceSwitchRow(
-                    title = "Gesture & Glide Typing",
-                    description = "Swipe finger across letters continuously to form words effortlessly.",
-                    checked = swipeEnabled.value,
-                    testTag = "swipe_typing_switch",
+                    title = "Profanity Filter",
+                    description = "Block offensive language from prediction suggestions and auto-completion.",
+                    checked = profanityFilterEnabled.value,
+                    testTag = "profanity_filter_switch",
                     onCheckedChange = {
-                        swipeEnabled.value = it
-                        settings.swipeEnabled = it
+                        profanityFilterEnabled.value = it
+                        settings.profanityFilterEnabled = it
                     }
                 )
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
                 ModernPreferenceSwitchRow(
+                    title = "Clipboard History Manager",
+                    description = "Save and pin recent text snippets directly in the keyboard toolbar.",
+                    checked = activeClipboardEnabled.value,
+                    testTag = "clipboard_manager_switch",
+                    onCheckedChange = {
+                        activeClipboardEnabled.value = it
+                        settings.clipboardEnabled = it
+                    }
+                )
+            }
+        }
+
+        // --- 3. LANGUAGES & SPEECH DICTATION ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF8B5CF6).copy(alpha = 0.15f),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Language,
+                                contentDescription = null,
+                                tint = Color(0xFF8B5CF6),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = "Languages & Dictation",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Multilingual typing, phonetic transliteration, and voice recognition",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                ModernPreferenceSwitchRow(
                     title = "Manglish Transliteration Mode",
-                    description = "Type in English phonetic letters (e.g., 'namaskaram', 'nandi') to produce Malayalam script and Manglish words.",
+                    description = "Type in English phonetic letters (e.g., 'namaskaram', 'nandi') to produce Malayalam script.",
                     checked = activeManglishEnabled.value,
                     testTag = "manglish_transliteration_switch",
                     onCheckedChange = {
@@ -2069,17 +2119,17 @@ fun AiEngineSection(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
-                // AI Proofreading & Polish Language
+                // AI Proofreading Language
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "AI Proofreading & Transformation Language",
+                        text = "AI Proofreading & Polish Language",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Language style used when proofreading, polishing, or translating sentences.",
+                        text = "Target language style used when proofreading or translating text.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2128,7 +2178,7 @@ fun AiEngineSection(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Primary input layout script. Long-press spacebar to quickly toggle.",
+                        text = "Primary input layout script. Long-press spacebar to switch on the fly.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2168,43 +2218,17 @@ fun AiEngineSection(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
-                ModernPreferenceSwitchRow(
-                    title = "Profanity Filter",
-                    description = "Block offensive language from prediction capsules and auto-completion.",
-                    checked = profanityFilterEnabled.value,
-                    testTag = "profanity_filter_switch",
-                    onCheckedChange = {
-                        profanityFilterEnabled.value = it
-                        settings.profanityFilterEnabled = it
-                    }
-                )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                ModernPreferenceSwitchRow(
-                    title = "Clipboard History Manager",
-                    description = "Save and pin recent text snippets directly in the keyboard toolbar.",
-                    checked = activeClipboardEnabled.value,
-                    testTag = "clipboard_manager_switch",
-                    onCheckedChange = {
-                        activeClipboardEnabled.value = it
-                        settings.clipboardEnabled = it
-                    }
-                )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                // Voice Input Mode Selector
+                // Voice Processing Mode
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Voice Input Processing Mode",
+                        text = "Voice Input Mode",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Choose between ultra-fast cloud transcription or 100% private offline on-device speech model.",
+                        text = "Choose between ultra-fast cloud transcription or private on-device speech.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2248,7 +2272,7 @@ fun AiEngineSection(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
-                // Wispr Flow Mode Selector
+                // Wispr Continuous Dictation Flow
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "Wispr Continuous Dictation Flow",
@@ -2258,7 +2282,7 @@ fun AiEngineSection(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Automatically strip filler sounds (um, ah), or generate formatted bullet thoughts.",
+                        text = "Filter filler words (um, ah), or generate structured bullet thoughts automatically.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2270,7 +2294,7 @@ fun AiEngineSection(
                         val flowModes: List<Pair<WisprFlowMode, String>> = listOf(
                             WisprFlowMode.AUTO to "Smart Polish",
                             WisprFlowMode.VERBATIM to "Literal",
-                            WisprFlowMode.BULLETS to "Bullet Summary"
+                            WisprFlowMode.BULLETS to "Bullets"
                         )
                         flowModes.forEach { (mode, label) ->
                             val isSelected = activeWisprFlowMode.value == mode
@@ -2303,7 +2327,7 @@ fun AiEngineSection(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
-                // Voice Language Selector
+                // Speech Recognition Locale
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "Speech Recognition Locale",
@@ -2313,7 +2337,7 @@ fun AiEngineSection(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Primary audio language for real-time dictation engine.",
+                        text = "Target speech recognition locale for voice input.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2350,357 +2374,8 @@ fun AiEngineSection(
                         }
                     }
                 }
-            } else {
-                // --- SLM VOCAB SYNC SUB-TAB (selectedSubTab == 2) ---
-                var isSyncingVocab by remember { mutableStateOf(false) }
-                var lastSyncStatusText by remember { mutableStateOf(settings.lastVocabSyncStatus) }
-                var vocabAutoEnabled by remember { mutableStateOf(settings.vocabAutoUpdateEnabled) }
-                var vocabIntervalHours by remember { mutableStateOf(settings.vocabUpdateIntervalHours) }
-                var totalWords by remember { mutableIntStateOf(settings.totalVocabWordsCount) }
-                var userWords by remember { mutableIntStateOf(settings.userWordsCount) }
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    // Status Banner
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFF8B5CF6).copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.35f))
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CloudSync,
-                                        contentDescription = null,
-                                        tint = Color(0xFF8B5CF6),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Text(
-                                        text = "Periodic AICore & Trie Dictionary Sync",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = Color(0xFF8B5CF6).copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = if (vocabAutoEnabled) "ACTIVE" else "PAUSED",
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color(0xFF8B5CF6),
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-
-                            Text(
-                                text = "Background JobService periodically enriches on-device Google AICore, Prefix Tries & SymSpell indices with modern internet slang, Malayalam vocabulary, and user-specific typing patterns.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                lineHeight = 16.sp
-                            )
-                        }
-                    }
-
-                    // Auto-Update Switch
-                    ModernPreferenceSwitchRow(
-                        title = "Automatic Periodic Update",
-                        description = "Sync trending words and harvest user vocabulary in background via JobScheduler.",
-                        checked = vocabAutoEnabled,
-                        testTag = "vocab_auto_sync_switch",
-                        onCheckedChange = { enabled ->
-                            vocabAutoEnabled = enabled
-                            settings.vocabAutoUpdateEnabled = enabled
-                            if (enabled) {
-                                DictionaryUpdateScheduler.schedulePeriodicUpdate(context, forceReschedule = true)
-                            } else {
-                                DictionaryUpdateScheduler.cancelPeriodicUpdate(context)
-                            }
-                        }
-                    )
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                    // Sync Frequency Interval Selector
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "Sync Frequency Interval",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "How often JobScheduler runs the battery-friendly background dictionary update.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        val intervalOptions = listOf(6 to "Every 6h", 12 to "Every 12h", 24 to "Every 24h", 48 to "Every 48h")
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            intervalOptions.forEach { (hours, label) ->
-                                val isSelected = vocabIntervalHours == hours
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (isSelected) Color(0xFF8B5CF6).copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface,
-                                    border = BorderStroke(
-                                        1.dp,
-                                        if (isSelected) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                    ),
-                                    modifier = Modifier.clickable {
-                                        vocabIntervalHours = hours
-                                        settings.vocabUpdateIntervalHours = hours
-                                        if (vocabAutoEnabled) {
-                                            DictionaryUpdateScheduler.schedulePeriodicUpdate(context, forceReschedule = true)
-                                        }
-                                    }
-                                ) {
-                                    Text(
-                                        text = label,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                    // Live Vocabulary Metrics Grid
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "${DictionaryUpdateService.TRENDING_WORDS.size}",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color(0xFF8B5CF6)
-                                )
-                                Text(
-                                    text = "Trending Terms",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "${maxOf(userWords, 12)}",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color(0xFF10B981)
-                                )
-                                Text(
-                                    text = "User Words",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "${maxOf(totalWords, 110)}",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = "Total In DB",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    // Trending Vocabulary Sample Tags
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "Sample Trending Vocabulary Pack",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            val sampleChips = listOf("rizz", "skibidi", "demure", "gemini", "rag", "tflite", "copilot", "prompting", "fyi", "touch grass", "vibe check", "let him cook", "slm", "quantization")
-                            sampleChips.forEach { chip ->
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = Color(0xFF8B5CF6).copy(alpha = 0.12f),
-                                    border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.3f))
-                                ) {
-                                    Text(
-                                        text = "#$chip",
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF8B5CF6)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Trigger Manual Sync Action Button
-                    Button(
-                        onClick = {
-                            coroutineScope.launch {
-                                isSyncingVocab = true
-                                val result = DictionaryUpdateService.syncDictionary(context)
-                                isSyncingVocab = false
-                                lastSyncStatusText = result.message
-                                totalWords = result.totalWordsActive
-                                userWords = result.userWordsHarvested
-                                Toast.makeText(context, "AICore & Trie Dictionary Synced! (${result.totalWordsActive} terms active)", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("sync_vocab_now_button"),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
-                        enabled = !isSyncingVocab
-                    ) {
-                        if (isSyncingVocab) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Updating Dictionary...", fontWeight = FontWeight.Bold, color = Color.White)
-                        } else {
-                            Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Sync Vocabulary Now", fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    if (lastSyncStatusText.isNotEmpty()) {
-                        Text(
-                            text = "Status: $lastSyncStatusText",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
             }
         }
-    }
-}
-
-data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
-
-@Composable
-fun AiArchitectureRow(
-    title: String,
-    subtitle: String,
-    isPassed: Boolean
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Icon(
-            imageVector = if (isPassed) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-            contentDescription = if (isPassed) "Passed" else "Info",
-            tint = if (isPassed) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.size(20.dp)
-        )
     }
 }
 
@@ -2745,562 +2420,6 @@ fun ModernPreferenceSwitchRow(
             checked = checked,
             onCheckedChange = onCheckedChange,
             modifier = Modifier.testTag(testTag)
-        )
-    }
-}
-
-@Composable
-fun CrashDebugSection() {
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-
-    var logs by remember { mutableStateOf(listOf<CrashLogEntry>()) }
-    var aiLogs by remember { mutableStateOf(listOf<AiExecutionLogEntry>()) }
-    var selectedTab by remember { mutableStateOf(0) } // 0: AI Engine Logs, 1: Crash/Diagnostics
-    var refreshTrigger by remember { mutableStateOf(0) }
-    var showConfirmCrashDialog by remember { mutableStateOf(false) }
-    var expandedLogIndex by remember { mutableStateOf<Int?>(null) }
-    var expandedAiLogIndex by remember { mutableStateOf<Int?>(null) }
-
-    LaunchedEffect(refreshTrigger) {
-        logs = CrashReporter.getLogs(context)
-        aiLogs = AiExecutionLogger.getLogs(context)
-    }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("crash_debug_card"),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Diagnostics & AI Execution Logs",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Track Proofreading & AI Polish (Gemini vs AICore)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                FilledTonalIconButton(
-                    onClick = { refreshTrigger++ },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Refresh,
-                        contentDescription = "Refresh Logs",
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            // Tab Selector: AI Execution Logs vs Crash Diagnostics
-            TabRow(
-                selectedTabIndex = selectedTab,
-                containerColor = Color.Transparent,
-                divider = {}
-            ) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("⚡ AI Logs (${aiLogs.size})", fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal) }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("🛠 System & Crashes (${logs.size})", fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) }
-                )
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-            if (selectedTab == 0) {
-                // AI EXECUTION LOGS
-                if (aiLogs.isEmpty()) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "NO AI ACTIONS LOGGED YET",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Use Proofread or AI Polish in the sandbox above to see live Gemini vs AICore logs.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "AI Operations History (${aiLogs.size})",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        TextButton(
-                            onClick = {
-                                AiExecutionLogger.clearLogs(context)
-                                Toast.makeText(context, "AI Logs cleared", Toast.LENGTH_SHORT).show()
-                                refreshTrigger++
-                            }
-                        ) {
-                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Clear", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        aiLogs.forEachIndexed { index, entry ->
-                            val isExpanded = expandedAiLogIndex == index
-                            val isAiCore = entry.engine.contains("AICore", ignoreCase = true)
-                            val isGemini = entry.engine.contains("Gemini", ignoreCase = true)
-
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { expandedAiLogIndex = if (isExpanded) null else index },
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        // Operation Type Badge
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = MaterialTheme.colorScheme.primaryContainer
-                                        ) {
-                                            Text(
-                                                text = entry.operation,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                                            )
-                                        }
-
-                                        // Engine Badge (AICore On-Device vs Gemini Cloud)
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = when {
-                                                isAiCore -> Color(0xFF10B981).copy(alpha = 0.2f)
-                                                isGemini -> Color(0xFF3B82F6).copy(alpha = 0.2f)
-                                                else -> MaterialTheme.colorScheme.surfaceVariant
-                                            }
-                                        ) {
-                                            Text(
-                                                text = when {
-                                                    isAiCore -> "⚡ ON-DEVICE AICORE"
-                                                    isGemini -> "☁️ GEMINI CLOUD"
-                                                    else -> "LOCAL ENGINE"
-                                                },
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                fontFamily = FontFamily.Monospace,
-                                                color = when {
-                                                    isAiCore -> Color(0xFF10B981)
-                                                    isGemini -> Color(0xFF3B82F6)
-                                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                                }
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(6.dp))
-
-                                    Text(
-                                        text = "Engine: ${entry.engine} (${entry.durationMs}ms)",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-
-                                    Spacer(modifier = Modifier.height(2.dp))
-
-                                    Text(
-                                        text = "Input: \"${entry.inputSnippet}\"",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = if (isExpanded) 10 else 1
-                                    )
-
-                                    Text(
-                                        text = "Output: \"${entry.outputSnippet}\"",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        maxLines = if (isExpanded) 10 else 1
-                                    )
-
-                                    AnimatedVisibility(visible = isExpanded) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(top = 8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-                                            Text(
-                                                text = "Timestamp: ${entry.timestamp}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontFamily = FontFamily.Monospace,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            OutlinedButton(
-                                                onClick = {
-                                                    clipboardManager.setText(AnnotatedString(entry.toFormattedString()))
-                                                    Toast.makeText(context, "AI log copied!", Toast.LENGTH_SHORT).show()
-                                                },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Copy Log Entry", style = MaterialTheme.typography.labelSmall)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                // CRASH / DIAGNOSTIC LOGS
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            CrashReporter.logCustomError(
-                                context,
-                                "User triggered diagnostic check via settings console."
-                            )
-                            Toast.makeText(context, "Logged diagnostic entry!", Toast.LENGTH_SHORT).show()
-                            refreshTrigger++
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Log Check", style = MaterialTheme.typography.labelMedium)
-                    }
-
-                    OutlinedButton(
-                        onClick = { showConfirmCrashDialog = true },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        )
-                    ) {
-                        Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Test Crash", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-
-                if (logs.isEmpty()) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = Color(0xFF10B981),
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "NO SYSTEM ISSUES DETECTED",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "All input method background services are running stably.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Captured Records (${logs.size})",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        TextButton(
-                            onClick = {
-                                CrashReporter.clearLogs(context)
-                                Toast.makeText(context, "Logs cleared", Toast.LENGTH_SHORT).show()
-                                refreshTrigger++
-                            }
-                        ) {
-                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Clear All", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        logs.forEachIndexed { index, entry ->
-                            val isExpanded = expandedLogIndex == index
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { expandedLogIndex = if (isExpanded) null else index },
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = if (entry.type == "CRASH") MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
-                                        ) {
-                                            Text(
-                                                text = entry.type,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace,
-                                                color = if (entry.type == "CRASH") MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer
-                                            )
-                                        }
-
-                                        Text(
-                                            text = entry.timestamp,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(6.dp))
-
-                                    Text(
-                                        text = entry.exceptionClass.substringAfterLast('.'),
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-
-                                    Spacer(modifier = Modifier.height(2.dp))
-
-                                    Text(
-                                        text = entry.message,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = if (isExpanded) 20 else 2,
-                                        lineHeight = 16.sp
-                                    )
-
-                                    AnimatedVisibility(visible = isExpanded) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(top = 10.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                                            Text(
-                                                text = "Thread: ${entry.threadName}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontFamily = FontFamily.Monospace,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Column(modifier = Modifier.padding(8.dp)) {
-                                                    Text(
-                                                        text = "STACK TRACE",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                    Spacer(modifier = Modifier.height(4.dp))
-                                                    Text(
-                                                        text = entry.stackTrace,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontSize = 10.sp,
-                                                        lineHeight = 14.sp,
-                                                        color = MaterialTheme.colorScheme.onSurface
-                                                    )
-                                                }
-                                            }
-
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        clipboardManager.setText(AnnotatedString(entry.toFormattedString()))
-                                                        Toast.makeText(context, "Full log copied!", Toast.LENGTH_SHORT).show()
-                                                    },
-                                                    modifier = Modifier.weight(1f),
-                                                    shape = RoundedCornerShape(8.dp)
-                                                ) {
-                                                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Copy", style = MaterialTheme.typography.labelSmall)
-                                                }
-
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        val sendIntent = Intent().apply {
-                                                            action = Intent.ACTION_SEND
-                                                            putExtra(Intent.EXTRA_TEXT, entry.toFormattedString())
-                                                            type = "text/plain"
-                                                        }
-                                                        val shareIntent = Intent.createChooser(sendIntent, "Share Diagnostics Log")
-                                                        context.startActivity(shareIntent)
-                                                    },
-                                                    modifier = Modifier.weight(1f),
-                                                    shape = RoundedCornerShape(8.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Share", style = MaterialTheme.typography.labelSmall)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (showConfirmCrashDialog) {
-        AlertDialog(
-            onDismissRequest = { showConfirmCrashDialog = false },
-            title = {
-                Text(
-                    "Simulate Crash?",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Text(
-                    "This intentionally throws an uncaught exception to test that the CrashReporter successfully captures full trace data.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showConfirmCrashDialog = false
-                        CrashReporter.triggerSimulatedCrash()
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError
-                    )
-                ) {
-                    Text("Trigger Crash")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showConfirmCrashDialog = false }) {
-                    Text("Cancel")
-                }
-            }
         )
     }
 }

@@ -56,14 +56,14 @@ class LocalRambleFormatter(private val context: Context) {
         // 1. Run deterministic cleanup of spoken filler words, stutters and live self-corrections
         val heuristicCleaned = runDeterministicLocalRambleEngine(raw)
 
-        // 2. Pass through NVIDIA Nemotron Cloud AI for synthesis and grammar refinement
+        // 2. Pass through Google Gemini Cloud AI for synthesis and grammar refinement
         try {
-            val nemotronResult = NvidiaNemotronClient.rambleModeSynthesis(heuristicCleaned).getOrNull()
-            if (!nemotronResult.isNullOrBlank()) {
-                return@withContext nemotronResult
+            val geminiResult = GeminiApiClient.generatePolish(heuristicCleaned, PolishMode.VOICE_CLEANUP)
+            if (!geminiResult.isNullOrBlank()) {
+                return@withContext geminiResult
             }
         } catch (e: Exception) {
-            Log.w(TAG, "NVIDIA Nemotron Ramble synthesis fallback: ${e.message}")
+            Log.w(TAG, "Gemini Ramble synthesis fallback: ${e.message}")
         }
 
         return@withContext heuristicCleaned

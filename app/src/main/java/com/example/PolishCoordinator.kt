@@ -59,8 +59,6 @@ sealed interface PolishUiState {
  */
 class PolishCoordinator(
     private val context: Context,
-    private val engine: ILiteRtPolishEngine = LiteRtPolishEngine.getInstance(context),
-    private val repository: ModelRepository = ModelRepository.getInstance(context),
     private val basicPredictor: LocalGrammarSpellPredictor = LocalGrammarSpellPredictor(context)
 ) {
     companion object {
@@ -95,7 +93,6 @@ class PolishCoordinator(
     fun triggerPolish(
         snapshot: EditorSnapshot,
         mode: PolishMode,
-        preferredBackend: ModelBackend = ModelBackend.AUTO,
         forceBasicOffline: Boolean = false
     ) {
         val originalText = snapshot.originalText.trim()
@@ -107,100 +104,34 @@ class PolishCoordinator(
         polishJob?.cancel()
         polishJob = coordinatorScope.launch {
             val startTime = System.currentTimeMillis()
+            _uiState.value = PolishUiState.Generating(mode)
 
-            // Route 1: Forced or fallback to basic offline correction
-            if (forceBasicOffline || !repository.isModelInstalled()) {
-                if (!repository.isModelInstalled() && !forceBasicOffline) {
-                    _uiState.value = PolishUiState.ModelNotDownloaded
-                }
-
-                val corrected = withContext(Dispatchers.Default) {
-                    basicPredictor.polishSentenceLocally(originalText)
-                }
-                val duration = System.currentTimeMillis() - startTime
-                val isChanged = corrected != originalText
-
-                val undo = UndoSnapshot(
-                    sessionId = snapshot.sessionId,
-                    previousText = originalText,
-                    replacementText = corrected,
-                    startOffset = snapshot.startOffset,
-                    endOffset = snapshot.endOffset
-                )
-                lastUndoSnapshot = undo
-
-                _uiState.value = PolishUiState.Ready(
-                    result = PolishResult(
-                        text = corrected,
-                        originalText = originalText,
-                        modelLabel = LABEL_BASIC_OFFLINE,
-                        backend = "Deterministic Engine",
-                        mode = mode,
-                        durationMs = duration,
-                        isSuccess = true,
-                        isValidated = true,
-                        isChanged = isChanged
-                    ),
-                    undoSnapshot = undo
-                )
-
-                AiExecutionLogger.logAiAction(
-                    context = context,
-                    operation = "Polish (${mode.name})",
-                    engine = LABEL_BASIC_OFFLINE,
-                    input = originalText,
-                    output = corrected,
-                    durationMs = duration
-                )
-                return@launch
-            }
-
-            // Route 2: On-device LiteRT-LM Qwen3 1.7B
             try {
-                _uiState.value = PolishUiState.PreparingModel(preferredBackend.name)
-                _uiState.value = PolishUiState.Generating(mode)
+                // Route to Google Gemini Free Cloud API first if not forced offline
+                var polishedText: String? = null
+                if (!forceBasicOffline) {
+                    try {
+                        polishedText = GeminiApiClient.generatePolish(originalText, mode)
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        Log.w(TAG, "Gemini polish failed, falling back to local grammar: ${e.message}")
+                    }
+                }
 
-                val engineResult = engine.generatePolish(originalText, mode, preferredBackend)
-
-                if (!engineResult.isSuccess) {
-                    Log.w(TAG, "LiteRT-LM inference unsuccessful: ${engineResult.errorMessage}. Falling back to basic offline.")
-                    val fallbackText = withContext(Dispatchers.Default) {
+                val isFromGemini = !polishedText.isNullOrBlank()
+                val candidateText = if (isFromGemini) {
+                    AiOutputValidator.sanitize(polishedText!!, originalText)
+                } else {
+                    withContext(Dispatchers.Default) {
                         basicPredictor.polishSentenceLocally(originalText)
                     }
-                    val duration = System.currentTimeMillis() - startTime
-                    val undo = UndoSnapshot(
-                        sessionId = snapshot.sessionId,
-                        previousText = originalText,
-                        replacementText = fallbackText,
-                        startOffset = snapshot.startOffset,
-                        endOffset = snapshot.endOffset
-                    )
-                    lastUndoSnapshot = undo
-
-                    _uiState.value = PolishUiState.Ready(
-                        result = PolishResult(
-                            text = fallbackText,
-                            originalText = originalText,
-                            modelLabel = "$LABEL_BASIC_OFFLINE (Fallback)",
-                            backend = "Fallback",
-                            mode = mode,
-                            durationMs = duration,
-                            isSuccess = true,
-                            isValidated = true,
-                            isChanged = fallbackText != originalText,
-                            errorMessage = engineResult.errorMessage
-                        ),
-                        undoSnapshot = undo
-                    )
-                    return@launch
                 }
 
-                // Output validation
-                val candidate = engineResult.text
-                val isValid = AiOutputValidator.isValid(originalText, candidate, mode)
-                val finalText = if (isValid) candidate else {
-                    Log.w(TAG, "Candidate failed AI validation. Using basic offline correction.")
-                    basicPredictor.polishSentenceLocally(originalText)
+                val isValid = AiOutputValidator.isValid(originalText, candidateText, mode)
+                val finalText = if (isValid) candidateText else {
+                    withContext(Dispatchers.Default) {
+                        basicPredictor.polishSentenceLocally(originalText)
+                    }
                 }
 
                 val duration = System.currentTimeMillis() - startTime
@@ -215,8 +146,8 @@ class PolishCoordinator(
                 )
                 lastUndoSnapshot = undo
 
-                val activeLabel = if (isValid) LABEL_OFFLINE_QWEN else "$LABEL_BASIC_OFFLINE (Validation fallback)"
-                val activeBackend = if (isValid) engineResult.backendName else "Rule Engine"
+                val activeLabel = if (isFromGemini && isValid) "AI Cloud Engine" else "Smart On-Device"
+                val activeBackend = if (isFromGemini && isValid) "Cloud AI" else "Deterministic Engine"
 
                 _uiState.value = PolishUiState.Ready(
                     result = PolishResult(
@@ -241,7 +172,6 @@ class PolishCoordinator(
                     output = finalText,
                     durationMs = duration
                 )
-
             } catch (e: Exception) {
                 if (e is CancellationException) {
                     _uiState.value = PolishUiState.Idle

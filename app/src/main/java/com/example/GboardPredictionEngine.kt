@@ -296,8 +296,13 @@ class GboardPredictionEngine(private val context: Context) {
         val matches = if (lower.length >= 3 && !rawIsValid) {
             symSpellEngine.lookup(lower, maxDistance = if (lower.length < 5) 1f else 2f, maxResults = 12)
         } else emptyList()
+        val googleSpellChecker = GoogleDeviceSpellChecker.getInstance(this.context)
+        val deviceSpellMatches = if (lower.length >= 3 && !rawIsValid) {
+            googleSpellChecker.getSpellCheckSuggestions(lower)
+        } else emptyList()
         val pool = linkedSetOf<String>()
         direct?.let { pool.add(it) }
+        pool.addAll(deviceSpellMatches)
         pool.addAll(dictionaryManager.wordTrie.findByPrefix(lower, 8))
         pool.addAll(model.predictNextWords(context, lower, 6))
         pool.addAll(matches.map { it.term })
@@ -307,6 +312,7 @@ class GboardPredictionEngine(private val context: Context) {
                 val normalized = word.lowercase(Locale.ROOT)
                 val literal = normalized == lower && word == typed
                 val deterministic = direct != null && normalized == direct.lowercase(Locale.ROOT)
+                val isGoogleSpellMatch = deviceSpellMatches.any { it.equals(normalized, ignoreCase = true) }
                 val match = matches.firstOrNull { it.term == normalized }
                 val distance = match?.distance ?: spatialModel.computeSpatialEditDistance(lower, normalized)
                 val frequency = (log10(dictionaryManager.getWordFrequency(normalized).toFloat() + 1f) / 3f).coerceIn(0f, 1f)
@@ -316,13 +322,14 @@ class GboardPredictionEngine(private val context: Context) {
                 val score = if (deterministic) 2f else
                     0.55f * (1f - distance / maxOf(3, lower.length).toFloat()).coerceIn(0f, 1f) +
                     0.20f * frequency + 0.15f * probability + 0.10f * spatial +
-                    (if (literal && rawIsValid) 0.6f else 0f) + (if (completion) 0.1f else 0f)
+                    (if (literal && rawIsValid) 0.6f else 0f) + (if (completion) 0.1f else 0f) +
+                    (if (isGoogleSpellMatch) 0.45f else 0f)
                 val eligible = !literal && !completion && !dictionaryManager.isCorrectionSuppressed(typed, word) &&
-                    (deterministic || (!rawIsValid && lower.length >= 4 && typed == lower &&
+                    (deterministic || isGoogleSpellMatch || (!rawIsValid && lower.length >= 4 && typed == lower &&
                         match != null && distance <= 1f && frequency >= 0.65f))
                 GboardCandidate(TypingPolicy.restoreCase(typed, word), spatial, probability, distance,
                     frequency, score, if (eligible) ConfidenceTier.HIGH else ConfidenceTier.LOW,
-                    eligible, if (deterministic) "Curated typo" else if (completion) "Completion" else "Dictionary candidate")
+                    eligible, if (deterministic) "Curated typo" else if (isGoogleSpellMatch) "Google Spellcheck" else if (completion) "Completion" else "Dictionary candidate")
             }.sortedWith(compareByDescending<GboardCandidate> { it.totalPosterior }.thenBy { it.word })
         val best = candidates.firstOrNull()
         val margin = if (best != null) best.totalPosterior - (candidates.getOrNull(1)?.totalPosterior ?: 0f) else 0f
@@ -340,8 +347,21 @@ class GboardPredictionEngine(private val context: Context) {
     /** Constant-time fallback for fast typists; follows exactly the same suppression policy. */
     fun immediateCorrection(typed: String, dictionaryManager: DictionaryManager): String? {
         if (!settings.autocorrectEnabled || dictionaryManager.isWordInUserDictionary(typed.lowercase(Locale.ROOT))) return null
-        val correction = TypingPolicy.correction(typed) ?: return null
-        return correction.takeUnless { dictionaryManager.isCorrectionSuppressed(typed, it) }
+        val direct = TypingPolicy.correction(typed)
+        if (direct != null && !dictionaryManager.isCorrectionSuppressed(typed, direct)) {
+            return direct
+        }
+        val lower = typed.lowercase(Locale.ROOT)
+        if (lower.length >= 3 && !dictionaryManager.isWordInDictionary(lower)) {
+            val googleSpell = GoogleDeviceSpellChecker.getInstance(this.context).getSpellCheckSuggestions(lower)
+            if (googleSpell.isNotEmpty()) {
+                val candidate = TypingPolicy.restoreCase(typed, googleSpell.first())
+                if (!dictionaryManager.isCorrectionSuppressed(typed, candidate)) {
+                    return candidate
+                }
+            }
+        }
+        return null
     }
     private fun restoreCasing(original: String, target: String): String {
         if (original.isEmpty() || target.isEmpty()) return target

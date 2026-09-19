@@ -369,15 +369,7 @@ class KeyboardSettings(context: Context) {
         }
 
     val activeAiEngine: ActiveAiEngine
-        get() = when {
-            offlineAiEnabled && geminiAiEnabled && !nemotronAiEnabled -> ActiveAiEngine.BOTH
-            offlineAiEnabled && nemotronAiEnabled && !geminiAiEnabled -> ActiveAiEngine.NEMOTRON
-            offlineAiEnabled && !geminiAiEnabled && !nemotronAiEnabled -> ActiveAiEngine.OFFLINE
-            !offlineAiEnabled && nemotronAiEnabled && !geminiAiEnabled -> ActiveAiEngine.NEMOTRON
-            !offlineAiEnabled && geminiAiEnabled && !nemotronAiEnabled -> ActiveAiEngine.ONLINE
-            offlineAiEnabled && geminiAiEnabled && nemotronAiEnabled -> ActiveAiEngine.BOTH
-            else -> ActiveAiEngine.NONE
-        }
+        get() = if (geminiAiEnabled) ActiveAiEngine.ONLINE else ActiveAiEngine.NONE
 
     var vocabAutoUpdateEnabled: Boolean
         get() = prefs.getBoolean(KEY_VOCAB_AUTO_UPDATE_ENABLED, true)
@@ -409,25 +401,10 @@ class KeyboardSettings(context: Context) {
 
     fun setActiveAiEngine(engine: ActiveAiEngine) {
         when (engine) {
-            ActiveAiEngine.BOTH -> {
-                offlineAiEnabled = true
-                geminiAiEnabled = true
-                nemotronAiEnabled = false
-            }
-            ActiveAiEngine.OFFLINE -> {
-                offlineAiEnabled = true
-                geminiAiEnabled = false
-                nemotronAiEnabled = false
-            }
-            ActiveAiEngine.ONLINE -> {
+            ActiveAiEngine.BOTH, ActiveAiEngine.OFFLINE, ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> {
                 offlineAiEnabled = false
                 geminiAiEnabled = true
                 nemotronAiEnabled = false
-            }
-            ActiveAiEngine.NEMOTRON -> {
-                offlineAiEnabled = false
-                geminiAiEnabled = false
-                nemotronAiEnabled = true
             }
             ActiveAiEngine.NONE -> {
                 offlineAiEnabled = false
@@ -444,9 +421,9 @@ enum class ActiveAiEngine(
     val symbol: String,
     val description: String
 ) {
-    BOTH("Both Engines", "Both", "⚡☁️", "Offline on-device + Online Gemini Cloud"),
-    OFFLINE("Offline AI", "Offline", "⚡", "Fast on-device neural & grammar engine"),
-    ONLINE("Online Gemini", "Online", "☁️", "Advanced cloud Gemini intelligence"),
-    NEMOTRON("Online Nemotron", "Nemotron", "🟢", "Advanced cloud NVIDIA Nemotron intelligence"),
+    BOTH("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
+    OFFLINE("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
+    ONLINE("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
+    NEMOTRON("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
     NONE("AI Off", "Off", "⚪", "AI assistants disabled")
 }

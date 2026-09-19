@@ -13,17 +13,16 @@ import kotlinx.coroutines.withContext
  * Delegates to LocalInferenceEngine following a strict confidence-evaluated, local-first pipeline.
  */
 class AiPolishManager(private val context: Context) {
-    private val inferenceEngine = LocalInferenceEngine.getInstance(context)
     private val dictionaryManager = DictionaryManager(context)
 
     companion object {
         private const val TAG = "AiPolishManager"
     }
 
-    private val aiCoreEngine = DeviceAiCoreEngine.getInstance(context)
+    private val localRambleFormatter = LocalRambleFormatter(context)
 
     /**
-     * Executes proofreading using On-Device AICore (Gemini Nano).
+     * Executes proofreading using Google Gemini Free API with local heuristic fallback.
      */
     suspend fun proofreadText(
         text: String,
@@ -31,8 +30,16 @@ class AiPolishManager(private val context: Context) {
     ): String = withContext(Dispatchers.Default) {
         if (text.isBlank()) return@withContext ""
 
-        val aiCoreResult = aiCoreEngine.proofread(text, "Proofread")
-        return@withContext aiCoreResult.correctedText
+        val startTime = System.currentTimeMillis()
+        val result = try {
+            GeminiApiClient.generatePolish(text, PolishMode.PROOFREAD)
+        } catch (e: Exception) {
+            null
+        } ?: OnDeviceNeuralPolishEngine.getInstance(context).quickProofread(text)
+        val duration = System.currentTimeMillis() - startTime
+
+        AiExecutionLogger.logAiAction(context, "Proofread", AiExecutionLogger.ENGINE_GEMINI_CLOUD, text, result, duration)
+        return@withContext result
     }
 
     /**
@@ -43,17 +50,15 @@ class AiPolishManager(private val context: Context) {
         if (text.isBlank()) return@withContext ""
 
         val startTime = System.currentTimeMillis()
-        val result = inferenceEngine.process(text, PolishMode.VOICE_CLEANUP, TextContext(mode = PolishMode.VOICE_CLEANUP))
+        val result = localRambleFormatter.formatRambleText(text)
         val duration = System.currentTimeMillis() - startTime
 
-        AiExecutionLogger.logAiAction(context, "Voice Cleanup", AiExecutionLogger.ENGINE_OFFLINE_LOCAL, text, result.text, duration)
-        return@withContext result.text
+        AiExecutionLogger.logAiAction(context, "Voice Cleanup", AiExecutionLogger.ENGINE_GEMINI_CLOUD, text, result, duration)
+        return@withContext result
     }
 
-    private val localRambleFormatter = LocalRambleFormatter(context)
-
     /**
-     * Executes intent-based Ramble Mode voice dictation processing 100% on-device (zero cloud).
+     * Executes intent-based Ramble Mode voice dictation processing.
      * Strips fillers, resolves live mid-sentence self-corrections, and processes trailing voice commands/intents.
      */
     suspend fun processRambleDictation(text: String): String = withContext(Dispatchers.Default) {
@@ -63,7 +68,7 @@ class AiPolishManager(private val context: Context) {
         val resultText = localRambleFormatter.formatRambleText(text)
         val duration = System.currentTimeMillis() - startTime
 
-        AiExecutionLogger.logAiAction(context, "Ramble Mode (Google AICore)", AiExecutionLogger.ENGINE_AICORE, text, resultText, duration)
+        AiExecutionLogger.logAiAction(context, "Ramble Mode (Gemini)", AiExecutionLogger.ENGINE_GEMINI_CLOUD, text, resultText, duration)
         return@withContext resultText
     }
 
@@ -77,11 +82,15 @@ class AiPolishManager(private val context: Context) {
         }
 
         val startTime = System.currentTimeMillis()
-        val result = inferenceEngine.process(text, PolishMode.PROOFREAD)
-        val finalOutput = formatRichSpokenText(result.text)
+        val result = try {
+            GeminiApiClient.generatePolish(text, PolishMode.PROOFREAD)
+        } catch (e: Exception) {
+            null
+        } ?: OnDeviceNeuralPolishEngine.getInstance(context).quickProofread(text)
+        val finalOutput = formatRichSpokenText(result)
 
         val duration = System.currentTimeMillis() - startTime
-        AiExecutionLogger.logAiAction(context, "Proofreading (Stream)", AiExecutionLogger.ENGINE_OFFLINE_LOCAL, text, finalOutput, duration)
+        AiExecutionLogger.logAiAction(context, "Proofreading (Stream)", AiExecutionLogger.ENGINE_GEMINI_CLOUD, text, finalOutput, duration)
 
         streamWords(finalOutput)
     }
@@ -105,13 +114,16 @@ class AiPolishManager(private val context: Context) {
         if (text.isBlank()) return@withContext ""
 
         val startTime = System.currentTimeMillis()
-        val result = inferenceEngine.process(text, mode, textContext)
+        val result = try {
+            GeminiApiClient.generatePolish(text, mode)
+        } catch (e: Exception) {
+            null
+        } ?: OnDeviceNeuralPolishEngine.getInstance(context).polish(text, mode.name.lowercase()).polishedText
         val duration = System.currentTimeMillis() - startTime
 
-        val engineName = if (result.source == AiSource.CLOUD) AiExecutionLogger.ENGINE_GEMINI_CLOUD else AiExecutionLogger.ENGINE_OFFLINE_LOCAL
-        AiExecutionLogger.logAiAction(context, "AI Polish ($mode)", engineName, text, result.text, duration)
+        AiExecutionLogger.logAiAction(context, "AI Polish ($mode)", AiExecutionLogger.ENGINE_GEMINI_CLOUD, text, result, duration)
 
-        return@withContext result.text
+        return@withContext result
     }
 
     /**
@@ -125,13 +137,16 @@ class AiPolishManager(private val context: Context) {
 
         val startTime = System.currentTimeMillis()
         val polishMode = PolishMode.fromString(mode)
-        val result = inferenceEngine.process(text, polishMode)
+        val result = try {
+            GeminiApiClient.generatePolish(text, polishMode)
+        } catch (e: Exception) {
+            null
+        } ?: OnDeviceNeuralPolishEngine.getInstance(context).polish(text, polishMode.name.lowercase()).polishedText
 
         val duration = System.currentTimeMillis() - startTime
-        val engineUsed = if (result.source == AiSource.CLOUD) AiExecutionLogger.ENGINE_GEMINI_CLOUD else AiExecutionLogger.ENGINE_OFFLINE_LOCAL
-        AiExecutionLogger.logAiAction(context, "AI Polish ($mode Stream)", engineUsed, text, result.text, duration)
+        AiExecutionLogger.logAiAction(context, "AI Polish ($mode Stream)", AiExecutionLogger.ENGINE_GEMINI_CLOUD, text, result, duration)
 
-        streamWords(result.text)
+        streamWords(result)
     }
 
     /**
@@ -144,56 +159,28 @@ class AiPolishManager(private val context: Context) {
         }
 
         val settings = KeyboardSettings(context)
-        val offlineEnabled = settings.offlineAiEnabled
         val geminiEnabled = settings.geminiAiEnabled && settings.supportTier != KeyboardSettings.TIER_3
-        val nemotronEnabled = settings.nemotronAiEnabled
 
-        if (!offlineEnabled && !geminiEnabled && !nemotronEnabled) {
+        if (!geminiEnabled) {
             emit(emptyList())
             return@flow
         }
 
-        // Try Nemotron first
-        if (nemotronEnabled) {
-            val (formalOpt, casualOpt, rephraseOpt) = try {
-                val formal = NemotronApiClient.generatePolish(text, PolishMode.PROFESSIONAL)
-                val casual = NemotronApiClient.generatePolish(text, PolishMode.CASUAL)
-                val rephrase = NemotronApiClient.generatePolish(text, PolishMode.REPHRASE)
-                Triple(formal, casual, rephrase)
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Triple(null, null, null)
-            }
-
-            val validCloudList = listOfNotNull(formalOpt, casualOpt, rephraseOpt).filter { it.isNotBlank() }.distinct()
-            if (validCloudList.size >= 3) {
-                emit(validCloudList)
-                return@flow
-            }
+        val (formalOpt, casualOpt, rephraseOpt) = try {
+            val formal = GeminiApiClient.generatePolish(text, PolishMode.PROFESSIONAL)
+            val casual = GeminiApiClient.generatePolish(text, PolishMode.CASUAL)
+            val rephrase = GeminiApiClient.generatePolish(text, PolishMode.REPHRASE)
+            Triple(formal, casual, rephrase)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Triple(null, null, null)
         }
 
-        if (geminiEnabled) {
-            val (formalOpt, casualOpt, rephraseOpt) = try {
-                val formal = GeminiApiClient.generatePolish(text, PolishMode.PROFESSIONAL)
-                val casual = GeminiApiClient.generatePolish(text, PolishMode.CASUAL)
-                val rephrase = GeminiApiClient.generatePolish(text, PolishMode.REPHRASE)
-                Triple(formal, casual, rephrase)
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Triple(null, null, null)
-            }
-
-            val validCloudList = listOfNotNull(formalOpt, casualOpt, rephraseOpt).filter { it.isNotBlank() }.distinct()
-            if (validCloudList.size >= 3) {
-                emit(validCloudList)
-                return@flow
-            }
-        }
-
-        if (offlineEnabled) {
-            emit(generateLocalStyleAlternatives(text))
+        val validCloudList = listOfNotNull(formalOpt, casualOpt, rephraseOpt).filter { it.isNotBlank() }.distinct()
+        if (validCloudList.isNotEmpty()) {
+            emit(validCloudList)
         } else {
-            emit(emptyList())
+            emit(generateLocalStyleAlternatives(text))
         }
     }
 

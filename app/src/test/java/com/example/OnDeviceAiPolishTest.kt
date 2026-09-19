@@ -12,18 +12,6 @@ import org.robolectric.RobolectricTestRunner
 class OnDeviceAiPolishTest {
 
     @Test
-    fun testModelManifestMetadata() {
-        val model = ModelManifest.QWEN3_1_7B
-        assertEquals("Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm", model.fileName)
-        assertEquals("Offline AI — Qwen3 1.7B", model.displayName)
-        assertEquals("qwen3-1.7b-litertlm", model.modelId)
-        assertEquals(977184032L, model.expectedSizeBytes)
-        assertEquals("2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b", model.expectedSha256)
-        assertTrue(model.downloadUrl.startsWith("https://"))
-        assertEquals("Apache 2.0", model.license)
-    }
-
-    @Test
     fun testPolishPromptFactoryFormatsCorrectly() {
         val promptProofread = PolishPromptFactory.getSystemInstruction(PolishMode.PROOFREAD)
         assertTrue(promptProofread.contains("Proofread"))
@@ -64,22 +52,6 @@ class OnDeviceAiPolishTest {
         val rawWithCommentary = "Here is the corrected text:\nHello world"
         val cleanedCommentary = AiOutputValidator.sanitize(rawWithCommentary, "helo wrld")
         assertEquals("Hello world", cleanedCommentary)
-    }
-
-    @Test
-    fun testModelRepositoryPaths() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val repo = ModelRepository.getInstance(context)
-        val dir = repo.getModelDir()
-
-        assertTrue(dir.absolutePath.endsWith("litert_models"))
-        val modelFile = repo.getModelFile()
-        assertEquals("Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm", modelFile.name)
-
-        // Should be NotInstalled initially in unit test environment
-        if (!modelFile.exists()) {
-            assertFalse(repo.isModelInstalled())
-        }
     }
 
     @Test

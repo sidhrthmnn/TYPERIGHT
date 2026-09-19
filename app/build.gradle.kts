@@ -18,8 +18,8 @@ android {
     applicationId = "com.aistudio.typeright.jkwpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 144
-    versionName = "144.0"
+    versionCode = 150
+    versionName = "150.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

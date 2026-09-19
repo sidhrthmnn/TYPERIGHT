@@ -31,11 +31,13 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
     }
 
     /**
-     * Performs instantaneous on-device proofreading.
+     * Performs instantaneous on-device proofreading utilizing Google on-device spell check
+     * and local grammar heuristics.
      */
     fun quickProofread(input: String): String {
         if (input.isBlank()) return input
-        val neuralFixed = neuralEngine.correctText(input)
+        val spellChecked = GoogleDeviceSpellChecker.getInstance(context).proofreadSentenceFast(input)
+        val neuralFixed = neuralEngine.correctText(spellChecked)
         return grammarPredictor.polishSentenceLocally(neuralFixed)
     }
 

@@ -269,58 +269,12 @@ class ExampleUnitTest {
   }
 
   @Test
-  fun testNvidiaNemotronConfiguration() {
-    // Verify cloud client configuration
-    assertEquals("nvidia/nemotron-3.5-lightning-30b-a3b", NvidiaNemotronClient.DEFAULT_MODEL)
-    assertEquals("NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4", NvidiaNemotronClient.MODEL_DISPLAY_NAME)
-    assertEquals("nvidia/nemotron-3.5-lightning-30b-a3b", NvidiaNemotronClient.resolveEndpointModel("NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"))
-    val apiKey = NvidiaNemotronClient.getApiKey()
-    assertTrue("API key should not be blank", apiKey.isNotBlank())
-  }
-
-  @Test
-  fun testNvidiaNemotronRetrofitClient() = runBlocking {
-    val retrofitClient = NvidiaNemotronRetrofitClient.instance
-    assertNotNull(retrofitClient)
-    assertNotNull(retrofitClient.apiService)
-    assertEquals("https://integrate.api.nvidia.com/v1/", NvidiaNemotronRetrofitClient.BASE_URL)
-    assertEquals("nvidia/nemotron-3.5-lightning-30b-a3b", NvidiaNemotronRetrofitClient.DEFAULT_MODEL)
-
-    // Test direct proofread call via Retrofit client
-    val proofreadResult = retrofitClient.proofread("thiss is a tst with erors")
-    if (proofreadResult.isSuccess) {
-      val text = proofreadResult.getOrNull().orEmpty()
-      assertTrue("Proofread text should fix errors: $text", text.isNotBlank() && !text.contains("erors"))
-    } else {
-      assertTrue("Network failure should be captured in Result", proofreadResult.exceptionOrNull() != null)
-    }
-
-    // Test direct rephrase call via Retrofit client
-    val rephraseResult = retrofitClient.rephrase("can you do this please", count = 2)
-    if (rephraseResult.isSuccess) {
-      val alternatives = rephraseResult.getOrNull().orEmpty()
-      assertTrue("Should provide rephrased options", alternatives.isNotEmpty())
-    } else {
-      assertTrue("Network failure should be captured in Result", rephraseResult.exceptionOrNull() != null)
-    }
-  }
-
-  @Test
-  fun testVoiceCleanupFormatting() {
-    val spokenText = "um send the report tomorrow no wait Friday"
-    val voiceRes = VoiceTranscriptionFormatter.formatTranscription(spokenText, TranscriptionFormatStyle.SMART_CLEAN)
-    assertFalse("Voice cleanup should remove 'um'", voiceRes.contains("um", ignoreCase = true))
-    assertTrue("Voice cleanup should resolve self-correction to Friday: $voiceRes", voiceRes.contains("Friday", ignoreCase = true))
-  }
-
-  @Test
-  fun testKeyboardSettingsCloudDefaults() {
+  fun testKeyboardSettingsGeminiDefaults() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val settings = KeyboardSettings(context)
 
-    assertTrue("Cloud AI should be enabled by default", settings.geminiAiEnabled)
-    assertTrue("Offline AI should be enabled by default", settings.offlineAiEnabled)
-    assertEquals(ActiveAiEngine.BOTH, settings.activeAiEngine)
+    assertTrue("Gemini AI should be enabled by default", settings.geminiAiEnabled)
+    assertEquals(ActiveAiEngine.ONLINE, settings.activeAiEngine)
   }
 
   @Test
