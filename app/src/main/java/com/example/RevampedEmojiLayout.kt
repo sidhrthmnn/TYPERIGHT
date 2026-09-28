@@ -6,6 +6,14 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.ui.platform.LocalContext
+import com.example.giphy.GiphyMediaItem
+import com.example.giphy.GiphyGifTabView
+import com.example.giphy.GiphyStickerTabView
+import com.example.giphy.GiphyGifCategories
+import com.example.giphy.GiphyStickerCategories
+import com.example.giphy.MediaCommitHelper
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -16,6 +24,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,6 +44,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Clear
@@ -80,22 +90,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-data class GifItem(
-    val id: String,
-    val title: String,
-    val category: String,
-    val emojiIcon: String,
-    val textToInsert: String,
-    val tags: List<String>
-)
-
-data class StickerPack(
-    val id: String,
-    val name: String,
-    val icon: String,
-    val stickers: List<String>
-)
-
 /**
  * Data representation for an Emoji Category.
  */
@@ -139,15 +133,31 @@ fun RevampedEmojiLayout(
     keyColor: Color,
     textColor: Color,
     accentColor: Color,
+    typedText: String = "",
     onKeyClick: (String) -> Unit,
     onEmojiToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onMediaCommit: ((GiphyMediaItem) -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val actualMediaCommit: (GiphyMediaItem) -> Unit = onMediaCommit ?: { mediaItem ->
+        val service = context as? TypeRightKeyboardService
+        coroutineScope.launch {
+            MediaCommitHelper.commitMedia(
+                context = context,
+                inputConnection = service?.currentInputConnection,
+                editorInfo = service?.currentInputEditorInfo,
+                item = mediaItem
+            )
+        }
+    }
     var currentSubTab by remember { mutableStateOf(EmojiSubTab.EMOJI) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     var selectedCategoryIndex by remember { mutableIntStateOf(0) }
+    var selectedGifCategory by remember { mutableStateOf("🔥 Trending") }
+    var selectedStickerCategory by remember { mutableStateOf("🔥 Trending") }
 
     // Persistent recent emojis initialized with the exact set from the reference image
     val recentEmojis = remember {
@@ -158,20 +168,10 @@ fun RevampedEmojiLayout(
         )
     }
 
-    // Curated Google Emoji Kitchen Mashups
-    val emojiKitchenItems = remember {
-        listOf(
-            EmojiKitchenItem("ek_heart_smile", "❤️", "🥰", "🥰", "Heart Smile"),
-            EmojiKitchenItem("ek_wink_kiss", "😉", "😘", "😘", "Wink Kiss Heart"),
-            EmojiKitchenItem("ek_sleep_teeth", "😴", "😬", "😬", "Sleeping Grit Teeth"),
-            EmojiKitchenItem("ek_sparkle_heart", "💖", "✨", "💖", "Sparkling Heart Smile"),
-            EmojiKitchenItem("ek_koala_think", "🐨", "🤔", "🐨", "Koala Thinking"),
-            EmojiKitchenItem("ek_cat_cool", "🐱", "😎", "😎", "Cool Shades Kitty"),
-            EmojiKitchenItem("ek_puppy_party", "🐶", "🥳", "🐶", "Party Hat Puppy"),
-            EmojiKitchenItem("ek_fire_laugh", "🔥", "😂", "🔥", "Fiery Joy Laugh"),
-            EmojiKitchenItem("ek_avocado_cry", "🥑", "🥺", "🥑", "Puppy Eyed Avocado"),
-            EmojiKitchenItem("ek_ghost_sunglasses", "👻", "🕶️", "👻", "Cool Ghost")
-        )
+    // Dynamic Google Emoji Kitchen Mashups based strictly on the current typed text
+    val activeQueryText = if (searchQuery.isNotBlank()) searchQuery else typedText
+    val emojiKitchenItems = remember(activeQueryText) {
+        EmojiWordMapper.getKitchenItemsForText(activeQueryText)
     }
 
     // Comprehensive Google / Unicode standard categorized emoji sets
@@ -188,18 +188,7 @@ fun RevampedEmojiLayout(
                 name = "Smileys & Emotion",
                 icon = Icons.Default.SentimentSatisfied,
                 emojis = listOf(
-                    "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇",
-                    "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚",
-                    "😋", "😛", "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🫢", "🫡",
-                    "🤫", "🫠", "🤔", "🫣", "🤐", "🤨", "😐", "😑", "😶", "🫥",
-                    "😶‍🌫️", "😏", "😒", "🙄", "😬", "😮‍💨", "🤥", "🫨", "😌", "😔",
-                    "😪", "🤤", "😴", "😷", "🤒", "🤕", "🤢", "🤮", "🤧", "🥵",
-                    "🥶", "🥴", "😵", "😵‍💫", "🤯", "🤠", "🥳", "🥸", "😎", "🤓",
-                    "🧐", "😕", "🫤", "😟", "🙁", "☹️", "😮", "😯", "😲", "😳",
-                    "🥺", "🥹", "😦", "😧", "😨", "😰", "😥", "😢", "😭", "😱",
-                    "😖", "😣", "😞", "😓", "😩", "😫", "🥱", "😤", "😡", "😠",
-                    "🤬", "😈", "👿", "💀", "☠️", "💩", "🤡", "👹", "👺", "👻",
-                    "👽", "👾", "🤖", "😺", "😸", "😹", "😻", "😼", "😽", "🙀"
+                    "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "🫠", "😉", "😊", "😇", "🥰", "😍", "🤩", "😘", "😗", "😚", "😙", "🥲", "😋", "😛", "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🫢", "🫡", "🤫", "🤔", "🤐", "🤨", "😐", "😑", "😶", "🫥", "😶‍🌫️", "😏", "😒", "🙄", "😬", "😮‍💨", "🤥", "🫨", "😌", "😔", "😪", "🤤", "😴", "😷", "🤒", "🤕", "🤢", "🤮", "🤧", "🥵", "🥶", "🥴", "😵", "😵‍💫", "🤯", "🤠", "🥳", "🥸", "😎", "🤓", "🧐", "😕", "🫤", "😟", "🙁", "☹️", "😮", "😯", "😲", "😳", "🥺", "🥹", "😦", "😧", "😨", "😰", "😥", "😢", "😭", "😱", "😖", "😣", "😞", "😓", "😩", "😫", "🥱", "😤", "😡", "😠", "🤬", "😈", "👿", "💀", "☠️", "💩", "🤡", "👹", "👺", "👻", "👽", "👾", "🤖", "😺", "😸", "😹", "😻", "😼", "😽", "🙀", "😿", "😾", "🙈", "🙉", "🙊", "💋", "💌", "💘", "💝", "💖", "💗", "💓", "💞", "💕", "💟", "❣️", "💔", "❤️‍🔥", "❤️‍🩹", "❤️", "🩷", "🧡", "💛", "💚", "💙", "🩵", "💜", "🤎", "🖤", "🩶", "🤍", "🫀", "🫁", "🩸", "💯", "💢", "💥", "💫", "💦", "💨", "🕳️", "💬", "👁️‍🗨️", "🗨️", "🗯️", "💭", "💤"
                 )
             ),
             EmojiCategory(
@@ -207,31 +196,7 @@ fun RevampedEmojiLayout(
                 name = "People & Body",
                 icon = Icons.Default.DirectionsRun,
                 emojis = listOf(
-                    "👋", "🤚", "🖐️", "✋", "🖖", "🫱", "🫲", "🫳", "🫴", "👌",
-                    "🤌", "🤏", "✌️", "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉",
-                    "👆", "🖕", "👇", "☝️", "👍", "👎", "✊", "👊", "🤛", "🤜",
-                    "👏", "🙌", "🫶", "👐", "🤲", "🤝", "🙏", "✍️", "💅", "🤳",
-                    "💪", "🦾", "🦿", "🦵", "🦶", "👂", "🦻", "👃", "🧠", "🫀",
-                    "🫁", "🦷", "🦴", "👀", "👁️", "👅", "👄", "🫦", "💋", "🩸",
-                    "👶", "👧", "🧒", "👦", "👩", "🧑", "👨", "👩‍🦱", "🧑‍🦱", "👨‍🦱",
-                    "👩‍🦰", "🧑‍🦰", "👨‍🦰", "👱‍♀️", "👱", "👱‍♂️", "👩‍🦳", "🧑‍🦳", "👨‍🦳", "👩‍🦲",
-                    "🧑‍🦲", "👨‍🦲", "👵", "🧓", "👴", "👲", "👳‍♀️", "👳", "👳‍♂️", "🧕",
-                    "👮‍♀️", "👮", "👮‍♂️", "👷‍♀️", "👷", "👷‍♂️", "💂‍♀️", "💂", "💂‍♂️", "🕵️‍♀️",
-                    "🕵️", "🕵️‍♂️", "👩‍⚕️", "🧑‍⚕️", "👨‍⚕️", "👩‍🌾", "🧑‍🌾", "👨‍🌾", "👩‍🍳", "🧑‍🍳",
-                    "👨‍🍳", "👩‍🎓", "🧑‍🎓", "👨‍🎓", "👩‍🎤", "🧑‍🎤", "👨‍🎤", "👩‍🏫", "🧑‍🏫", "👨‍🏫",
-                    "👩‍🏭", "🧑‍🏭", "👨‍🏭", "👩‍💻", "🧑‍💻", "👨‍💻", "👩‍💼", "🧑‍💼", "👨‍💼", "👩‍🔧",
-                    "🧑‍🔧", "👨‍🔧", "👩‍🔬", "🧑‍🔬", "👨‍🔬", "👩‍🎨", "🧑‍🎨", "👨‍🎨", "👩‍🚒", "🧑‍🚒",
-                    "👨‍🚒", "👩‍✈️", "🧑‍✈️", "👨‍✈️", "👩‍🚀", "🧑‍🚀", "👨‍🚀", "👩‍⚖️", "🧑‍⚖️", "👨‍⚖️",
-                    "👰‍♀️", "👰", "👰‍♂️", "🤵‍♀️", "🤵", "🤵‍♂️", "👸", "🤴", "🥷", "🦸‍♀️",
-                    "🦸", "🦸‍♂️", "🦹‍♀️", "🦹", "🦹‍♂️", "🤶", "🧑‍🎄", "🎅", "🧙‍♀️", "🧙",
-                    "🧙‍♂️", "🧝‍♀️", "🧝", "🧝‍♂️", "🧛‍♀️", "🧛", "🧛‍♂️", "🧟‍♀️", "🧟", "🧟‍♂️",
-                    "🧞‍♀️", "🧞", "🧞‍♂️", "🧜‍♀️", "🧜", "🧜‍♂️", "🧚‍♀️", "🧚", "🧚‍♂️", "👼",
-                    "🤰", "🫄", "🤱", "👩‍🍼", "🧑‍🍼", "👨‍🍼", "🙇‍♀️", "🙇", "🙇‍♂️", "💁‍♀️",
-                    "💁", "💁‍♂️", "🙅‍♀️", "🙅", "🙅‍♂️", "🙆‍♀️", "🙆", "🙆‍♂️", "🙋‍♀️", "🙋",
-                    "🙋‍♂️", "🧏‍♀️", "🧏", "🧏‍♂️", "🤦‍♀️", "🤦", "🤦‍♂️", "🤷‍♀️", "🤷", "🤷‍♂️",
-                    "🙎‍♀️", "🙎", "🙎‍♂️", "🙍‍♀️", "🙍", "🙍‍♂️", "💇‍♀️", "💇", "💇‍♂️", "💆‍♀️",
-                    "💆", "💆‍♂️", "🧖‍♀️", "🧖", "🧖‍♂️", "💅", "🤳", "💃", "🕺", "👯‍♀️",
-                    "👯", "👯‍♂️", "🚶‍♀️", "🚶", "🚶‍♂️", "🏃‍♀️", "🏃", "🏃‍♂️", "🏋️‍♀️", "🏋️"
+                    "👋", "🤚", "🖐️", "✋", "🖖", "🫱", "🫲", "🫳", "🫴", "🫷", "🫸", "👌", "🤌", "🤏", "✌️", "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉", "👆", "🖕", "👇", "☝️", "🫵", "👍", "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "🫶", "👐", "🤲", "🤝", "🙏", "✍️", "💅", "🤳", "💪", "🦾", "🦿", "🦵", "🦶", "👂", "🦻", "👃", "🧠", "🦷", "🦴", "👀", "👁️", "👅", "👄", "🫦", "👶", "👧", "🧒", "👦", "👩", "🧑", "👨", "👩‍🦱", "🧑‍🦱", "👨‍🦱", "👩‍🦰", "🧑‍🦰", "👨‍🦰", "👱‍♀️", "👱", "👱‍♂️", "👩‍🦳", "🧑‍🦳", "👨‍🦳", "👩‍🦲", "🧑‍🦲", "👨‍🦲", "👵", "🧓", "👴", "👲", "👳‍♀️", "👳", "👳‍♂️", "🧕", "👮‍♀️", "👮", "👮‍♂️", "👷‍♀️", "👷", "👷‍♂️", "💂‍♀️", "💂", "💂‍♂️", "🕵️‍♀️", "🕵️", "🕵️‍♂️", "👩‍⚕️", "🧑‍⚕️", "👨‍⚕️", "👩‍🌾", "🧑‍🌾", "👨‍🌾", "👩‍🍳", "🧑‍🍳", "👨‍🍳", "👩‍🎓", "🧑‍🎓", "👨‍🎓", "👩‍🎤", "🧑‍🎤", "👨‍🎤", "👩‍🏫", "🧑‍🏫", "👨‍🏫", "👩‍🏭", "🧑‍🏭", "👨‍🏭", "👩‍💻", "🧑‍💻", "👨‍💻", "👩‍💼", "🧑‍💼", "👨‍💼", "👩‍🔧", "🧑‍🔧", "👨‍🔧", "👩‍🔬", "🧑‍🔬", "👨‍🔬", "👩‍🎨", "🧑‍🎨", "👨‍🎨", "👩‍🚒", "🧑‍🚒", "👨‍🚒", "👩‍✈️", "🧑‍✈️", "👨‍✈️", "👩‍🚀", "🧑‍🚀", "👨‍🚀", "👩‍⚖️", "🧑‍⚖️", "👨‍⚖️", "👰‍♀️", "👰", "👰‍♂️", "🤵‍♀️", "🤵", "🤵‍♂️", "👸", "🤴", "🥷", "🦸‍♀️", "🦸", "🦸‍♂️", "🦹‍♀️", "🦹", "🦹‍♂️", "🤶", "🧑‍🎄", "🎅", "🧙‍♀️", "🧙", "🧙‍♂️", "🧝‍♀️", "🧝", "🧝‍♂️", "🧛‍♀️", "🧛", "🧛‍♂️", "🧟‍♀️", "🧟", "🧟‍♂️", "🧞‍♀️", "🧞", "🧞‍♂️", "🧜‍♀️", "🧜", "🧜‍♂️", "🧚‍♀️", "🧚", "🧚‍♂️", "👼", "🤰", "🫄", "🫃", "🤱", "👩‍🍼", "🧑‍🍼", "👨‍🍼", "🙇‍♀️", "🙇", "🙇‍♂️", "💁‍♀️", "💁", "💁‍♂️", "🙅‍♀️", "🙅", "🙅‍♂️", "🙆‍♀️", "🙆", "🙆‍♂️", "🙋‍♀️", "🙋", "🙋‍♂️", "🧏‍♀️", "🧏", "🧏‍♂️", "🤦‍♀️", "🤦", "🤦‍♂️", "🤷‍♀️", "🤷", "🤷‍♂️", "🙎‍♀️", "🙎", "🙎‍♂️", "🙍‍♀️", "🙍", "🙍‍♂️", "💇‍♀️", "💇", "💇‍♂️", "💆‍♀️", "💆", "💆‍♂️", "🧖‍♀️", "🧖", "🧖‍♂️", "💃", "🕺", "👯‍♀️", "👯", "👯‍♂️", "🚶‍♀️", "🚶", "🚶‍♂️", "🏃‍♀️", "🏃", "🏃‍♂️", "🧎‍♀️", "🧎", "🧎‍♂️", "🧍‍♀️", "🧍", "🧍‍♂️", "🧑‍🦯", "👨‍🦯", "👩‍🦼", "🧑‍🦼", "👨‍🦼", "👩‍🦽", "🧑‍🦽", "👨‍🦽", "🧑‍🤝‍🧑", "👭", "👫", "👬", "💏", "💑", "👨‍👩‍👦", "👨‍👩‍👧", "👨‍👩‍👧‍👦", "👨‍👩‍👦‍👦", "👨‍👩‍👧‍👧", "👤", "👥", "🫂"
                 )
             ),
             EmojiCategory(
@@ -239,23 +204,7 @@ fun RevampedEmojiLayout(
                 name = "Animals & Nature",
                 icon = Icons.Default.Pets,
                 emojis = listOf(
-                    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐻‍❄️", "🐨",
-                    "🐯", "🦁", "🐮", "🐷", "🐽", "🐸", "🐵", "🙈", "🙉", "🙊",
-                    "🐒", "🐔", "🐧", "🐦", "🐤", "🐣", "🐥", "🦆", "🦅", "🦉",
-                    "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🪱", "🐛", "🦋", "🐌",
-                    "🐞", "🐜", "🪰", "🪲", "🪳", "🦂", "🕷️", "🕸️", "🐢", "🐍",
-                    "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡", "🐠",
-                    "🐟", "🐬", "🐳", "🐋", "🦈", "🦭", "🐊", "🐅", "🐆", "🦓",
-                    "🦍", "🦧", "🦣", "🐘", "🦛", "🦏", "🐪", "🐫", "🦒", "🦘",
-                    "🦬", "🐃", "🐂", "🐄", "🐎", "🐖", "🐏", "🐑", "🦙", "🐐",
-                    "🦌", "🐕", "🐩", "🦮", "🐕‍🦺", "🐈", "🐈‍⬛", "🪶", "🐓", "🦃",
-                    "🦤", "🦚", "🦜", "🦢", "🦩", "🕊️", "🐇", "🦝", "🦨", "🦡",
-                    "🦫", "🦦", "🦥", "🐁", "🐀", "🐿️", "🦔", "🐾", "🐉", "🐲",
-                    "🌵", "🎄", "🌲", "🌳", "🌴", "🪵", "🌱", "🌿", "☘️", "🍀",
-                    "🎍", "🪴", "🎋", "🍃", "🍂", "🍁", "🍄", "🐚", "🪨", "🌾",
-                    "💐", "🌷", "🌹", "🥀", "🪷", "🌺", "🌸", "🌼", "🌻", "☀️",
-                    "🌤️", "⛅️", "🌥️", "☁️", "🌦️", "🌧️", "⛈️", "🌩️", "🌨️", "❄️",
-                    "☃️", "⛄️", "🌬️", "💨", "🌪️", "🌫️", "🌈", "🔥", "💧", "🌊"
+                    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐻‍❄️", "🐨", "🐯", "🦁", "🐮", "🐷", "🐽", "🐸", "🐵", "🐒", "🦍", "🦧", "🐕", "🦮", "🐕‍🦺", "🐩", "🐺", "🦝", "🐈", "🐈‍⬛", "🐆", "🐴", "🐎", "🦄", "🦓", "🦌", "🦬", "🐂", "🐃", "🐄", "🐖", "🐗", "🐏", "🐑", "🐐", "🐪", "🐫", "🦙", "🦒", "🐘", "🦣", "🦏", "🦛", "🐁", "🐀", "🐿️", "🦫", "🦔", "🦇", "🦥", "🦦", "🦨", "🦘", "🦡", "🐾", "🦃", "🐔", "🐓", "🐣", "🐤", "🐥", "🐦", "🐧", "🕊️", "🦅", "🦆", "🦢", "🦉", "🦤", "🪶", "🦩", "🦚", "🦜", "🐊", "🐢", "🦎", "🐍", "🐲", "🐉", "🦕", "🦖", "🐳", "🐋", "🐬", "🦭", "🐟", "🐠", "🐡", "🦈", "🐙", "🐚", "🪸", "🐌", "🦋", "🐛", "🐜", "🐝", "🪲", "🐞", "🦗", "🪳", "🕷️", "🕸️", "🦂", "🦟", "🪰", "🪱", "🦠", "💐", "🌸", "💮", "🪷", "🏵️", "🌹", "🥀", "🌺", "🌻", "🌼", "🌷", "🪻", "🌱", "🪴", "🌲", "🌳", "🌴", "🌵", "🌾", "🌿", "☘️", "🍀", "🍁", "🍂", "🍃", "🍄", "🌰", "🦀", "🦞", "🦐", "🦑", "🌍", "🌎", "🌏", "🪐", "🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘", "🌙", "🌚", "🌛", "🌜", "☀️", "🌝", "🌞", "🌟", "⭐️", "🌠", "🌌", "☁️", "⛅", "⛈️", "🌤️", "🌥️", "🌦️", "🌧️", "🌨️", "🌩️", "🌪️", "🌫️", "🌬️", "🌈", "🌂", "☂️", "⚡", "❄️", "☃️", "⛄", "☄️", "🔥", "💧", "🌊"
                 )
             ),
             EmojiCategory(
@@ -263,18 +212,7 @@ fun RevampedEmojiLayout(
                 name = "Food & Drink",
                 icon = Icons.Default.LocalCafe,
                 emojis = listOf(
-                    "🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐",
-                    "🍈", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑",
-                    "🥦", "🥬", "🥒", "🌶️", "🫑", "🌽", "🥕", "🫒", "🧄", "🧅",
-                    "🥔", "🍠", "🫘", "🥐", "🥯", "🍞", "🥖", "🥨", "🧀", "🥚",
-                    "🍳", "🧈", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🦴", "🌭",
-                    "🍔", "🍟", "🍕", "🫓", "🥪", "🥙", "🧆", "🌮", "🌯", "🫔",
-                    "🥗", "🥘", "🫕", "🥫", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱",
-                    "🥟", "🦪", "🍤", "🍙", "🍚", "🍘", "🍢", "🥠", "🥮", "🍧",
-                    "🍨", "🍦", "🥧", "🧁", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫",
-                    "🍿", "🍩", "🍪", "🌰", "🥜", "🍯", "🥛", "🍼", "🫖", "☕️",
-                    "🍵", "🧃", "🥤", "🧋", "🫗", "🍶", "🍾", "🍷", "🍸", "🍹",
-                    "🍺", "🍻", "🥂", "🥃", "🫗", "🥤", "🧊", "🥢", "🍽️", "🍴"
+                    "🍏", "🍎", "🍐", "🍊", "🍋", "🍋‍🟩", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑", "🥦", "🥬", "🥒", "🌶️", "🫑", "🌽", "🥕", "🫒", "🧄", "🧅", "🥔", "🍠", "🫘", "🥐", "🥯", "🍞", "🥖", "🥨", "🧀", "🥚", "🍳", "🧈", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🦴", "🌭", "🍔", "🍟", "🍕", "🫓", "🥪", "🥙", "🧆", "🌮", "🌯", "🫔", "🥗", "🥘", "🫕", "🥫", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟", "🦪", "🍤", "🍙", "🍚", "🍘", "🍢", "🥠", "🥮", "🍧", "🍨", "🍦", "🥧", "🧁", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫", "🍿", "🍩", "🍪", "🌰", "🥜", "🍯", "🥛", "🍼", "🫖", "☕️", "🍵", "🧃", "🥤", "🧋", "🫗", "🍶", "🍾", "🍷", "🍸", "🍹", "🍺", "🍻", "🥂", "🥃", "🧊", "🥢", "🍽️", "🍴", "🥄", "🔪", "🏺"
                 )
             ),
             EmojiCategory(
@@ -282,16 +220,7 @@ fun RevampedEmojiLayout(
                 name = "Travel & Places",
                 icon = Icons.Default.DirectionsCar,
                 emojis = listOf(
-                    "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐",
-                    "🛻", "🚚", "🚛", "🚜", "🛵", "🏍️", "🛺", "🚲", "🛴", "🛹",
-                    "🛼", "🚏", "🛣️", "🛤️", "⛽️", "🛞", "🚨", "🚥", "🚦", "🚧",
-                    "⚓️", "⛵️", "🛶", "🚤", "🛳️", "⛴️", "🛥️", "🚢", "✈️", "🛩️",
-                    "🛫", "🛬", "🪂", "💺", "🚁", "🚟", "🚠", "🚡", "🛰️", "🚀",
-                    "🛸", "🪐", "🌠", "🌌", "🏖️", "🏝️", "🏜️", "🏕️", "🏞️", "🏟️",
-                    "🏛️", "🏗️", "🧱", "🏘️", "🏚️", "🏠", "🏡", "🏢", "🏣", "🏤",
-                    "🏥", "🏦", "🏨", "🏩", "🏪", "🏫", "🏬", "🏭", "🏯", "🏰",
-                    "💒", "🗼", "🗽", "⛪️", "🕌", "🛕", "🕍", "⛩️", "🕋", "⛲️",
-                    "⛺️", "🌁", "🌃", "🏙️", "🌄", "🌅", "🌆", "🌇", "🌉", "♨️"
+                    "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐", "🛻", "🚚", "🚛", "🚜", "🛵", "🏍️", "🛺", "🚲", "🛴", "🛹", "🛼", "🚏", "🛣️", "🛤️", "⛽️", "🛞", "🚨", "🚥", "🚦", "🛑", "🚧", "⚓️", "⛵️", "🛶", "🚤", "🛳️", "⛴️", "🛥️", "🚢", "✈️", "🛩️", "🛫", "🛬", "🪂", "💺", "🚁", "🚟", "🚠", "🚡", "🛰️", "🚀", "🛸", "🪐", "🌠", "🌌", "🏖️", "🏝️", "🏜️", "🏕️", "🏞️", "🏟️", "🏛️", "🏗️", "🧱", "🏘️", "🏚️", "🏠", "🏡", "🏢", "🏣", "🏤", "🏥", "🏦", "🏨", "🏩", "🏪", "🏫", "🏬", "🏭", "🏯", "🏰", "💒", "🗼", "🗽", "⛪️", "🕌", "🛕", "🕍", "⛩️", "🕋", "⛲️", "⛺️", "🌁", "🌃", "🏙️", "🌄", "🌅", "🌆", "🌇", "🌉", "♨️", "🎡", "🎢", "💈", "🎪", "🚂", "🚃", "🚄", "🚅", "🚆", "🚇", "🚈", "🚉", "🚊", "🚝", "🚞", "🚋", "🚍"
                 )
             ),
             EmojiCategory(
@@ -299,18 +228,7 @@ fun RevampedEmojiLayout(
                 name = "Activities & Events",
                 icon = Icons.Default.EmojiEvents,
                 emojis = listOf(
-                    "⚽️", "🏀", "🏈", "⚾️", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱",
-                    "🪀", "🏓", "🏸", "🏒", "🏑", "🥍", "🏏", "🪃", "🥅", "⛳️",
-                    "🪁", "🏹", "🎣", "🤿", "🥊", "🥋", "🎽", "🛹", "🛼", "🛷",
-                    "⛸️", "🥌", "🎿", "⛷️", "🏂", "🪂", "🏋️‍♀️", "🏋️", "🏋️‍♂️", "🤼‍♀️",
-                    "🤼", "🤼‍♂️", "🤸‍♀️", "🤸", "🤸‍♂️", "⛹️‍♀️", "⛹️", "⛹️‍♂️", "🤺", "🤾‍♀️",
-                    "🤾", "🤾‍♂️", "🏌️‍♀️", "🏌️", "🏌️‍♂️", "🏇", "🧘‍♀️", "🧘", "🧘‍♂️", "🏄‍♀️",
-                    "🏄", "🏄‍♂️", "🏊‍♀️", "🏊", "🏊‍♂️", "🤽‍♀️", "🤽", "🤽‍♂️", "🚣‍♀️", "🚣",
-                    "🚣‍♂️", "🧗‍♀️", "🧗", "🧗‍♂️", "🚵‍♀️", "🚵", "🚵‍♂️", "🚴‍♀️", "🚴", "🚴‍♂️",
-                    "🏆", "🥇", "🥈", "🥉", "🏅", "🎖️", "🏵️", "🎗️", "🎫", "🎟️",
-                    "🎪", "🤹‍♀️", "🤹", "🤹‍♂️", "🎭", "🩰", "🎨", "🎬", "🎤", "🎧",
-                    "🎼", "🎹", "🥁", "🪘", "🎷", "🎺", "🪗", "🎸", "🪕", "🎻",
-                    "🎲", "♟️", "🎯", "🎳", "🎮", "🎰", "🧩", "🎳", "🎉", "🎊"
+                    "⚽️", "🏀", "🏈", "⚾️", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱", "🪀", "🏓", "🏸", "🏒", "🏑", "🥍", "🏏", "🪃", "🥅", "⛳️", "🪁", "🏹", "🎣", "🤿", "🥊", "🥋", "🎽", "🛹", "🛼", "🛷", "⛸️", "🥌", "🎿", "⛷️", "🏂", "🪂", "🏋️‍♀️", "🏋️", "🏋️‍♂️", "🤼‍♀️", "🤼", "🤼‍♂️", "🤸‍♀️", "🤸", "🤸‍♂️", "⛹️‍♀️", "⛹️", "⛹️‍♂️", "🤺", "🤾‍♀️", "🤾", "🤾‍♂️", "🏌️‍♀️", "🏌️", "🏌️‍♂️", "🏇", "🧘‍♀️", "🧘", "🧘‍♂️", "🏄‍♀️", "🏄", "🏄‍♂️", "🏊‍♀️", "🏊", "🏊‍♂️", "🤽‍♀️", "🤽", "🤽‍♂️", "🚣‍♀️", "🚣", "🚣‍♂️", "🧗‍♀️", "🧗", "🧗‍♂️", "🚵‍♀️", "🚵", "🚵‍♂️", "🚴‍♀️", "🚴", "🚴‍♂️", "🏆", "🥇", "🥈", "🥉", "🏅", "🎖️", "🏵️", "🎗️", "🎫", "🎟️", "🎪", "🤹‍♀️", "🤹", "🤹‍♂️", "🎭", "🩰", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹", "🥁", "🪘", "🎷", "🎺", "🪗", "🎸", "🪕", "🎻", "🎲", "♟️", "🎯", "🎳", "🎮", "🎰", "🧩", "🎉", "🎊", "🪅", "🪩", "🪄", "🪆"
                 )
             ),
             EmojiCategory(
@@ -318,24 +236,7 @@ fun RevampedEmojiLayout(
                 name = "Objects & Tools",
                 icon = Icons.Default.Lightbulb,
                 emojis = listOf(
-                    "📱", "📲", "☎️", "📞", "📟", "📠", "🔋", "🪫", "🔌", "💻",
-                    "🖥️", "🖨️", "⌨️", "🖱️", "🖲️", "💽", "💾", "💿", "📀", "🧮",
-                    "🎥", "🎞️", "📽️", "🎬", "📺", "📷", "📸", "📹", "📼", "🔍",
-                    "🔎", "🕯️", "💡", "🔦", "🏮", "🪔", "📔", "📕", "📖", "📗",
-                    "📘", "📙", "📚", "📓", "📒", "📃", "📜", "📄", "📰", "🗞️",
-                    "📑", "🔖", "🏷️", "💰", "🪙", "💴", "💵", "💶", "💷", "💸",
-                    "💳", "🧾", "✉️", "📧", "📨", "📩", "📤", "📥", "📦", "📫",
-                    "📪", "📬", "📭", "📮", "🗳️", "✏️", "✒️", "🖋️", "🖊️", "🖌️",
-                    "🖍️", "📝", "💼", "📁", "📂", "🗂️", "📅", "📆", "🗒️", "🗓️",
-                    "📇", "📈", "📉", "📊", "📋", "📌", "📍", "📎", "🖇️", "📏",
-                    "📐", "✂️", "🗃️", "🗄️", "🗑️", "🔒", "🔓", "🔏", "🔐", "🔑",
-                    "🗝️", "🔨", "🪓", "⛏️", "⚒️", "🛠️", "🗡️", "⚔️", "💣", "🪃",
-                    "🏹", "🛡️", "🪚", "🔧", "🪛", "🔩", "⚙️", "🗜️", "⚖️", "🦯",
-                    "🔗", "⛓️", "🪝", "🧰", "🧲", "🪜", "⚗️", "🧪", "🧫", "🧬",
-                    "🔬", "🔭", "📡", "💉", "🩸", "💊", "🩹", "🩼", "🩺", "🩻",
-                    "🚪", "🛗", "🪞", "🪟", "🛏️", "🛋️", "🪑", "🚽", "🪠", "🚿",
-                    "🛁", "🪤", "🪒", "🧴", "🧷", "🧹", "🧺", "🧻", "🪣", "🧼",
-                    "🫧", "🪥", "🧽", "🧯", "🛒", "🚬", "⚰️", "🪦", "⚱️", "🧿"
+                    "📱", "📲", "☎️", "📞", "📟", "📠", "🔋", "🪫", "🔌", "💻", "🖥️", "🖨️", "⌨️", "🖱️", "🖲️", "💽", "💾", "💿", "📀", "🧮", "🎥", "🎞️", "📽️", "🎬", "📺", "📷", "📸", "📹", "📼", "🔍", "🔎", "🕯️", "💡", "🔦", "🏮", "🪔", "📔", "📕", "📖", "📗", "📘", "📙", "📚", "📓", "📒", "📃", "📜", "📄", "📰", "🗞️", "📑", "🔖", "🏷️", "💰", "🪙", "💴", "💵", "💶", "💷", "💸", "💳", "🧾", "✉️", "📧", "📨", "📩", "📤", "📥", "📦", "📫", "📪", "📬", "📭", "📮", "🗳️", "✏️", "✒️", "🖋️", "🖊️", "🖌️", "🖍️", "📝", "💼", "📁", "📂", "🗂️", "📅", "📆", "🗒️", "🗓️", "📇", "📈", "📉", "📊", "📋", "📌", "📍", "📎", "🖇️", "📏", "📐", "✂️", "🗃️", "🗄️", "🗑️", "🔒", "🔓", "🔏", "🔐", "🔑", "🗝️", "🔨", "🪓", "⛏️", "⚒️", "🛠️", "🗡️", "⚔️", "💣", "🪃", "🏹", "🛡️", "🪚", "🔧", "🪛", "🔩", "⚙️", "🗜️", "⚖️", "🦯", "🔗", "⛓️", "🪝", "🧰", "🧲", "🪜", "⚗️", "🧪", "🧫", "🧬", "🔬", "🔭", "📡", "💉", "🩸", "💊", "🩹", "🩼", "🩺", "🩻", "🚪", "🛗", "🪞", "🪟", "🛏️", "🛋️", "🪑", "🚽", "🪠", "🚿", "🛁", "🪤", "🪒", "🧴", "🧷", "🧹", "🧺", "🧻", "🪣", "🧼", "🫧", "🪥", "🧽", "🧯", "🛒", "🚬", "⚰️", "🪦", "⚱️", "🧿", "🪭", "🪮", "🪡", "🧵", "🧶", "🪢", "👓", "🕶️", "🥽", "🥼", "🦺", "👔", "👕", "👖", "🧣", "🧤", "🧥", "🧦", "👗", "👘", "🥻", "🩱", "🩲", "🩳", "👙", "👚", "👛", "👜", "👝", "🛍️", "🎒", "👞", "👟", "🥾", "🥿", "👠", "👡", "🩰", "👢", "👑", "👒", "🎩", "🎓", "🧢", "🪖", "⛑️", "📿", "💄", "💍", "💎"
                 )
             ),
             EmojiCategory(
@@ -343,20 +244,7 @@ fun RevampedEmojiLayout(
                 name = "Symbols & Hearts",
                 icon = Icons.Default.Favorite,
                 emojis = listOf(
-                    "💘", "💝", "💖", "💗", "💓", "💞", "💕", "💟", "❣️", "💔",
-                    "❤️‍🔥", "❤️‍🩹", "❤️", "🩷", "🧡", "💛", "💚", "💙", "🩵", "💜",
-                    "🤎", "🖤", "🩶", "🤍", "💯", "💢", "💥", "💫", "💦", "💨",
-                    "🕳️", "💬", "👁️‍🗨️", "🗨️", "🗯️", "💭", "💤", "🌐", "♨️", "🛑",
-                    "🚷", "🚯", "🚳", "🚱", "🔞", "📵", "🚭", "❗", "❕", "❓",
-                    "❔", "‼️", "⁉️", "🔅", "🔆", "〽️", "⚠️", "🚸", "🔱", "⚜️",
-                    "🔰", "♻️", "✅", "🈯️", "💹", "❇️", "✳️", "❎", "🌐", "💠",
-                    "Ⓜ️", "🌀", "💤", "🏧", "🚾", "♿️", "🅿️", "🛗", "🈳", "🈂️",
-                    "🛂", "🛃", "🛄", "🛅", "🚹", "🚺", "🚼", "⚧️", "🚻", "🚮",
-                    "🎦", "📶", "🈹", "🈴", "🈺", "🉐", "🈹", "🈚️", "🈲", "🈸",
-                    "🈴", "🈲", "㊗️", "㊙️", "🈑", "🈵", "🔴", "🟠", "🟡", "🟢",
-                    "🔵", "🟣", "🟤", "⚫️", "⚪️", "🟥", "🟧", "🟨", "🟩", "🟦",
-                    "🟪", "🟫", "⬛️", "⬜️", "◼️", "◻️", "◾️", "◽️", "▪️", "▫️",
-                    "🔶", "🔷", "🔸", "🔹", "🔺", "🔻", "💠", "🔘", "🔳", "🔲"
+                    "💘", "💝", "💖", "💗", "💓", "💞", "💕", "💟", "❣️", "💔", "❤️‍🔥", "❤️‍🩹", "❤️", "🩷", "🧡", "💛", "💚", "💙", "🩵", "💜", "🤎", "🖤", "🩶", "🤍", "💯", "💢", "💥", "💫", "💦", "💨", "🕳️", "💬", "👁️‍🗨️", "🗨️", "🗯️", "💭", "💤", "🌐", "♨️", "🛑", "🚷", "🚯", "🚳", "🚱", "🔞", "📵", "🚭", "❗", "❕", "❓", "❔", "‼️", "⁉️", "🔅", "🔆", "〽️", "⚠️", "🚸", "🔱", "⚜️", "🔰", "♻️", "✅", "🈯️", "💹", "❇️", "✳️", "❎", "💠", "Ⓜ️", "🌀", "🏧", "🚾", "♿️", "🅿️", "🛗", "🈳", "🈂️", "🛂", "🛃", "🛄", "🛅", "🚹", "🚺", "🚼", "⚧️", "🚻", "🚮", "🎦", "📶", "🈹", "🈴", "🈺", "🉐", "🈚️", "🈲", "🈸", "㊗️", "㊙️", "🈑", "🈵", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫️", "⚪️", "🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "🟫", "⬛️", "⬜️", "◼️", "◻️", "◾️", "◽️", "▪️", "▫️", "🔶", "🔷", "🔸", "🔹", "🔺", "🔻", "🔘", "🔳", "🔲", "🕛", "🕧", "🕐", "🕜", "🕑", "🕝", "🕒", "🕞", "🕓", "🕟", "🕔", "🕠", "🕕", "🕡", "🕖", "🕢", "🕗", "🕣", "🕘", "🕤", "🕙", "🕥", "🕚", "🕦", "⌛", "⏳", "⏰", "⏱️", "⏲️", "🕰️", "⚛️", "🕉️", "✡️", "☸️", "☯️", "✝️", "☦️", "☪️", "☮️", "🕎", "🔯", "♈", "♉", "♊", "♋", "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓", "⛎", "🔀", "🔁", "🔂", "▶️", "⏩", "⏭️", "⏯️", "◀️", "⏪", "⏮️", "🔼", "⏫", "🔽", "⏬", "⏸️", "⏹️", "⏺️", "⏏️", "🎛️", "🎚️", "🎙️", "🔈", "🔉", "🔊", "🔇", "📣", "📢", "🔔", "🔕", "🎵", "🎶", "➕", "➖", "➗", "✖️", "🟰", "♾️", "💲", "💱", "™️", "©️", "®️", "〰️", "➰", "➿", "🔚", "🔙", "🔛", "🔝", "🔜", "✔️", "☑️", "🔗"
                 )
             ),
             EmojiCategory(
@@ -364,9 +252,7 @@ fun RevampedEmojiLayout(
                 name = "Flags",
                 icon = Icons.Default.EmojiFlags,
                 emojis = listOf(
-                    "🏁", "🚩", "🎌", "🏴", "🏳️", "🏳️‍🌈", "🏳️‍⚧️", "🏴‍☠️", "🇺🇸", "🇬🇧",
-                    "🇨🇦", "🇦🇺", "🇩🇪", "🇫🇷", "🇯🇵", "🇮🇳", "🇮🇹", "🇪🇸", "🇧🇷", "🇲🇽",
-                    "🇰🇷", "🇨🇳", "🇷🇺", "🇿🇦", "🇸🇬", "🇳🇿", "🇨🇭", "🇳🇱", "🇸🇪", "🇳🇴"
+                    "🏁", "🚩", "🎌", "🏴", "🏳️", "🏳️‍🌈", "🏳️‍⚧️", "🏴‍☠️", "🇦🇫", "🇦🇽", "🇦🇱", "🇩🇿", "🇦🇸", "🇦🇩", "🇦🇴", "🇦🇮", "🇦🇶", "🇦🇬", "🇦🇷", "🇦🇲", "🇦🇼", "🇦🇺", "🇦🇹", "🇦🇿", "🇧🇸", "🇧🇭", "🇧🇩", "🇧🇧", "🇧🇾", "🇧🇪", "🇧🇿", "🇧🇯", "🇧🇲", "🇧🇹", "🇧🇴", "🇧🇦", "🇧🇼", "🇧🇷", "🇮🇴", "🇻🇬", "🇧🇳", "🇧🇬", "🇧🇫", "🇧🇮", "🇰🇭", "🇨🇲", "🇨🇦", "🇮🇨", "🇨🇻", "🇧🇶", "🇰🇾", "🇨🇫", "🇹🇩", "🇨🇱", "🇨🇳", "🇨🇽", "🇨🇨", "🇨🇴", "🇰🇲", "🇨🇬", "🇨🇩", "🇨🇰", "🇨🇷", "🇨🇮", "🇭🇷", "🇨🇺", "🇨🇼", "🇨🇾", "🇨🇿", "🇩🇰", "🇩🇯", "🇩🇲", "🇩🇴", "🇪🇨", "🇪🇬", "🇸🇻", "🇬🇶", "🇪🇷", "🇪🇪", "🇸🇿", "🇪🇹", "🇪🇺", "🇫🇰", "🇫🇴", "🇫🇯", "🇫🇮", "🇫🇷", "🇬🇫", "🇵🇫", "🇹🇫", "🇬🇦", "🇬🇲", "🇬🇪", "🇩🇪", "🇬🇭", "🇬🇮", "🇬🇷", "🇬🇱", "🇬🇩", "🇬🇵", "🇬🇺", "🇬🇹", "🇬🇬", "🇬🇳", "🇬🇼", "🇬🇾", "🇭🇹", "🇭🇳", "🇭🇰", "🇭🇺", "🇮🇸", "🇮🇳", "🇮🇩", "🇮🇷", "🇮🇶", "🇮🇪", "🇮🇲", "🇮🇱", "🇮🇹", "🇯🇲", "🇯🇵", "🇯🇪", "🇯🇴", "🇰🇿", "🇰🇪", "🇰🇮", "🇽🇰", "🇰🇼", "🇰🇬", "🇱🇦", "🇱🇻", "🇱🇧", "🇱🇸", "🇱🇷", "🇱🇾", "🇱🇮", "🇱🇹", "🇱🇺", "🇲🇴", "🇲🇬", "🇲🇼", "🇲🇾", "🇲🇻", "🇲🇱", "🇲🇹", "🇲🇭", "🇲🇶", "🇲🇷", "🇲🇺", "🇾🇹", "🇲🇽", "🇫🇲", "🇲🇩", "🇲🇨", "🇲🇳", "🇲🇪", "🇲🇸", "🇲🇦", "🇲🇿", "🇲🇲", "🇳🇦", "🇳🇷", "🇳🇵", "🇳🇱", "🇳🇨", "🇳🇿", "🇳🇮", "🇳🇪", "🇳🇬", "🇳🇺", "🇳🇫", "🇰🇵", "🇲🇰", "🇲🇵", "🇳🇴", "🇴🇲", "🇵🇰", "🇵🇼", "🇵🇸", "🇵🇦", "🇵🇬", "🇵🇾", "🇵🇪", "🇵🇭", "🇵🇳", "🇵🇱", "🇵🇹", "🇵🇷", "🇶🇦", "🇷🇪", "🇷🇴", "🇷🇺", "🇷🇼", "🇼🇸", "🇸🇲", "🇸🇹", "🇸🇦", "🇸🇳", "🇷🇸", "🇸🇨", "🇸🇱", "🇸🇬", "🇸🇽", "🇸🇰", "🇸🇮", "🇬🇸", "🇸🇧", "🇸🇴", "🇿🇦", "🇰🇷", "🇸🇸", "🇪🇸", "🇱🇰", "🇧🇱", "🇸🇭", "🇰🇳", "🇱🇨", "🇵🇲", "🇻🇨", "🇸🇩", "🇸🇷", "🇸🇯", "🇸🇪", "🇨🇭", "🇸🇾", "🇹🇼", "🇹🇯", "🇹🇿", "🇹🇭", "🇹🇱", "🇹🇬", "🇹🇰", "🇹🇴", "🇹🇹", "🇹🇳", "🇹🇷", "🇹🇲", "🇹🇨", "🇹🇻", "🇻🇮", "🇺🇬", "🇺🇦", "🇦🇪", "🇬🇧", "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "🏴󠁧󠁢󠁷󠁬󠁳󠁿", "🇺🇸", "🇺🇾", "🇺🇿", "🇻🇺", "🇻🇦", "🇻🇪", "🇻🇳", "🇼🇫", "🇪🇭", "🇾🇪", "🇿🇲", "🇿🇼"
                 )
             )
         )
@@ -380,79 +266,6 @@ fun RevampedEmojiLayout(
             "(>_<)", "(≧◡≦)", "(•ω•)", "(✿◠‿◠)",
             "(*^▽^*)", "(¬‿¬)", "(ง'̀-'́)ง", "(ಥ_ಥ)",
             "＼(＾O＾)／", "(•ิ_•ิ)", "(づ￣ ³￣)づ", "(•̀o•́)ง"
-        )
-    }
-
-    val gifCategories = remember {
-        listOf("All", "🔥 Trending", "😂 Reactions", "❤️ Love", "🎉 Party", "🤦‍♂️ Oops", "👏 Applause", "💃 Dance", "🐱 Cats", "🧠 Mood", "🚀 Hype")
-    }
-    var selectedGifCategory by remember { mutableStateOf("All") }
-
-    val allGifs = remember {
-        listOf(
-            GifItem("mind_blown", "Mind Blown", "Reactions", "🤯", "🤯 Mind Blown!", listOf("mind blown", "explosion", "shock", "wow", "unbelievable")),
-            GifItem("popcorn", "Here For The Drama", "Trending", "🍿", "🍿 *eats popcorn*", listOf("popcorn", "drama", "watching", "entertaining", "tea")),
-            GifItem("mic_drop", "Mic Drop", "Trending", "🎤", "🎤⬇️ *mic drop*", listOf("mic drop", "done", "winner", "cool", "end of story")),
-            GifItem("cat_jam", "Cat Vibe Jam", "Cats", "🐱", "🐱🎧 *cat nodding to the beat*", listOf("cat", "jam", "music", "vibe", "groove")),
-            GifItem("take_my_money", "Take My Money", "Trending", "💸", "💸 Shut Up and Take My Money!", listOf("money", "buy", "pay", "shut up and take my money", "rich")),
-            GifItem("cheers", "Gatsby Cheers", "Reactions", "🥂", "🥂 Cheers to that!", listOf("cheers", "toast", "leonardo", "champagne", "celebrate")),
-            GifItem("this_is_fine", "This Is Fine", "Trending", "☕", "🔥🐶☕ *this is fine*", listOf("fire", "dog", "fine", "chaos", "this is fine", "okay")),
-            GifItem("facepalm", "Epic Facepalm", "Oops", "🤦‍♂️", "🤦‍♂️ *facepalm*", listOf("facepalm", "smh", "oops", "disbelief", "fail")),
-            GifItem("dancing", "Happy Dance", "Dance", "💃", "💃🕺 *happy dance!*", listOf("dance", "dancing", "happy", "party", "celebration", "groove")),
-            GifItem("applause", "Standing Ovation", "Applause", "👏", "👏👏👏 *applause*", listOf("clap", "applause", "bravo", "good job", "congrats")),
-            GifItem("spiderman", "Spider-Man Pointing", "Trending", "👉", "👉👈 *pointing at each other*", listOf("spiderman", "same", "identical", "twin", "look")),
-            GifItem("deal_with_it", "Deal With It", "Reactions", "😎", "😎 (⌐■_■) Deal with it.", listOf("shades", "cool", "deal with it", "boss", "sunglasses")),
-            GifItem("chefs_kiss", "Chef's Kiss", "Reactions", "🤌", "🤌✨ *chef's kiss - perfection*", listOf("chef", "perfection", "kiss", "food", "delicious")),
-            GifItem("thinking_brain", "Big Brain Move", "Mood", "🧠", "🧠👈 *big brain move*", listOf("think", "smart", "galaxy brain", "idea", "iq")),
-            GifItem("party", "Party Confetti", "Party", "🎉", "🎉🥳 Let's Celebrate! 🎊", listOf("party", "confetti", "woohoo", "celebrate", "birthday")),
-            GifItem("sending_love", "Sending Warm Hugs", "Love", "🥰", "🥰 Sending big hugs and love! ❤️✨", listOf("hug", "love", "heart", "warm", "care", "affection")),
-            GifItem("shocked", "Surprised Disbelief", "Reactions", "😮", "😮⚡ *shocked disbelief*", listOf("shock", "surprised", "omg", "what", "no way")),
-            GifItem("to_the_moon", "To The Moon!", "Hype", "🚀", "🚀🌕 TO THE MOON!", listOf("rocket", "hype", "lets go", "moon", "stonks")),
-            GifItem("straight_fire", "Straight Fire", "Hype", "🔥", "🔥🔥🔥 This is straight fire!", listOf("fire", "lit", "hot", "amazing", "banger")),
-            GifItem("salute", "Salute of Respect", "Reactions", "🫡", "🫡 *respectful salute*", listOf("salute", "respect", "honor", "yes sir", "o7")),
-            GifItem("happy_tears", "Tears of Joy", "Love", "🥹", "🥹 *so touched, crying happy tears*", listOf("cry", "tears", "joy", "wholesome", "sweet", "grateful")),
-            GifItem("high_five", "Virtual High Five", "Applause", "🙌", "🙌 Virtual High Five! ✋✨", listOf("high five", "teamwork", "slap", "yay", "partner"))
-        )
-    }
-
-    val stickerPacks = remember {
-        listOf(
-            StickerPack(
-                id = "cats",
-                name = "Kawaii Cats & Paws",
-                icon = "🐱",
-                stickers = listOf(
-                    "(=^･ω･^=)", "(=^-ω-^=)", "(=^･ｪ･^=)", "(=ＴェＴ=)",
-                    "(ﾉ*ФωФ)ﾉ", "(=ｘェｘ=)", "ଲ(ⓛ ω ⓛ)ଲ", "(ง •̀_•́)ง 🐾"
-                )
-            ),
-            StickerPack(
-                id = "teddy",
-                name = "Teddy Bear & Friends",
-                icon = "🐻",
-                stickers = listOf(
-                    "ʕ•ᴥ•ʔ", "ʕっ•ᴥ•ʔっ", "ʕง•ᴥ•ʔง", "ʕʘ̅͜ʘ̅ʔ",
-                    "ʕノ)ᴥ(ヾʔ", "ʕ≧ᴥ≦ʔ", "ʕ•̫͡•ʔ", "(｡･(ｴ)･｡)"
-                )
-            ),
-            StickerPack(
-                id = "sparkle",
-                name = "Anime & Sparkles",
-                icon = "✨",
-                stickers = listOf(
-                    "(✿◠‿◠)", "(◕‿◕✿)", "(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧", "(づ｡◕‿‿◕｡)づ",
-                    "(☆ω☆)", "(´｡• ᵕ •｡`)", "(*¯ ³¯*)♡", "(๑>ᴗ<๑)"
-                )
-            ),
-            StickerPack(
-                id = "action",
-                name = "Action & Memes",
-                icon = "💥",
-                stickers = listOf(
-                    "(╯°□°)╯︵ ┻━┻", "┬─┬ノ( º _ ºノ)", "(ง'̀-'́)ง",
-                    "(ノಠ益ಠ)ノ彡┻━┻", "(ง •̀_•́)ง", "¯\\_(ツ)_/¯"
-                )
-            )
         )
     }
 
@@ -473,175 +286,416 @@ fun RevampedEmojiLayout(
         if (searchQuery.isBlank()) emptyList()
         else {
             val q = searchQuery.lowercase().trim()
-            allCategories.flatMap { it.emojis }.distinct().filter { emoji ->
+            val semanticMatches = EmojiWordMapper.getEmojisForText(q)
+            val categoryMatches = allCategories.flatMap { it.emojis }.distinct().filter { emoji ->
                 emoji.contains(q) || matchEmojiKeyword(emoji, q)
             }
+            (semanticMatches + categoryMatches).distinct()
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Transparent)
-    ) {
-        // ==========================================
-        // 1. TOP BAR (Back + Search + Category Row)
-        // ==========================================
-        Row(
+    if (isSearchActive) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxSize()
+                .background(Color.Transparent)
         ) {
-            // Circle Back Arrow Button (matches screenshot)
-            Box(
+            // 1. TOP BAR: Back Arrow + Search Bar
+            Row(
                 modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(textColor.copy(alpha = 0.10f))
-                    .clickable { onEmojiToggle() }
-                    .testTag("emoji_top_back_button"),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back to Keyboard",
-                    tint = textColor,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            // Pill-shaped Search Bar
-            Box(
-                modifier = Modifier
-                    .weight(if (isSearchActive) 1f else 0.85f)
-                    .height(34.dp)
-                    .clip(RoundedCornerShape(17.dp))
-                    .background(textColor.copy(alpha = 0.12f))
-                    .clickable { isSearchActive = true }
-                    .padding(horizontal = 10.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                // Back arrow to exit search
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(textColor.copy(alpha = 0.10f))
+                        .clickable {
+                            isSearchActive = false
+                            searchQuery = ""
+                        }
+                        .testTag("emoji_search_back_button"),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = textColor.copy(alpha = 0.70f),
-                        modifier = Modifier.size(16.dp)
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Exit search",
+                        tint = textColor,
+                        modifier = Modifier.size(18.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    if (isSearchActive) {
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            singleLine = true,
-                            textStyle = LocalTextStyle.current.copy(
-                                color = textColor,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Normal
-                            ),
-                            cursorBrush = SolidColor(accentColor),
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Search Bar Pill
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(34.dp)
+                        .clip(RoundedCornerShape(17.dp))
+                        .background(textColor.copy(alpha = 0.12f))
+                        .padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = accentColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        val searchPlaceholder = when (currentSubTab) {
+                            EmojiSubTab.GIF -> "Search GIFs..."
+                            EmojiSubTab.STICKERS -> "Search stickers..."
+                            EmojiSubTab.KAOMOJI -> "Search kaomoji..."
+                            else -> "Search emojis..."
+                        }
+                        Text(
+                            text = if (searchQuery.isEmpty()) searchPlaceholder else searchQuery,
+                            color = if (searchQuery.isEmpty()) textColor.copy(alpha = 0.50f) else textColor,
+                            fontSize = 13.5.sp,
+                            fontWeight = if (searchQuery.isEmpty()) FontWeight.Normal else FontWeight.Medium,
                             modifier = Modifier.weight(1f)
                         )
                         if (searchQuery.isNotEmpty()) {
                             IconButton(
                                 onClick = { searchQuery = "" },
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(24.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Clear,
                                     contentDescription = "Clear",
-                                    tint = textColor.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(14.dp)
+                                    tint = textColor.copy(alpha = 0.60f),
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
-                    } else {
-                        Text(
-                            text = "Search",
-                            color = textColor.copy(alpha = 0.60f),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Normal
-                        )
                     }
                 }
             }
 
-            // Category Navigation Icons Row (Clock, Smile, People, Pets, Cup, Car...)
-            if (!isSearchActive) {
+            // 2. ROW OF ITEMS (GIF/Sticker Category chips or Emoji search results)
+            if (currentSubTab == EmojiSubTab.GIF || currentSubTab == EmojiSubTab.STICKERS) {
+                val categories = if (currentSubTab == EmojiSubTab.GIF) GiphyGifCategories else GiphyStickerCategories
+                val selectedCat = if (currentSubTab == EmojiSubTab.GIF) selectedGifCategory else selectedStickerCategory
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(textColor.copy(alpha = 0.04f))
+                        .padding(horizontal = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    items(categories.size) { index ->
+                        val cat = categories[index]
+                        val isSelected = cat == selectedCat && searchQuery.isEmpty()
+                        Box(
+                            modifier = Modifier
+                                .height(32.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(
+                                    if (isSelected) accentColor.copy(alpha = 0.25f)
+                                    else textColor.copy(alpha = 0.10f)
+                                )
+                                .clickable {
+                                    if (currentSubTab == EmojiSubTab.GIF) selectedGifCategory = cat
+                                    else selectedStickerCategory = cat
+                                    searchQuery = ""
+                                    isSearchActive = false
+                                }
+                                .padding(horizontal = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = cat,
+                                color = if (isSelected) accentColor else textColor,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            } else {
+                val rowEmojis = if (searchQuery.isNotBlank()) searchResults else recentEmojis
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(textColor.copy(alpha = 0.04f))
+                        .padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (rowEmojis.isEmpty() && searchQuery.isNotBlank()) {
+                        Text(
+                            text = "No emojis found for \"$searchQuery\"",
+                            color = textColor.copy(alpha = 0.55f),
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    } else {
+                        LazyRow(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            contentPadding = PaddingValues(horizontal = 6.dp)
+                        ) {
+                            items(rowEmojis) { emoji ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(textColor.copy(alpha = 0.08f))
+                                        .clickable { onEmojiTapped(emoji) }
+                                        .testTag("search_emoji_item_$emoji"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = emoji,
+                                        fontSize = 22.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. KEYBOARD to type search queries
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                EmojiSearchKeyboard(
+                    keyColor = keyColor,
+                    textColor = textColor,
+                    accentColor = accentColor,
+                    onKeyClick = { char ->
+                        searchQuery += char
+                    },
+                    onBackspace = {
+                        if (searchQuery.isNotEmpty()) {
+                            searchQuery = searchQuery.dropLast(1)
+                        } else {
+                            onDelete()
+                        }
+                    },
+                    onSpace = {
+                        searchQuery += " "
+                    },
+                    onCloseSearch = {
+                        isSearchActive = false
+                    }
+                )
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Transparent)
+        ) {
+            // ==========================================
+            // 1. TOP BAR (Back + Search + Category Row)
+            // ==========================================
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Circle Back Arrow Button (matches screenshot)
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(textColor.copy(alpha = 0.10f))
+                        .clickable { onEmojiToggle() }
+                        .testTag("emoji_top_back_button"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back to Keyboard",
+                        tint = textColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Pill-shaped Search Bar
+                val searchPlaceholder = when (currentSubTab) {
+                    EmojiSubTab.GIF -> "Search GIFs"
+                    EmojiSubTab.STICKERS -> "Search stickers"
+                    EmojiSubTab.KAOMOJI -> "Search kaomoji"
+                    else -> "Search"
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(0.85f)
+                        .height(34.dp)
+                        .clip(RoundedCornerShape(17.dp))
+                        .background(textColor.copy(alpha = 0.12f))
+                        .clickable { isSearchActive = true }
+                        .padding(horizontal = 10.dp)
+                        .testTag("emoji_search_pill"),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = textColor.copy(alpha = 0.70f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (searchQuery.isNotEmpty()) searchQuery else searchPlaceholder,
+                            color = if (searchQuery.isNotEmpty()) textColor else textColor.copy(alpha = 0.60f),
+                            fontSize = 12.5.sp,
+                            fontWeight = if (searchQuery.isNotEmpty()) FontWeight.Medium else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (searchQuery.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .clickable { searchQuery = "" },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear search",
+                                    tint = textColor.copy(alpha = 0.70f),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Category Navigation Icons Row (Dynamic: GIFs / Stickers / Emojis)
                 Spacer(modifier = Modifier.width(4.dp))
                 LazyRow(
                     modifier = Modifier.weight(1.15f),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(allCategories.size) { index ->
-                        val category = allCategories[index]
-                        val isSelected = index == selectedCategoryIndex && currentSubTab == EmojiSubTab.EMOJI
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (isSelected) textColor.copy(alpha = 0.22f)
-                                    else Color.Transparent
-                                )
-                                .clickable {
-                                    currentSubTab = EmojiSubTab.EMOJI
-                                    selectedCategoryIndex = index
-                                    isSearchActive = false
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = category.icon,
-                                contentDescription = category.name,
-                                tint = if (isSelected) textColor else textColor.copy(alpha = 0.65f),
-                                modifier = Modifier.size(18.dp)
-                            )
+                    when (currentSubTab) {
+                        EmojiSubTab.GIF -> {
+                            items(GiphyGifCategories.size) { index ->
+                                val category = GiphyGifCategories[index]
+                                val isSelected = category == selectedGifCategory && searchQuery.isEmpty()
+                                Box(
+                                    modifier = Modifier
+                                        .height(30.dp)
+                                        .clip(RoundedCornerShape(15.dp))
+                                        .background(
+                                            if (isSelected) accentColor.copy(alpha = 0.25f)
+                                            else textColor.copy(alpha = 0.08f)
+                                        )
+                                        .clickable {
+                                            selectedGifCategory = category
+                                            searchQuery = ""
+                                        }
+                                        .padding(horizontal = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = category,
+                                        color = if (isSelected) accentColor else textColor.copy(alpha = 0.85f),
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                            }
                         }
-                    }
-                }
-            }
-        }
-
-        // =========================================================
-        // 2. MAIN CONTENT AREA (Emoji Kitchen, Grid, Search, or Tabs)
-        // =========================================================
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 4.dp)
-        ) {
-            when {
-                // Search Active View
-                isSearchActive && searchQuery.isNotEmpty() -> {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        Text(
-                            text = "Search Results (${searchResults.size})",
-                            color = textColor.copy(alpha = 0.65f),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 4.dp)
-                        )
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(8),
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            items(searchResults) { emoji ->
-                                EmojiGridTile(emoji = emoji, textColor = textColor, onKeyClick = onEmojiTapped)
+                        EmojiSubTab.STICKERS -> {
+                            items(GiphyStickerCategories.size) { index ->
+                                val category = GiphyStickerCategories[index]
+                                val isSelected = category == selectedStickerCategory && searchQuery.isEmpty()
+                                Box(
+                                    modifier = Modifier
+                                        .height(30.dp)
+                                        .clip(RoundedCornerShape(15.dp))
+                                        .background(
+                                            if (isSelected) accentColor.copy(alpha = 0.25f)
+                                            else textColor.copy(alpha = 0.08f)
+                                        )
+                                        .clickable {
+                                            selectedStickerCategory = category
+                                            searchQuery = ""
+                                        }
+                                        .padding(horizontal = 10.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = category,
+                                        color = if (isSelected) accentColor else textColor.copy(alpha = 0.85f),
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                        else -> {
+                            items(allCategories.size) { index ->
+                                val category = allCategories[index]
+                                val isSelected = index == selectedCategoryIndex && currentSubTab == EmojiSubTab.EMOJI
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isSelected) textColor.copy(alpha = 0.22f)
+                                            else Color.Transparent
+                                        )
+                                        .clickable {
+                                            currentSubTab = EmojiSubTab.EMOJI
+                                            selectedCategoryIndex = index
+                                            isSearchActive = false
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = category.icon,
+                                        contentDescription = category.name,
+                                        tint = if (isSelected) textColor else textColor.copy(alpha = 0.65f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
+            }
+
+            // =========================================================
+            // 2. MAIN CONTENT AREA (Emoji Kitchen, Grid, Search, or Tabs)
+            // =========================================================
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 4.dp)
+            ) {
+                when {
 
                 // Kaomoji Tab
                 currentSubTab == EmojiSubTab.KAOMOJI -> {
@@ -685,181 +739,26 @@ fun RevampedEmojiLayout(
 
                 // GIF Tab
                 currentSubTab == EmojiSubTab.GIF -> {
-                    val filteredGifs = remember(selectedGifCategory, searchQuery) {
-                        if (searchQuery.isNotBlank()) {
-                            val q = searchQuery.lowercase().trim()
-                            allGifs.filter { gif ->
-                                gif.title.lowercase().contains(q) ||
-                                gif.tags.any { it.contains(q) } ||
-                                gif.category.lowercase().contains(q)
-                            }
-                        } else if (selectedGifCategory == "All") {
-                            allGifs
-                        } else {
-                            val cleanCat = selectedGifCategory.replace(Regex("[^a-zA-Z]"), "").trim()
-                            allGifs.filter { it.category.equals(cleanCat, ignoreCase = true) }
-                        }
-                    }
-
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        // Category pill bar
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Spacer(modifier = Modifier.width(2.dp))
-                            gifCategories.forEach { category ->
-                                val isSelected = selectedGifCategory == category
-                                Box(
-                                    modifier = Modifier
-                                        .height(30.dp)
-                                        .clip(RoundedCornerShape(15.dp))
-                                        .background(
-                                            if (isSelected) accentColor.copy(alpha = 0.85f)
-                                            else textColor.copy(alpha = 0.12f)
-                                        )
-                                        .clickable { selectedGifCategory = category }
-                                        .padding(horizontal = 12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = category,
-                                        color = if (isSelected) Color.White else textColor,
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-
-                        // GIF items grid
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            items(filteredGifs) { gif ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(72.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(keyColor)
-                                        .clickable {
-                                            onKeyClick(gif.textToInsert)
-                                        }
-                                        .padding(8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxSize(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(44.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(textColor.copy(alpha = 0.08f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = gif.emojiIcon,
-                                                fontSize = 24.sp
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.Center
-                                        ) {
-                                            Text(
-                                                text = gif.title,
-                                                color = textColor,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = accentColor.copy(alpha = 0.15f)
-                                            ) {
-                                                Text(
-                                                    text = "GIF",
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                                    color = accentColor,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    GiphyGifTabView(
+                        keyColor = keyColor,
+                        textColor = textColor,
+                        accentColor = accentColor,
+                        searchQuery = searchQuery,
+                        selectedCategory = selectedGifCategory,
+                        onMediaSelected = actualMediaCommit
+                    )
                 }
 
                 // Stickers Tab
                 currentSubTab == EmojiSubTab.STICKERS -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        stickerPacks.forEach { pack ->
-                            item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "${pack.icon} ${pack.name}",
-                                        color = textColor.copy(alpha = 0.85f),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            val stickerRows = pack.stickers.chunked(2)
-                            items(stickerRows) { rowStickers ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 2.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    rowStickers.forEach { sticker ->
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(44.dp)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(keyColor)
-                                                .clickable { onKeyClick(sticker) },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = sticker,
-                                                color = textColor,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-                                    if (rowStickers.size < 2) {
-                                        Spacer(modifier = Modifier.weight(1f))
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    GiphyStickerTabView(
+                        keyColor = keyColor,
+                        textColor = textColor,
+                        accentColor = accentColor,
+                        searchQuery = searchQuery,
+                        selectedCategory = selectedStickerCategory,
+                        onMediaSelected = actualMediaCommit
+                    )
                 }
 
                 // Standard Google Emoji View (Emoji Kitchen + Categorized Grid)
@@ -868,61 +767,55 @@ fun RevampedEmojiLayout(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // A. EMOJI KITCHEN SECTION (Matches screenshot)
-                        item {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "Emoji Kitchen",
-                                    color = textColor.copy(alpha = 0.70f),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(start = 6.dp, bottom = 4.dp)
-                                )
-
-                                Row(
+                        // A. EMOJI KITCHEN SECTION (Only show emojis which are based on the current typed text)
+                        if (emojiKitchenItems.isNotEmpty()) {
+                            item {
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .padding(vertical = 2.dp)
                                 ) {
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    emojiKitchenItems.forEach { item ->
-                                        EmojiKitchenCard(
-                                            item = item,
-                                            keyColor = keyColor,
-                                            textColor = textColor,
-                                            onTap = {
-                                                onEmojiTapped(item.previewText)
-                                            }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Emoji Kitchen",
+                                            color = textColor.copy(alpha = 0.70f),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = "${emojiKitchenItems.size} emojis for typed text",
+                                            color = accentColor.copy(alpha = 0.85f),
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Normal
                                         )
                                     }
 
-                                    // Next arrow circular action button (matches screenshot)
-                                    Box(
+                                    Row(
                                         modifier = Modifier
-                                            .size(44.dp)
-                                            .clip(CircleShape)
-                                            .background(textColor.copy(alpha = 0.15f))
-                                            .clickable {
-                                                // Rotate/insert random kitchen mashup
-                                                val next = emojiKitchenItems.random()
-                                                onEmojiTapped(next.previewText)
-                                            },
-                                        contentAlignment = Alignment.Center
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.KeyboardArrowRight,
-                                            contentDescription = "More Emoji Kitchen",
-                                            tint = textColor,
-                                            modifier = Modifier.size(22.dp)
-                                        )
+                                        Spacer(modifier = Modifier.width(2.dp))
+                                        emojiKitchenItems.forEach { item ->
+                                            EmojiKitchenCard(
+                                                item = item,
+                                                keyColor = keyColor,
+                                                textColor = textColor,
+                                                onTap = {
+                                                    onEmojiTapped(item.previewText)
+                                                }
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(6.dp))
                                     }
-                                    Spacer(modifier = Modifier.width(4.dp))
                                 }
                             }
                         }
@@ -1083,6 +976,7 @@ fun RevampedEmojiLayout(
         }
     }
 }
+}
 
 /**
  * Interactive Emoji Kitchen Card Component with animated press response.
@@ -1209,4 +1103,263 @@ private fun matchEmojiKeyword(emoji: String, query: String): Boolean {
         if (k.contains(query) && list.contains(emoji)) return true
     }
     return false
+}
+
+/**
+ * Custom embedded search keyboard displayed when searching for emojis,
+ * providing QWERTY/symbols typing with direct row feedback.
+ */
+@Composable
+private fun EmojiSearchKeyboard(
+    keyColor: Color,
+    textColor: Color,
+    accentColor: Color,
+    onKeyClick: (String) -> Unit,
+    onBackspace: () -> Unit,
+    onSpace: () -> Unit,
+    onCloseSearch: () -> Unit
+) {
+    var isShifted by remember { mutableStateOf(false) }
+    var isSymbolsMode by remember { mutableStateOf(false) }
+
+    val row1 = if (isSymbolsMode) {
+        listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
+    } else {
+        listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p")
+    }
+
+    val row2 = if (isSymbolsMode) {
+        listOf("@", "#", "$", "%", "&", "-", "+", "(", ")", "/")
+    } else {
+        listOf("a", "s", "d", "f", "g", "h", "j", "k", "l")
+    }
+
+    val row3 = if (isSymbolsMode) {
+        listOf("*", "\"", "'", ":", ";", "!", "?")
+    } else {
+        listOf("z", "x", "c", "v", "b", "n", "m")
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // Row 1
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            row1.forEach { char ->
+                val displayChar = if (!isSymbolsMode && isShifted) char.uppercase() else char
+                SearchKey(
+                    text = displayChar,
+                    modifier = Modifier.weight(1f),
+                    keyColor = keyColor,
+                    textColor = textColor,
+                    onClick = { onKeyClick(displayChar) }
+                )
+            }
+        }
+
+        // Row 2
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = if (!isSymbolsMode) 14.dp else 0.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            row2.forEach { char ->
+                val displayChar = if (!isSymbolsMode && isShifted) char.uppercase() else char
+                SearchKey(
+                    text = displayChar,
+                    modifier = Modifier.weight(1f),
+                    keyColor = keyColor,
+                    textColor = textColor,
+                    onClick = { onKeyClick(displayChar) }
+                )
+            }
+        }
+
+        // Row 3 (Shift/Symbols toggle, letters, Backspace)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Left action key: Shift (in ABC mode) or 1/2 toggle (in symbols mode)
+            Box(
+                modifier = Modifier
+                    .weight(1.4f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(
+                        if (!isSymbolsMode && isShifted) accentColor.copy(alpha = 0.25f)
+                        else textColor.copy(alpha = 0.12f)
+                    )
+                    .clickable {
+                        if (!isSymbolsMode) isShifted = !isShifted
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (!isSymbolsMode) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = "Shift",
+                        tint = if (isShifted) accentColor else textColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                } else {
+                    Text(
+                        text = "1/2",
+                        color = textColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Letters/Symbols in row 3
+            row3.forEach { char ->
+                val displayChar = if (!isSymbolsMode && isShifted) char.uppercase() else char
+                SearchKey(
+                    text = displayChar,
+                    modifier = Modifier.weight(1f),
+                    keyColor = keyColor,
+                    textColor = textColor,
+                    onClick = { onKeyClick(displayChar) }
+                )
+            }
+
+            // Right action key: Backspace
+            Box(
+                modifier = Modifier
+                    .weight(1.4f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(textColor.copy(alpha = 0.12f))
+                    .clickable { onBackspace() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Backspace,
+                    contentDescription = "Backspace",
+                    tint = textColor,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        // Row 4 (Switch mode, Emoji return, Space, Search/Done)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Switch mode (?123 / ABC)
+            Box(
+                modifier = Modifier
+                    .weight(1.3f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(textColor.copy(alpha = 0.12f))
+                    .clickable { isSymbolsMode = !isSymbolsMode },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (isSymbolsMode) "ABC" else "?123",
+                    color = textColor,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Return to Emoji categories button
+            Box(
+                modifier = Modifier
+                    .weight(1.1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(textColor.copy(alpha = 0.12f))
+                    .clickable { onCloseSearch() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.EmojiEmotions,
+                    contentDescription = "Emojis",
+                    tint = textColor,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            // Spacebar
+            Box(
+                modifier = Modifier
+                    .weight(4.5f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(keyColor)
+                    .clickable { onSpace() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "space",
+                    color = textColor.copy(alpha = 0.45f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal
+                )
+            }
+
+            // Close / Search confirm button
+            Box(
+                modifier = Modifier
+                    .weight(1.5f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(accentColor)
+                    .clickable { onCloseSearch() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search / Done",
+                    tint = Color.White,
+                    modifier = Modifier.size(19.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchKey(
+    text: String,
+    modifier: Modifier,
+    keyColor: Color,
+    textColor: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(6.dp))
+            .background(keyColor)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = textColor,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Normal
+        )
+    }
 }

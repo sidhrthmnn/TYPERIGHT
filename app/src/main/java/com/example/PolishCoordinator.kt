@@ -48,6 +48,7 @@ sealed interface PolishUiState {
     object ModelNotDownloaded : PolishUiState
     data class PreparingModel(val backend: String) : PolishUiState
     data class Generating(val mode: PolishMode) : PolishUiState
+    data class Streaming(val partialText: String, val mode: PolishMode, val sessionId: Long) : PolishUiState
     data class Ready(val result: PolishResult, val undoSnapshot: UndoSnapshot?) : PolishUiState
     data class Error(val message: String, val isRecoverable: Boolean = true) : PolishUiState
 }
@@ -78,15 +79,24 @@ class PolishCoordinator(
 
     private val coordinatorScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var polishJob: Job? = null
+    private var currentSessionId: Long = -1L
 
     private val _uiState = MutableStateFlow<PolishUiState>(PolishUiState.Idle)
     val uiState: StateFlow<PolishUiState> = _uiState.asStateFlow()
 
     private var lastUndoSnapshot: UndoSnapshot? = null
 
+    fun resetForSession(sessionId: Long = -1L) {
+        polishJob?.cancel()
+        polishJob = null
+        currentSessionId = sessionId
+        _uiState.value = PolishUiState.Idle
+    }
+
     fun cancelCurrent() {
         polishJob?.cancel()
         polishJob = null
+        currentSessionId = -1L
         _uiState.value = PolishUiState.Idle
     }
 
@@ -102,40 +112,96 @@ class PolishCoordinator(
         }
 
         polishJob?.cancel()
+        currentSessionId = snapshot.sessionId
+        val thisSessionId = snapshot.sessionId
+
         polishJob = coordinatorScope.launch {
             val startTime = System.currentTimeMillis()
             _uiState.value = PolishUiState.Generating(mode)
 
             try {
-                // Route to Google Gemini Free Cloud API first if not forced offline
-                var polishedText: String? = null
+                var lastStreamedText: String? = null
+                var isFromGemini = false
+
                 if (!forceBasicOffline) {
                     try {
-                        polishedText = GeminiApiClient.generatePolish(originalText, mode)
+                        kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                            GeminiApiClient.streamPolish(originalText, mode).collect { chunk ->
+                                if (currentSessionId == thisSessionId && chunk.isNotBlank()) {
+                                    lastStreamedText = chunk
+                                    isFromGemini = true
+                                    _uiState.value = PolishUiState.Streaming(chunk, mode, thisSessionId)
+                                }
+                            }
+                        }
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
-                        Log.w(TAG, "Gemini polish failed, falling back to local grammar: ${e.message}")
+                        Log.w(TAG, "Gemini polish streaming error: ${e.message}")
                     }
                 }
 
-                val isFromGemini = !polishedText.isNullOrBlank()
-                val candidateText = if (isFromGemini) {
-                    AiOutputValidator.sanitize(polishedText!!, originalText)
+                if (currentSessionId != thisSessionId) return@launch
+
+                val candidateText = if (isFromGemini && !lastStreamedText.isNullOrBlank()) {
+                    AiOutputValidator.sanitize(lastStreamedText!!, originalText)
+                } else {
+                    withContext(Dispatchers.Default) {
+                        try {
+                            val tone = when (mode) {
+                                PolishMode.AUTO_FORMAT -> "auto_format"
+                                PolishMode.PROFESSIONAL -> "professional"
+                                PolishMode.CASUAL -> "casual"
+                                PolishMode.SHORTEN -> "concise"
+                                PolishMode.EXPAND -> "eloquent"
+                                PolishMode.REPHRASE -> "eloquent"
+                                else -> "proofread"
+                            }
+                            val localResult = if (tone == "auto_format") {
+                                OnDeviceNeuralPolishEngine.getInstance(context).autoFormatAndCorrect(originalText)
+                            } else if (tone == "proofread") {
+                                OnDeviceNeuralPolishEngine.getInstance(context).quickProofread(originalText)
+                            } else {
+                                OnDeviceNeuralPolishEngine.getInstance(context).polish(originalText, tone).polishedText
+                            }
+                            if (localResult == originalText) {
+                                basicPredictor.polishSentenceLocally(originalText)
+                            } else {
+                                localResult
+                            }
+                        } catch (e: Exception) {
+                            basicPredictor.polishSentenceLocally(originalText)
+                        }
+                    }
+                }
+
+                if (currentSessionId != thisSessionId) return@launch
+
+                val isValid = AiOutputValidator.isValid(originalText, candidateText, mode)
+                val finalText = if (candidateText.isNotBlank() && (isFromGemini || isValid)) {
+                    candidateText
                 } else {
                     withContext(Dispatchers.Default) {
                         basicPredictor.polishSentenceLocally(originalText)
                     }
                 }
 
-                val isValid = AiOutputValidator.isValid(originalText, candidateText, mode)
-                val finalText = if (isValid) candidateText else {
-                    withContext(Dispatchers.Default) {
-                        basicPredictor.polishSentenceLocally(originalText)
+                if (currentSessionId != thisSessionId) return@launch
+
+                // If not streamed from Gemini, stream the on-device result word-by-word for responsive UI
+                if (!isFromGemini && finalText.isNotBlank() && finalText != originalText) {
+                    val words = finalText.split(Regex("\\s+"))
+                    val streamSb = StringBuilder()
+                    for (i in words.indices) {
+                        if (currentSessionId != thisSessionId) return@launch
+                        if (i > 0) streamSb.append(" ")
+                        streamSb.append(words[i])
+                        _uiState.value = PolishUiState.Streaming(streamSb.toString(), mode, thisSessionId)
+                        kotlinx.coroutines.delay(20L)
                     }
                 }
 
                 val duration = System.currentTimeMillis() - startTime
-                val isChanged = finalText != originalText
+                val isChanged = finalText.trim() != originalText.trim()
 
                 val undo = UndoSnapshot(
                     sessionId = snapshot.sessionId,
@@ -146,8 +212,8 @@ class PolishCoordinator(
                 )
                 lastUndoSnapshot = undo
 
-                val activeLabel = if (isFromGemini && isValid) "AI Cloud Engine" else "Smart On-Device"
-                val activeBackend = if (isFromGemini && isValid) "Cloud AI" else "Deterministic Engine"
+                val activeLabel = if (isFromGemini && isValid) "AI Cloud (Gemini Flash Lite)" else "Smart On-Device"
+                val activeBackend = if (isFromGemini && isValid) "Gemini 3.1 Flash Lite" else "On-Device Engine"
 
                 _uiState.value = PolishUiState.Ready(
                     result = PolishResult(
@@ -174,11 +240,15 @@ class PolishCoordinator(
                 )
             } catch (e: Exception) {
                 if (e is CancellationException) {
-                    _uiState.value = PolishUiState.Idle
+                    if (currentSessionId == thisSessionId) {
+                        _uiState.value = PolishUiState.Idle
+                    }
                     return@launch
                 }
                 Log.e(TAG, "Error during Polish execution", e)
-                _uiState.value = PolishUiState.Error(e.message ?: "Polish failed")
+                if (currentSessionId == thisSessionId) {
+                    _uiState.value = PolishUiState.Error(e.message ?: "Polish failed")
+                }
             }
         }
     }

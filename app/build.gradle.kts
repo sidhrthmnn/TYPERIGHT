@@ -18,8 +18,8 @@ android {
     applicationId = "com.aistudio.typeright.jkwpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 150
-    versionName = "150.0"
+    versionCode = 175
+    versionName = "175.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -101,6 +101,10 @@ dependencies {
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
   
+  // Image Loading & GIFs
+  implementation(libs.coil.compose)
+  implementation(libs.coil.gif)
+  
   // Database
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
@@ -119,9 +123,6 @@ dependencies {
   // Concurrency
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
-  
-  // ML/AI
-  implementation(libs.litertlm.android)
   
   // Testing
   testImplementation(libs.androidx.compose.ui.test.junit4)

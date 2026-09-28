@@ -12,26 +12,6 @@ import org.robolectric.RobolectricTestRunner
 class OnDeviceAiPolishTest {
 
     @Test
-    fun testPolishPromptFactoryFormatsCorrectly() {
-        val promptProofread = PolishPromptFactory.getSystemInstruction(PolishMode.PROOFREAD)
-        assertTrue(promptProofread.contains("Proofread"))
-        assertTrue(promptProofread.contains("text editing engine"))
-
-        val promptProf = PolishPromptFactory.getSystemInstruction(PolishMode.PROFESSIONAL)
-        assertTrue(promptProf.contains("Professional"))
-
-        val promptCasual = PolishPromptFactory.getSystemInstruction(PolishMode.CASUAL)
-        assertTrue(promptCasual.contains("Friendly"))
-
-        val promptShorten = PolishPromptFactory.getSystemInstruction(PolishMode.SHORTEN)
-        assertTrue(promptShorten.contains("Shorten"))
-
-        val userMessage = PolishPromptFactory.buildUserMessage("helo wrld")
-        assertTrue(userMessage.contains("helo wrld"))
-        assertTrue(userMessage.contains("Text to edit:"))
-    }
-
-    @Test
     fun testAiOutputValidatorSanitizesOutput() {
         // Strip think tags
         val rawWithThink = "<think>Let's fix spelling</think>Hello world"
@@ -59,5 +39,52 @@ class OnDeviceAiPolishTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val settings = KeyboardSettings(context)
         assertEquals(KeyboardSettings.HEIGHT_SHORT, settings.height)
+    }
+
+    @Test
+    fun testThemeSwitchingLightDarkNight() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val settings = KeyboardSettings(context)
+
+        // 1. Test Light theme
+        settings.theme = KeyboardSettings.THEME_LIGHT
+        assertEquals(KeyboardSettings.THEME_LIGHT, settings.theme)
+        assertFalse(settings.isDarkMode)
+
+        // 2. Test Dark theme
+        settings.theme = KeyboardSettings.THEME_DARK
+        assertEquals(KeyboardSettings.THEME_DARK, settings.theme)
+        assertTrue(settings.isDarkMode)
+
+        // 3. Test Night theme
+        settings.theme = KeyboardSettings.THEME_NIGHT
+        assertEquals(KeyboardSettings.THEME_NIGHT, settings.theme)
+        assertTrue(settings.isDarkMode)
+    }
+
+    @Test
+    fun testGboardAndSwiftKeyPredictiveSystems() {
+        // 1. SwiftKey Multi-Order N-Gram Language Model
+        val nGram = NGramLanguageModel()
+        val nextWords = nGram.predictNextWords(listOf("how", "are"), prefix = "")
+        assertTrue(nextWords.contains("you"))
+
+        // 2. Gboard SymSpell Edit Distance Lookup
+        val symSpell = SymSpellCorrectionEngine()
+        symSpell.insertWord("hello", 1000)
+        symSpell.insertWord("world", 900)
+        val suggestions = symSpell.lookup("helo", maxDistance = 2f)
+        assertTrue(suggestions.any { it.term == "hello" })
+
+        // 3. Apple QuickType Candidate Slot Verification
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dict = DictionaryManager.getInstance(context)
+        val gboardResult = dict.getGboardPredictions(
+            rawTyped = "hell",
+            contextWords = listOf("say"),
+            tapCoords = null
+        )
+        assertNotNull(gboardResult.centerCandidate)
+        assertTrue(gboardResult.centerCandidate.isNotEmpty())
     }
 }

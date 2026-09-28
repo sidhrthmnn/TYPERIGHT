@@ -5,6 +5,7 @@ package com.example
  */
 enum class PolishMode {
     PROOFREAD,      // Minimum changes: spelling, grammar, punctuation, capitalization
+    AUTO_FORMAT,    // Understands context, formats structure (bullets, paragraphs, spacing), and auto-corrects text
     POLISH,         // Natural flow and clarity while strictly preserving meaning
     PROFESSIONAL,   // Crisp, respectful, polished business tone
     CASUAL,         // Warm, friendly, conversational tone
@@ -18,6 +19,7 @@ enum class PolishMode {
         fun fromString(mode: String?): PolishMode {
             if (mode.isNullOrBlank()) return PROOFREAD
             return when (mode.trim().lowercase()) {
+                "auto_format", "autoformat", "format", "structure" -> AUTO_FORMAT
                 "proofread", "grammar", "spellcheck", "correct" -> PROOFREAD
                 "polish", "improve", "flow" -> POLISH
                 "professional", "formal", "formalize", "business" -> PROFESSIONAL
@@ -40,7 +42,6 @@ enum class AiSource {
     LOCAL_RULES,    // Fast deterministic rule-based engine / Room grammar rules
     LOCAL_MODEL,    // On-device TFLite / local statistical NLP engine
     CLOUD,          // Cloud Gemini API (Flash Lite)
-    NEON,           // NVIDIA Nemotron Cloud API
     ORIGINAL        // Text was already correct or returned unchanged as fallback
 }
 

@@ -269,4 +269,20 @@ class KeyboardEditingTest {
         val proofread = manager.proofreadTextStream(sample).first()
         assertFalse(proofread.contains("❤️"))
     }
+
+    @Test fun testSpaceCursorScrollingMovesCursorWithoutTriggeringGlideAction() {
+        text.clear()
+        text.append("typing test")
+        Selection.setSelection(text, 11)
+
+        service.moveCursorLeft()
+        service.moveCursorLeft()
+        service.moveCursorLeft()
+        service.moveCursorLeft()
+
+        assertEquals("typing test", text.toString())
+
+        service.moveCursorRight()
+        assertEquals("typing test", text.toString())
+    }
 }

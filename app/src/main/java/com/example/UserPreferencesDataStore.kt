@@ -48,6 +48,7 @@ data class UserPreferences(
 
     // Auto-correction & typing toggles
     val autocorrectEnabled: Boolean = true,
+    val autocorrectSensitivity: String = KeyboardSettings.SENSITIVITY_BALANCED,
     val doubleSpacePeriod: Boolean = true,
     val popupOnKeypress: Boolean = true,
     val emojiSuggestionsEnabled: Boolean = true,
@@ -64,7 +65,7 @@ data class UserPreferences(
     val wisprFlowMode: WisprFlowMode = WisprFlowMode.AUTO,
 
     // AI and Language settings
-    val aiModel: String = "gemini-3.5-flash",
+    val aiModel: String = "gemini-3.1-flash-lite-preview",
     val offlineAiEnabled: Boolean = true,
     val geminiAiEnabled: Boolean = true,
     val nemotronAiEnabled: Boolean = false,
@@ -110,6 +111,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
 
         // Auto-correction toggles
         val AUTOCORRECT_ENABLED = booleanPreferencesKey(KeyboardSettings.KEY_AUTOCORRECT_ENABLED)
+        val AUTOCORRECT_SENSITIVITY = stringPreferencesKey(KeyboardSettings.KEY_AUTOCORRECT_SENSITIVITY)
         val DOUBLE_SPACE_PERIOD = booleanPreferencesKey(KeyboardSettings.KEY_DOUBLE_SPACE_PERIOD)
         val POPUP_ON_KEYPRESS = booleanPreferencesKey(KeyboardSettings.KEY_POPUP_ON_KEYPRESS)
         val EMOJI_SUGGESTIONS = booleanPreferencesKey(KeyboardSettings.KEY_EMOJI_SUGGESTIONS)
@@ -161,11 +163,8 @@ class UserPreferencesDataStore private constructor(context: Context) {
         }
         .map { prefs ->
             val themeVal = prefs[PreferencesKeys.THEME] ?: KeyboardSettings.THEME_DARK
-            val isDarkTheme = themeVal == KeyboardSettings.THEME_DARK ||
-                    themeVal == KeyboardSettings.THEME_RETRO_CRT_GREEN ||
-                    themeVal == KeyboardSettings.THEME_RETRO_AMBER ||
-                    themeVal == KeyboardSettings.THEME_RETRO_SYNTHWAVE ||
-                    themeVal == KeyboardSettings.THEME_AMOLED
+            val isDarkTheme = !themeVal.equals(KeyboardSettings.THEME_LIGHT, ignoreCase = true) &&
+                    !themeVal.equals("Light Arrangement", ignoreCase = true)
 
             val wisprModeName = prefs[PreferencesKeys.WISPR_FLOW_MODE] ?: WisprFlowMode.AUTO.name
             val wisprMode = try {
@@ -186,6 +185,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
                 keyboardHeight = prefs[PreferencesKeys.KEYBOARD_HEIGHT] ?: KeyboardSettings.HEIGHT_NORMAL,
 
                 autocorrectEnabled = prefs[PreferencesKeys.AUTOCORRECT_ENABLED] ?: true,
+                autocorrectSensitivity = prefs[PreferencesKeys.AUTOCORRECT_SENSITIVITY] ?: KeyboardSettings.SENSITIVITY_BALANCED,
                 doubleSpacePeriod = prefs[PreferencesKeys.DOUBLE_SPACE_PERIOD] ?: true,
                 popupOnKeypress = prefs[PreferencesKeys.POPUP_ON_KEYPRESS] ?: true,
                 emojiSuggestionsEnabled = prefs[PreferencesKeys.EMOJI_SUGGESTIONS] ?: true,
@@ -200,7 +200,9 @@ class UserPreferencesDataStore private constructor(context: Context) {
                 whisperModel = prefs[PreferencesKeys.WHISPER_MODEL] ?: "gemini-nano",
                 wisprFlowMode = wisprMode,
 
-                aiModel = prefs[PreferencesKeys.AI_MODEL] ?: "gemini-3.5-flash",
+                aiModel = (prefs[PreferencesKeys.AI_MODEL] ?: "gemini-3.1-flash-lite-preview").let {
+                    if (it.contains("3.5-flash-lite") || it.contains("2.5-flash-lite")) "gemini-3.1-flash-lite-preview" else it
+                },
                 offlineAiEnabled = prefs[PreferencesKeys.OFFLINE_AI_ENABLED] ?: true,
                 geminiAiEnabled = prefs[PreferencesKeys.GEMINI_AI_ENABLED] ?: true,
                 nemotronAiEnabled = prefs[PreferencesKeys.NEMOTRON_AI_ENABLED] ?: false,
@@ -258,6 +260,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
     val accentColorFlow: Flow<String> = userPreferencesFlow.map { it.accentColor }.distinctUntilChanged()
 
     val autocorrectEnabledFlow: Flow<Boolean> = userPreferencesFlow.map { it.autocorrectEnabled }.distinctUntilChanged()
+    val autocorrectSensitivityFlow: Flow<String> = userPreferencesFlow.map { it.autocorrectSensitivity }.distinctUntilChanged()
     val soundEnabledFlow: Flow<Boolean> = userPreferencesFlow.map { it.soundEnabled }.distinctUntilChanged()
     val hapticEnabledFlow: Flow<Boolean> = userPreferencesFlow.map { it.hapticEnabled }.distinctUntilChanged()
     val swipeEnabledFlow: Flow<Boolean> = userPreferencesFlow.map { it.swipeEnabled }.distinctUntilChanged()
@@ -275,11 +278,8 @@ class UserPreferencesDataStore private constructor(context: Context) {
 
     // 1. Theme selection methods
     suspend fun setTheme(theme: String) {
-        val isDark = theme == KeyboardSettings.THEME_DARK ||
-                theme == KeyboardSettings.THEME_RETRO_CRT_GREEN ||
-                theme == KeyboardSettings.THEME_RETRO_AMBER ||
-                theme == KeyboardSettings.THEME_RETRO_SYNTHWAVE ||
-                theme == KeyboardSettings.THEME_AMOLED
+        val isDark = !theme.equals(KeyboardSettings.THEME_LIGHT, ignoreCase = true) &&
+                !theme.equals("Light Arrangement", ignoreCase = true)
         dataStore.edit { prefs ->
             prefs[PreferencesKeys.THEME] = theme
             prefs[PreferencesKeys.IS_DARK_MODE] = isDark
@@ -321,6 +321,10 @@ class UserPreferencesDataStore private constructor(context: Context) {
     // 2. Auto-correction & typing toggles
     suspend fun setAutocorrectEnabled(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.AUTOCORRECT_ENABLED] = enabled }
+    }
+
+    suspend fun setAutocorrectSensitivity(sensitivity: String) {
+        dataStore.edit { it[PreferencesKeys.AUTOCORRECT_SENSITIVITY] = sensitivity }
     }
 
     suspend fun setDoubleSpacePeriod(enabled: Boolean) {
@@ -477,11 +481,8 @@ class UserPreferencesDataStore private constructor(context: Context) {
         return try {
             val sp = appContext.getSharedPreferences(KeyboardSettings.PREFS_NAME, Context.MODE_PRIVATE)
             val themeVal = sp.getString(KeyboardSettings.KEY_THEME, KeyboardSettings.THEME_DARK) ?: KeyboardSettings.THEME_DARK
-            val isDarkTheme = themeVal == KeyboardSettings.THEME_DARK ||
-                    themeVal == KeyboardSettings.THEME_RETRO_CRT_GREEN ||
-                    themeVal == KeyboardSettings.THEME_RETRO_AMBER ||
-                    themeVal == KeyboardSettings.THEME_RETRO_SYNTHWAVE ||
-                    themeVal == KeyboardSettings.THEME_AMOLED
+            val isDarkTheme = !themeVal.equals(KeyboardSettings.THEME_LIGHT, ignoreCase = true) &&
+                    !themeVal.equals("Light Arrangement", ignoreCase = true)
 
             val wisprModeName = sp.getString(KeyboardSettings.KEY_WISPR_FLOW_MODE, WisprFlowMode.AUTO.name) ?: WisprFlowMode.AUTO.name
             val wisprMode = try {
@@ -502,6 +503,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
                 keyboardHeight = sp.getString(KeyboardSettings.KEY_HEIGHT, KeyboardSettings.HEIGHT_NORMAL) ?: KeyboardSettings.HEIGHT_NORMAL,
 
                 autocorrectEnabled = sp.getBoolean(KeyboardSettings.KEY_AUTOCORRECT_ENABLED, true),
+                autocorrectSensitivity = sp.getString(KeyboardSettings.KEY_AUTOCORRECT_SENSITIVITY, KeyboardSettings.SENSITIVITY_BALANCED) ?: KeyboardSettings.SENSITIVITY_BALANCED,
                 doubleSpacePeriod = sp.getBoolean(KeyboardSettings.KEY_DOUBLE_SPACE_PERIOD, true),
                 popupOnKeypress = sp.getBoolean(KeyboardSettings.KEY_POPUP_ON_KEYPRESS, true),
                 emojiSuggestionsEnabled = sp.getBoolean(KeyboardSettings.KEY_EMOJI_SUGGESTIONS, true),
@@ -516,7 +518,9 @@ class UserPreferencesDataStore private constructor(context: Context) {
                 whisperModel = sp.getString(KeyboardSettings.KEY_WHISPER_MODEL, "gemini-nano") ?: "gemini-nano",
                 wisprFlowMode = wisprMode,
 
-                aiModel = sp.getString(KeyboardSettings.KEY_AI_MODEL, "gemini-3.5-flash") ?: "gemini-3.5-flash",
+                aiModel = (sp.getString(KeyboardSettings.KEY_AI_MODEL, "gemini-3.1-flash-lite-preview") ?: "gemini-3.1-flash-lite-preview").let {
+                    if (it.contains("3.5-flash-lite") || it.contains("2.5-flash-lite")) "gemini-3.1-flash-lite-preview" else it
+                },
                 offlineAiEnabled = sp.getBoolean(KeyboardSettings.KEY_OFFLINE_AI_ENABLED, true),
                 geminiAiEnabled = sp.getBoolean(KeyboardSettings.KEY_GEMINI_AI_ENABLED, true),
                 nemotronAiEnabled = sp.getBoolean(KeyboardSettings.KEY_NEMOTRON_AI_ENABLED, false),

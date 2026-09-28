@@ -1,0 +1,19 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <!-- Google Material Symbols pen_spark (Pen with AI Sparkle Star) -->
+    <!-- Stylus / Writing Pen -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M260,876h44l485,-485 -44,-44 -485,485v44zM200,936v-128l588,-588q17,-17 42.5,-16.5t42.9,17.8l42.3,42.8q17.3,17.3 17.3,42.1t-17,41.8L328,936H200z" />
+    <!-- AI Sparkle Star (4-point curved Gemini star) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M260,566q0,-87.8 -61.1,-148.9Q137.8,356 50,356q87.8,0 148.9,-61.1Q260,233.8 260,146q0,87.8 61.1,148.9Q382.2,356 470,356q-87.8,0 -148.9,61.1Q260,478.2 260,566z" />
+    <!-- Secondary Accent Sparkle -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M520,240q0,-37.6 -26.2,-63.8Q467.6,150 430,150q37.6,0 63.8,-26.2Q520,97.6 520,60q0,37.6 26.2,63.8Q572.4,150 610,150q-37.6,0 -63.8,26.2Q520,202.4 520,240z" />
+</vector>

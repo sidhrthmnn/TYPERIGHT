@@ -376,5 +376,167 @@ class ExampleUnitTest {
     val email = VoiceTranscriptionFormatter.formatTranscription(emailText, TranscriptionFormatStyle.EMAIL)
     assertTrue("Should format email with greetings and sign-off: $email", email.contains("Hi") && email.contains("\n"))
   }
+
+  @Test
+  fun testRoomDatabaseAndPredictiveService() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val database = AppDatabase.getDatabase(context)
+    val freqDao = database.frequentlyUsedWordDao()
+    val customDao = database.customDictionaryDao()
+    val userRepo = UserDictionaryRepository.getInstance(context)
+    val predService = PredictiveTextSuggestionService.getInstance(context)
+
+    // 1. Test Room FrequentlyUsedWordDao
+    freqDao.clearAll()
+    freqDao.insertOrUpdate(FrequentlyUsedWord(word = "android", frequency = 10, count = 10))
+    val freqWord = freqDao.getWord("android")
+    assertNotNull("Should fetch inserted frequent word", freqWord)
+    assertEquals(10, freqWord?.frequency)
+
+    freqDao.incrementFrequency("android")
+    val updatedFreq = freqDao.getWord("android")
+    assertEquals(11, updatedFreq?.frequency)
+
+    // 2. Test Room CustomDictionaryDao & Shortcut
+    customDao.clearAll()
+    val customId = userRepo.addCustomEntry(
+      word = "On my way!",
+      shortcut = "omw"
+    )
+    assertTrue("Custom entry ID should be positive", customId > 0)
+
+    val foundShortcut = userRepo.getShortcutExpansion("omw")
+    assertEquals("On my way!", foundShortcut)
+
+    // 3. Test PredictiveTextSuggestionService layer with input buffer
+    val bufferWithShortcut = TextInputBufferState(
+      typedWord = "omw",
+      activePrefix = "omw",
+      previousWords = listOf("I", "am"),
+      timestamp = System.currentTimeMillis()
+    )
+    val suggestions = predService.fetchSuggestions(bufferWithShortcut)
+    assertEquals("On my way!", suggestions.centerCandidate)
+    assertTrue("Center slot should autocorrect shortcut", suggestions.isCenterAutocorrecting)
+    assertEquals("On my way!", suggestions.shortcutExpansion)
+
+    // 4. Test PredictiveTextSuggestionService with N-gram context
+    val bufferWithContext = TextInputBufferState(
+      typedWord = "",
+      activePrefix = "",
+      previousWords = listOf("how", "are"),
+      timestamp = System.currentTimeMillis()
+    )
+    val contextSuggestions = predService.fetchSuggestions(bufferWithContext)
+    assertNotNull(contextSuggestions.rightCandidate)
+    assertTrue("Should generate suggestions", contextSuggestions.suggestionsList.isNotEmpty() || contextSuggestions.rightCandidate.isNotEmpty())
+
+    // 5. Clean up
+    userRepo.deleteCustomEntryByWord("On my way!")
+    assertNull("Shortcut should be null after deletion", userRepo.getShortcutExpansion("omw"))
+  }
+
+  @Test
+  fun testNGramFrequencyRoomSchemaAndOfflineSuggestions() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val database = AppDatabase.getDatabase(context)
+    val ngramDao = database.ngramFrequencyDao()
+    val userRepo = UserDictionaryRepository.getInstance(context)
+    val predService = PredictiveTextSuggestionService.getInstance(context)
+
+    // 1. Clear previous N-grams
+    ngramDao.clearAll()
+    assertEquals(0, ngramDao.getTotalCount())
+
+    // 2. Insert test Bigram and Trigram
+    val bigram = NGramFrequency.create(
+      ngramOrder = 2,
+      context = "thank",
+      nextWord = "you",
+      frequency = 50,
+      probability = 0.85f
+    )
+    ngramDao.insertOrUpdate(bigram)
+
+    val trigram = NGramFrequency.create(
+      ngramOrder = 3,
+      context = "thank you",
+      nextWord = "very",
+      frequency = 30,
+      probability = 0.60f
+    )
+    ngramDao.insertOrUpdate(trigram)
+
+    val trigram2 = NGramFrequency.create(
+      ngramOrder = 3,
+      context = "thank you",
+      nextWord = "so",
+      frequency = 45,
+      probability = 0.90f
+    )
+    ngramDao.insertOrUpdate(trigram2)
+
+    assertEquals(3, ngramDao.getTotalCount())
+
+    // 3. Test getPredictions for Bigram
+    val bigramPredictions = ngramDao.getPredictions(ngramOrder = 2, context = "thank", limit = 5)
+    assertTrue("Should find bigram prediction", bigramPredictions.isNotEmpty())
+    assertEquals("you", bigramPredictions[0].nextWord)
+    assertEquals(50, bigramPredictions[0].frequency)
+
+    // 4. Test getPredictions for Trigram (ordered by frequency DESC)
+    val trigramPredictions = ngramDao.getPredictions(ngramOrder = 3, context = "thank you", limit = 5)
+    assertEquals(2, trigramPredictions.size)
+    assertEquals("so", trigramPredictions[0].nextWord) // frequency 45 > 30
+    assertEquals("very", trigramPredictions[1].nextWord)
+
+    // 5. Test getPredictionsWithPrefix
+    val prefixPredictions = ngramDao.getPredictionsWithPrefix(
+      ngramOrder = 3,
+      context = "thank you",
+      prefix = "v",
+      limit = 5
+    )
+    assertEquals(1, prefixPredictions.size)
+    assertEquals("very", prefixPredictions[0].nextWord)
+
+    // 6. Test atomic recordObservation (increment frequency)
+    ngramDao.recordObservation(ngramOrder = 3, context = "thank you", nextWord = "very", increment = 20)
+    val updatedTrigram = ngramDao.getNGram(NGramFrequency.createId(3, "thank you", "very"))
+    assertNotNull(updatedTrigram)
+    assertEquals(50, updatedTrigram?.frequency) // 30 + 20
+
+    // 7. Test UserDictionaryRepository offline predictions integration
+    val repoPredictions = userRepo.getOfflineNGramPredictions(
+      ngramOrder = 3,
+      context = "thank you",
+      prefix = "",
+      limit = 5
+    )
+    assertTrue("Repo should fetch Room N-grams", repoPredictions.isNotEmpty())
+
+    // 8. Test PredictiveTextSuggestionService offline suggestion generation with Room
+    val buffer = TextInputBufferState(
+      typedWord = "",
+      activePrefix = "",
+      previousWords = listOf("thank", "you"),
+      timestamp = System.currentTimeMillis()
+    )
+    val suggestions = predService.fetchSuggestions(buffer)
+    assertTrue(
+      "Service suggestions should include Room learned next words ('so' or 'very')",
+      suggestions.suggestionsList.contains("so") || suggestions.suggestionsList.contains("very") ||
+      suggestions.rightCandidate == "so" || suggestions.centerCandidate == "so"
+    )
+
+    // 9. Test recordWordSelection persists newly typed N-grams into Room
+    predService.recordWordSelection(
+      selectedWord = "much",
+      previousWords = listOf("thank", "you", "so")
+    )
+    val learnedTrigram = ngramDao.getNGram(NGramFrequency.createId(3, "you so", "much"))
+    assertNotNull("Should persist newly observed trigram to Room", learnedTrigram)
+    assertEquals("much", learnedTrigram?.nextWord)
+  }
 }
 

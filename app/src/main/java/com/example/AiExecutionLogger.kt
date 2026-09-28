@@ -37,7 +37,7 @@ data class AiExecutionLogEntry(
 object AiExecutionLogger {
     private const val TAG = "AiExecutionLogger"
     private const val FILE_NAME = "ai_execution_logs.txt"
-    const val ENGINE_LITERT_QWEN = "Offline AI — Qwen3 1.7B"
+    const val ENGINE_STATISTICAL_LM = "Statistical Multi-Order N-Gram"
     const val ENGINE_BASIC_OFFLINE = "Basic offline correction"
     const val ENGINE_GEMINI_CLOUD = "Google Gemini Cloud API"
     const val ENGINE_OFFLINE_LOCAL = "Basic offline correction"

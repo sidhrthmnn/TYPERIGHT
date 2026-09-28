@@ -43,6 +43,10 @@ class DictionaryManager(private val context: Context) {
         mlPredictor.learnSwipePattern(word, path)
     }
 
+    fun clearLearnedSwipePatterns() {
+        mlPredictor.clearSwipeTemplates()
+    }
+
     fun learnTapPattern(char: Char, tapX: Float, tapY: Float) {
         val charKey = char.lowercaseChar()
         val p = keyCoordinates[charKey]
@@ -561,7 +565,30 @@ class DictionaryManager(private val context: Context) {
         "tbh" to "to be honest",
         "idk" to "I don't know",
         "imo" to "in my opinion",
-        "btw" to "by the way"
+        "imho" to "in my humble opinion",
+        "btw" to "by the way",
+        "fyi" to "for your information",
+        "rn" to "right now",
+        "asap" to "as soon as possible",
+        "ttyl" to "talk to you later",
+        "np" to "no problem",
+        "yw" to "you're welcome",
+        "ty" to "thank you",
+        "pls" to "please",
+        "plz" to "please",
+        "ikr" to "I know, right",
+        "smh" to "shaking my head",
+        "fwiw" to "for what it's worth",
+        "tldr" to "too long; didn't read",
+        "afaik" to "as far as I know",
+        "nvm" to "never mind",
+        "ofc" to "of course",
+        "fr" to "for real",
+        "frfr" to "for real for real",
+        "ngl" to "not gonna lie",
+        "hmu" to "hit me up",
+        "lmk" to "let me know",
+        "goat" to "greatest of all time"
     )
 
     // Emoji Prediction dictionary
@@ -581,10 +608,11 @@ class DictionaryManager(private val context: Context) {
         "damn", "hell", "crap", "shit", "fuck", "bitch", "asshole"
     )
 
-    // Dynamic User Dictionary, Personal Blocklist, Learned Bigrams, and Suppressed Corrections
+    // Dynamic User Dictionary, Personal Blocklist, Blocked Suggestions, Learned Bigrams, and Suppressed Corrections
     private val prefs = context.getSharedPreferences("typeright_dictionary", Context.MODE_PRIVATE)
     private val userWords = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val personalBlocklist = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val blockedSuggestions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val personalizedBigrams = mutableMapOf<String, MutableList<String>>()
     private val suppressedCorrections = mutableMapOf<String, MutableSet<String>>()
     private val recentlyAcceptedWords = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
@@ -758,8 +786,9 @@ class DictionaryManager(private val context: Context) {
     private val phoneticIndex = HashMap<String, MutableList<String>>()
     private val commonWordsSet = HashSet<String>(1500)
     private val commonWordsFreqMap = HashMap<String, Int>(1500)
+    private val swipeWordIndex = HashMap<Pair<Char, Char>, MutableList<Pair<String, Int>>>(700)
 
-    val tfLiteModel by lazy { TfLiteCorrectionModel.getInstance(context) }
+    val neuralEngine by lazy { NeuralCorrectionEngine.getInstance(context) }
     private val database = AppDatabase.getDatabase(context)
     private val learnedWordDao = database.learnedWordDao()
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -772,12 +801,31 @@ class DictionaryManager(private val context: Context) {
 
     private val candidateLearnFrequency = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
+    fun indexWordForSwipe(word: String, freq: Int) {
+        val clean = word.lowercase().trim().filter { it.isLetter() }
+        if (clean.length >= 2) {
+            val key = Pair(clean.first(), clean.last())
+            synchronized(swipeWordIndex) {
+                val list = swipeWordIndex.getOrPut(key) { ArrayList() }
+                val existingIdx = list.indexOfFirst { it.first.equals(word, ignoreCase = true) }
+                if (existingIdx >= 0) {
+                    if (freq > list[existingIdx].second) {
+                        list[existingIdx] = Pair(word, freq)
+                    }
+                } else {
+                    list.add(Pair(word, freq))
+                }
+            }
+        }
+    }
+
     init {
-        // Build local Trie index, SymSpell index, Fast Hash Set & Phonetic index from common words
+        // Build local Trie index, SymSpell index, Fast Hash Set, Phonetic index & Gesture swipe index
         commonWords.forEach {
             val lower = it.word.lowercase()
             commonWordsSet.add(lower)
             commonWordsFreqMap[lower] = it.frequency
+            indexWordForSwipe(it.word, it.frequency)
             trie.insert(it.word, it.frequency)
             wordTrie.insert(it.word, it.frequency)
             gboardEngine.symSpellEngine.insertWord(it.word, it.frequency)
@@ -792,6 +840,7 @@ class DictionaryManager(private val context: Context) {
             if (!commonWordsSet.contains(lower)) {
                 commonWordsSet.add(lower)
                 commonWordsFreqMap[lower] = 60
+                indexWordForSwipe(lower, 60)
                 trie.insert(lower, 60)
                 wordTrie.insert(lower, 60)
                 gboardEngine.symSpellEngine.insertWord(lower, 60)
@@ -807,6 +856,7 @@ class DictionaryManager(private val context: Context) {
             if (!commonWordsSet.contains(lower)) {
                 commonWordsSet.add(lower)
                 commonWordsFreqMap[lower] = item.frequency
+                indexWordForSwipe(item.word, item.frequency)
                 trie.insert(item.word, item.frequency)
                 wordTrie.insert(item.word, item.frequency)
                 gboardEngine.symSpellEngine.insertWord(item.word, item.frequency)
@@ -877,6 +927,7 @@ class DictionaryManager(private val context: Context) {
                             synchronized(userWords) {
                                 userWords.add(clean)
                             }
+                            indexWordForSwipe(clean, 40)
                             trie.insert(clean, 40)
                             wordTrie.insert(clean, 40)
                             gboardEngine.symSpellEngine.insertWord(clean, 40)
@@ -899,6 +950,7 @@ class DictionaryManager(private val context: Context) {
                         if (clean.isNotEmpty()) {
                             userWords.add(clean)
                             val freq = maxOf(35, it.frequency)
+                            indexWordForSwipe(clean, freq)
                             trie.insert(clean, freq)
                             wordTrie.insert(clean, freq)
                             gboardEngine.symSpellEngine.insertWord(clean, freq)
@@ -925,6 +977,7 @@ class DictionaryManager(private val context: Context) {
                 if (clean.isNotEmpty() && clean.length >= 2 && !isProfane(clean)) {
                     userWords.add(clean)
                     val freq = maxOf(35, item.frequency)
+                    indexWordForSwipe(clean, freq)
                     trie.insert(clean, freq)
                     wordTrie.insert(clean, freq)
                     gboardEngine.symSpellEngine.insertWord(clean, freq)
@@ -961,9 +1014,11 @@ class DictionaryManager(private val context: Context) {
                 synchronized(userWords) {
                     dbWords.forEach {
                         userWords.add(it.word)
-                        trie.insert(it.word, maxOf(30, it.frequency))
-                        wordTrie.insert(it.word, maxOf(30, it.frequency))
-                        gboardEngine.symSpellEngine.insertWord(it.word, maxOf(30, it.frequency))
+                        val freq = maxOf(30, it.frequency)
+                        indexWordForSwipe(it.word, freq)
+                        trie.insert(it.word, freq)
+                        wordTrie.insert(it.word, freq)
+                        gboardEngine.symSpellEngine.insertWord(it.word, freq)
                     }
                 }
             } catch (e: Exception) {
@@ -987,11 +1042,13 @@ class DictionaryManager(private val context: Context) {
             prefs.edit().putStringSet("user_words", validWords).apply()
         }
         validWords.forEach {
+            indexWordForSwipe(it, 35)
             trie.insert(it, 35)
             wordTrie.insert(it, 35)
             gboardEngine.symSpellEngine.insertWord(it, 35)
         }
         personalBlocklist.addAll(prefs.getStringSet("personal_blocklist", emptySet()) ?: emptySet())
+        blockedSuggestions.addAll(prefs.getStringSet("blocked_suggestions", emptySet()) ?: emptySet())
         val bigramStr = prefs.getString("personalized_bigrams", "") ?: ""
         if (bigramStr.isNotEmpty()) {
             try {
@@ -1013,6 +1070,7 @@ class DictionaryManager(private val context: Context) {
         prefs.edit().apply {
             putStringSet("user_words", userWords)
             putStringSet("personal_blocklist", personalBlocklist)
+            putStringSet("blocked_suggestions", blockedSuggestions)
             val bigramStr = personalizedBigrams.entries.joinToString(";") { "${it.key}:${it.value.joinToString(",")}" }
             putString("personalized_bigrams", bigramStr)
             apply()
@@ -1056,6 +1114,7 @@ class DictionaryManager(private val context: Context) {
             val alreadyLearned = synchronized(userWords) {
                 if (!userWords.contains(clean)) {
                     userWords.add(clean)
+                    indexWordForSwipe(clean, 35)
                     trie.insert(clean, 35)
                     wordTrie.insert(clean, 35)
                     gboardEngine.symSpellEngine.insertWord(clean, 35)
@@ -1139,6 +1198,62 @@ class DictionaryManager(private val context: Context) {
             personalBlocklist.add(clean)
             saveUserDictionary()
         }
+    }
+
+    fun syncBlockedWords(words: Set<String>) {
+        blockedSuggestions.addAll(words.map { it.lowercase().trim() })
+    }
+
+    /**
+     * Blocks a word from ever being suggested across all predictive engines.
+     * Synchronously removes from in-memory dictionary, personalized models,
+     * and asynchronously removes from Room database tables.
+     */
+    fun blockSuggestion(word: String) {
+        val clean = word.lowercase(java.util.Locale.ROOT).trim().trim { !it.isLetterOrDigit() && it != '\'' }
+        if (clean.isNotEmpty()) {
+            blockedSuggestions.add(clean)
+            synchronized(userWords) {
+                userWords.remove(clean)
+            }
+            candidateLearnFrequency.remove(clean)
+            personalizedBigrams.remove(clean)
+            personalizedBigrams.values.forEach { it.remove(clean) }
+            saveUserDictionary()
+            scope.launch {
+                try {
+                    UserDictionaryRepository.getInstance(context).blockSuggestion(clean, word.trim())
+                } catch (e: Exception) {
+                    // Ignore Room sync failures
+                }
+            }
+        }
+    }
+
+    /**
+     * Unblocks a previously blocked suggestion.
+     */
+    fun unblockSuggestion(word: String) {
+        val clean = word.lowercase(java.util.Locale.ROOT).trim().trim { !it.isLetterOrDigit() && it != '\'' }
+        if (clean.isNotEmpty()) {
+            blockedSuggestions.remove(clean)
+            saveUserDictionary()
+            scope.launch {
+                try {
+                    UserDictionaryRepository.getInstance(context).unblockSuggestion(clean)
+                } catch (e: Exception) {
+                    // Ignore
+                }
+            }
+        }
+    }
+
+    /**
+     * Checks if a word is blocked from suggestions.
+     */
+    fun isBlocked(word: String): Boolean {
+        val clean = word.lowercase(java.util.Locale.ROOT).trim().trim { !it.isLetterOrDigit() && it != '\'' }
+        return clean in blockedSuggestions
     }
 
     fun isProfane(word: String): Boolean {
@@ -1260,7 +1375,7 @@ class DictionaryManager(private val context: Context) {
             candidateList.addAll(commonWords.map { it.word })
 
             val combinedPredictions = candidateList
-                .filter { !settings.profanityFilterEnabled || !isProfane(it) }
+                .filter { (!settings.profanityFilterEnabled || !isProfane(it)) && !isBlocked(it) }
                 .distinct()
                 .take(3)
             return combinedPredictions
@@ -1268,42 +1383,44 @@ class DictionaryManager(private val context: Context) {
 
         // 1. Check slang/abbreviation expansion (e.g. omw -> on my way)
         val expansion = expandSlang(normalizedPrefix)
-        if (expansion != null) {
-            return listOf(prefix, expansion, "thanks")
+        if (expansion != null && !isBlocked(expansion)) {
+            return listOf(prefix, expansion, "thanks").filter { !isBlocked(it) }
         }
 
         // 2. Phrase completions matching typed prefix
         val phraseMatches = localGrammarPredictor.predictPhraseCompletions(contextList, normalizedPrefix, 3)
+            .filter { !isBlocked(it) }
 
         // 3. Query N-gram model predictions matching current prefix
         val nGramMatches = nGramModel.predictNextWords(contextList, normalizedPrefix, 5)
+            .filter { !isBlocked(it) }
 
         // 4. Query Trie for prefix matching in O(k) time
         val trieRawMatches = trie.searchPrefix(normalizedPrefix, 30)
             .map { it.first }
-            .filter { !settings.profanityFilterEnabled || !isProfane(it) }
+            .filter { (!settings.profanityFilterEnabled || !isProfane(it)) && !isBlocked(it) }
 
         val normalizedPrev1 = prevWord?.lowercase()?.trim() ?: (contextList.lastOrNull()?.lowercase()?.trim() ?: "")
         val normalizedPrev2 = prevWord2?.lowercase()?.trim() ?: (if (contextList.size >= 2) contextList[contextList.size - 2].lowercase().trim() else "")
 
         val mlTrigramMatches = if (normalizedPrev2.isNotEmpty() && normalizedPrev1.isNotEmpty()) {
-            mlPredictor.predictNextWordsFromTrigram(normalizedPrev2, normalizedPrev1).map { it.first }
+            mlPredictor.predictNextWordsFromTrigram(normalizedPrev2, normalizedPrev1).map { it.first }.filter { !isBlocked(it) }
         } else emptyList()
 
-        val contextBigrams = if (normalizedPrev1.isNotEmpty()) bigrams[normalizedPrev1] ?: emptyList() else emptyList()
-        val learnedBigrams = if (normalizedPrev1.isNotEmpty()) personalizedBigrams[normalizedPrev1] ?: emptyList() else emptyList()
+        val contextBigrams = if (normalizedPrev1.isNotEmpty()) (bigrams[normalizedPrev1] ?: emptyList()).filter { !isBlocked(it) } else emptyList()
+        val learnedBigrams = if (normalizedPrev1.isNotEmpty()) (personalizedBigrams[normalizedPrev1] ?: emptyList()).filter { !isBlocked(it) } else emptyList()
 
         val matchPool = mutableListOf<String>()
         matchPool.addAll(phraseMatches)
         matchPool.addAll(mlTrigramMatches)
         matchPool.addAll(nGramMatches)
         matchPool.addAll(trieRawMatches)
-        matchPool.addAll(userWords)
-        matchPool.addAll(commonWords.map { it.word })
+        matchPool.addAll(userWords.filter { !isBlocked(it) })
+        matchPool.addAll(commonWords.map { it.word }.filter { !isBlocked(it) })
 
         // Score and rank candidates by Phrase match, Trigram match, Bigram match, User habit words, and N-gram frequency
         val scoredMatches = matchPool
-            .filter { it.lowercase().startsWith(normalizedPrefix) }
+            .filter { it.lowercase().startsWith(normalizedPrefix) && !isBlocked(it) }
             .filter { !settings.profanityFilterEnabled || !isProfane(it) }
             .distinctBy { it.lowercase() }
             .sortedByDescending { word ->
@@ -1326,7 +1443,7 @@ class DictionaryManager(private val context: Context) {
 
         // Check for typo dynamic spelling corrections if typed prefix is not exact word
         val isExact = isWordInDictionary(normalizedPrefix)
-        val corrections = if (!isExact) getSpellingCorrections(normalizedPrefix, prevWord, prevWord2, tapCoords) else emptyList()
+        val corrections = if (!isExact) getSpellingCorrections(normalizedPrefix, prevWord, prevWord2, tapCoords).filter { !isBlocked(it) } else emptyList()
 
         val isFirstUpper = prefix.isNotEmpty() && prefix[0].isUpperCase()
         val isAllUpper = prefix.isNotEmpty() && prefix.length > 1 && prefix.all { it.isUpperCase() }
@@ -1340,12 +1457,13 @@ class DictionaryManager(private val context: Context) {
         }
 
         // Center Slot (Index 1): ALWAYS the primary accurate word / top prediction / autocorrect candidate
-        val centerWord = when {
+        val centerCandidate = when {
             corrections.isNotEmpty() -> corrections.first()
             isExact -> if (normalizedPrefix == "i") "I" else prefix
             scoredMatches.isNotEmpty() -> scoredMatches.first()
             else -> prefix
         }
+        val centerWord = if (!isBlocked(centerCandidate)) centerCandidate else (scoredMatches.firstOrNull { !isBlocked(it) } ?: "")
 
         // Left Slot (Index 0): Raw typed literal if middle is a prediction/correction, otherwise alternative candidate
         val candidatePool = mutableListOf<String>().apply {
@@ -1355,22 +1473,22 @@ class DictionaryManager(private val context: Context) {
             addAll(commonWords.map { it.word })
             addAll(userWords)
             addAll(listOf("and", "you", "to", "this", "in", "it"))
-        }.filter { !settings.profanityFilterEnabled || !isProfane(it) }
+        }.filter { (!settings.profanityFilterEnabled || !isProfane(it)) && !isBlocked(it) }
          .distinctBy { it.lowercase() }
 
-        val leftWord = if (centerWord.lowercase() != normalizedPrefix) {
+        val leftWord = if (centerWord.lowercase() != normalizedPrefix && !isBlocked(prefix)) {
             prefix
         } else {
-            scoredMatches.firstOrNull { it.lowercase() != centerWord.lowercase() }
-                ?: corrections.firstOrNull { it.lowercase() != centerWord.lowercase() }
-                ?: candidatePool.firstOrNull { it.lowercase() != centerWord.lowercase() }
-                ?: prefix
+            scoredMatches.firstOrNull { it.lowercase() != centerWord.lowercase() && !isBlocked(it) }
+                ?: corrections.firstOrNull { it.lowercase() != centerWord.lowercase() && !isBlocked(it) }
+                ?: candidatePool.firstOrNull { it.lowercase() != centerWord.lowercase() && !isBlocked(it) }
+                ?: if (!isBlocked(prefix)) prefix else ""
         }
 
         // Right Slot (Index 2): Alternative candidate / emoji / next-word prediction
         val rightWord = candidatePool.firstOrNull { candidate ->
-            candidate.lowercase() != centerWord.lowercase() && candidate.lowercase() != leftWord.lowercase()
-        } ?: "and"
+            candidate.lowercase() != centerWord.lowercase() && candidate.lowercase() != leftWord.lowercase() && !isBlocked(candidate)
+        } ?: if (!isBlocked("and")) "and" else ""
 
         return listOf(applyCasing(leftWord), applyCasing(centerWord), applyCasing(rightWord))
     }
@@ -1456,14 +1574,14 @@ class DictionaryManager(private val context: Context) {
         // 5. SymSpell candidates
         val symSpellCandidates = gboardEngine.symSpellEngine.lookup(normalized, maxDistance = 2f).map { it.term }
 
-        // 6. Neural TFLite correction candidate
-        val tfLiteCandidate = try {
-            val res = tfLiteModel.correctText(normalized).trim()
+        // 6. Neural NLP correction candidate
+        val neuralCandidate = try {
+            val res = neuralEngine.correctText(normalized).trim()
             if (res.isNotEmpty() && res.lowercase() != normalized) res else null
         } catch (_: Exception) { null }
 
-        val candidateList = (listOfNotNull(directTypoMatch, tfLiteCandidate) + missedSpaceCandidates + contractionCandidates + phoneticCandidates + trieLevenshteinCandidates + symSpellCandidates).distinct()
-            .filter { !settings.profanityFilterEnabled || !isProfane(it) }
+        val candidateList = (listOfNotNull(directTypoMatch, neuralCandidate) + missedSpaceCandidates + contractionCandidates + phoneticCandidates + trieLevenshteinCandidates + symSpellCandidates).distinct()
+            .filter { (!settings.profanityFilterEnabled || !isProfane(it)) && !isBlocked(it) }
 
         if (candidateList.isEmpty()) return emptyList()
 
@@ -1472,7 +1590,7 @@ class DictionaryManager(private val context: Context) {
                 val confidence = calculateCorrectionConfidence(normalized, dictWord, prevWord, prevWord2, tapCoords)
                 Pair(dictWord, confidence)
             }
-            .filter { it.second >= SUGGESTION_THRESHOLD }
+            .filter { it.second >= SUGGESTION_THRESHOLD && !isBlocked(it.first) }
             .sortedByDescending { it.second }
             .map { it.first }
             .take(3)
@@ -1483,64 +1601,28 @@ class DictionaryManager(private val context: Context) {
      */
     fun findMissedSpaceSplits(typed: String): List<String> {
         val lower = typed.lowercase().trim()
-        if (lower.length < 3) return emptyList()
+        if (lower.length < 4) return emptyList()
 
-        val results = mutableListOf<Pair<String, Float>>()
-
-        // 1. Two-word split: word = part1 + part2
-        for (i in 1 until lower.length) {
-            val p1 = lower.substring(0, i)
-            val p2 = lower.substring(i)
-
-            val valid1 = (p1 == "a" || p1 == "i" || (p1.length >= 2 && isWordInDictionary(p1)))
-            val valid2 = (p2 == "a" || p2 == "i" || (p2.length >= 2 && isWordInDictionary(p2)))
-
-            if (valid1 && valid2) {
-                val s1 = if (p1 == "i") "I" else p1
-                val s2 = if (p2 == "i") "I" else p2
-                val splitCandidate = "$s1 $s2"
-
-                val freq1 = commonWords.firstOrNull { it.word.lowercase() == p1 }?.frequency ?: (if (userWords.contains(p1)) 80 else 20)
-                val freq2 = commonWords.firstOrNull { it.word.lowercase() == p2 }?.frequency ?: (if (userWords.contains(p2)) 80 else 20)
-                var score = (freq1 + freq2).toFloat()
-
-                val bigramMatches = bigrams[p1] ?: emptyList()
-                val learnedMatches = personalizedBigrams[p1] ?: emptyList()
-                if (bigramMatches.any { it.lowercase() == p2 } || learnedMatches.any { it.lowercase() == p2 }) {
-                    score += 600f
-                }
-
-                if (p1.length == 1 && p1 != "a" && p1 != "i") score -= 300f
-                if (p2.length == 1 && p2 != "a" && p2 != "i") score -= 300f
-
-                results.add(splitCandidate to score)
-            }
+        // 1. If the user typed an already valid word, never split it!
+        if (isWordInDictionary(lower) || userWords.contains(lower) || recentlyAcceptedWords.contains(lower)) {
+            return emptyList()
         }
 
-        // 2. Three-word split (e.g. "howareyou", "iloveyou", "seeyousoon", "whatisthat")
-        if (lower.length >= 6) {
-            for (i in 1 until lower.length - 2) {
-                for (j in i + 1 until lower.length) {
-                    val p1 = lower.substring(0, i)
-                    val p2 = lower.substring(i, j)
-                    val p3 = lower.substring(j)
-
-                    val valid1 = (p1 == "a" || p1 == "i" || (p1.length >= 2 && isWordInDictionary(p1)))
-                    val valid2 = (p2 == "a" || p2 == "i" || (p2.length >= 2 && isWordInDictionary(p2)))
-                    val valid3 = (p3 == "a" || p3 == "i" || (p3.length >= 2 && isWordInDictionary(p3)))
-
-                    if (valid1 && valid2 && valid3) {
-                        val s1 = if (p1 == "i") "I" else p1
-                        val s2 = if (p2 == "i") "I" else p2
-                        val s3 = if (p3 == "i") "I" else p3
-                        val splitCandidate = "$s1 $s2 $s3"
-                        results.add(splitCandidate to 400f)
-                    }
-                }
-            }
-        }
-
-        return results.sortedByDescending { it.second }.map { it.first }.distinct()
+        // 2. Curated whitelist of digital run-together phrases (e.g. goodmorning -> good morning, thankyou -> thank you)
+        val forcedSplitMap = mapOf(
+            "alot" to "a lot", "infront" to "in front", "atleast" to "at least",
+            "aswell" to "as well", "ofcourse" to "of course", "thankyou" to "thank you",
+            "goodmorning" to "good morning", "goodnight" to "good night", "howareyou" to "how are you",
+            "seeyou" to "see you", "loveyou" to "love you", "letsgo" to "let's go",
+            "withyou" to "with you", "goingto" to "going to", "wantto" to "want to",
+            "bytheway" to "by the way", "nevermind" to "never mind", "eachother" to "each other",
+            "allright" to "all right", "noone" to "no one", "cantwait" to "can't wait",
+            "dontworry" to "don't worry", "dontknow" to "don't know", "rightnow" to "right now",
+            "takecare" to "take care", "goodluck" to "good luck", "havefun" to "have fun",
+            "howmuch" to "how much", "howmany" to "how many", "thanksalot" to "thanks a lot"
+        )
+        val match = forcedSplitMap[lower]
+        return if (match != null) listOf(match) else emptyList()
     }
 
     /**
@@ -1597,123 +1679,394 @@ class DictionaryManager(private val context: Context) {
         return 1.0f
     }
 
-    /**
-     * Decodes a list of normalized touch points (0.0 to 1.0) into the most likely matching words.
-     */
-    fun decodeSwipePath(path: List<PointF>): List<String> {
-        if (path.size < 2) return emptyList()
+    data class ResampledSwipe(
+        val points: List<PointF>,
+        val arcLength: Float,
+        val corners: List<PointF>,
+        val inflectionPoints: List<PointF> = emptyList()
+    )
 
-        // 1. Query predictions from our ML template matching model
-        val mlSwipePredictions = mlPredictor.predictFromSwipePatterns(path, 0.05f)
+    private fun preprocessSwipePath(rawPath: List<PointF>): ResampledSwipe? {
+        if (rawPath.size < 2) return null
 
-        val results = mutableListOf<Pair<String, Float>>()
+        // 1. Deduplicate sequential points that are too close
+        val deduped = ArrayList<PointF>(rawPath.size)
+        deduped.add(rawPath.first())
+        for (i in 1 until rawPath.size) {
+            val curr = rawPath[i]
+            if (distance(deduped.last(), curr) >= 0.004f) {
+                deduped.add(curr)
+            }
+        }
+        if (deduped.size < 2) return null
 
-        // Include both base dictionary words and user learned words in the candidates
-        val candidates = commonWords.map { it.word to it.frequency } + userWords.map { it to 25 }
+        // 2. Arc length computation & step intervals
+        val arcLengths = FloatArray(deduped.size)
+        var totalLength = 0f
+        for (i in 1 until deduped.size) {
+            totalLength += distance(deduped[i - 1], deduped[i])
+            arcLengths[i] = totalLength
+        }
+        if (totalLength < 0.04f) return null // Too short to be a deliberate swipe
 
-        for ((word, frequency) in candidates) {
-            val lowercaseWord = word.lowercase().trim()
-            if (lowercaseWord.length < 2) continue
+        // 3. Resample into exactly 32 points equidistant along arc length
+        val sampleCount = 32
+        val resampled = ArrayList<PointF>(sampleCount)
+        resampled.add(deduped.first())
+        val step = totalLength / (sampleCount - 1)
+        var srcIdx = 0
 
-            var score = calculateSwipeCost(lowercaseWord, path)
-            if (score < 1000f) {
-                // If the user has a learned ML swipe template for this word, apply a substantial score bonus!
-                val mlMatch = mlSwipePredictions.firstOrNull { it.first.lowercase() == lowercaseWord }
-                if (mlMatch != null) {
-                    score *= (1.0f - mlMatch.second * 0.5f) // Up to 50% cost distance reduction for high similarity templates!
+        for (i in 1 until sampleCount - 1) {
+            val targetDist = i * step
+            while (srcIdx < deduped.size - 2 && arcLengths[srcIdx + 1] < targetDist) {
+                srcIdx++
+            }
+            val segStart = arcLengths[srcIdx]
+            val segEnd = arcLengths[srcIdx + 1]
+            val segLen = segEnd - segStart
+            val ratio = if (segLen > 0.00001f) ((targetDist - segStart) / segLen).coerceIn(0f, 1f) else 0f
+            val p1 = deduped[srcIdx]
+            val p2 = deduped[srcIdx + 1]
+            resampled.add(PointF(p1.x + ratio * (p2.x - p1.x), p1.y + ratio * (p2.y - p1.y)))
+        }
+        resampled.add(deduped.last())
+
+        // 4. Detect inflection and dwell pause points along the gesture
+        // Natural curved swiping features directional bends (>=35 deg) and velocity deceleration dips
+        val inflectionPoints = mutableListOf<PointF>()
+        for (i in 2 until sampleCount - 2) {
+            val pPrev = resampled[i - 2]
+            val pCurr = resampled[i]
+            val pNext = resampled[i + 2]
+
+            val v1x = pCurr.x - pPrev.x
+            val v1y = pCurr.y - pPrev.y
+            val v2x = pNext.x - pCurr.x
+            val v2y = pNext.y - pCurr.y
+
+            val mag1 = sqrt(v1x * v1x + v1y * v1y)
+            val mag2 = sqrt(v2x * v2x + v2y * v2y)
+
+            if (mag1 > 0.004f && mag2 > 0.004f) {
+                val dot = (v1x * v2x + v1y * v2y) / (mag1 * mag2)
+                // Turn of >= 35 degrees (dot <= 0.82f) indicates an intentional inflection at a letter
+                if (dot <= 0.82f) {
+                    if (inflectionPoints.none { distance(it, pCurr) < 0.09f }) {
+                        inflectionPoints.add(pCurr)
+                    }
                 }
-                
-                val frequencyBonus = 1.0f - (frequency / 1000f) * 0.15f
-                results.add(Pair(word, score * frequencyBonus))
             }
         }
 
-        // Add any high-confidence ML swipe predictions that weren't captured by physics calculations
-        mlSwipePredictions.forEach { (word, similarity) ->
-            if (!results.any { it.first.lowercase() == word.lowercase() }) {
-                // Synthesize a highly competitive cost score to surface it in suggestions
-                results.add(Pair(word, 0.18f * (1.0f - similarity)))
+        // Also check raw points for pause/dwell clusters where finger lingered
+        for (i in 1 until deduped.size - 1) {
+            val p1 = deduped[i - 1]
+            val p2 = deduped[i]
+            val p3 = deduped[i + 1]
+            val d1 = distance(p1, p2)
+            val d2 = distance(p2, p3)
+            // Low local displacement indicating a dwell pause
+            if (d1 < 0.008f && d2 < 0.008f) {
+                if (inflectionPoints.none { distance(it, p2) < 0.09f }) {
+                    inflectionPoints.add(p2)
+                }
             }
         }
 
-        return results.sortedBy { it.second }.map { it.first }.distinct().take(3)
+        return ResampledSwipe(resampled, totalLength, inflectionPoints, inflectionPoints)
     }
 
-    private fun calculateSwipeCost(word: String, path: List<PointF>): Float {
-        val cleanWord = word.lowercase().trim().filter { it.isLetter() }
-        if (cleanWord.length < 2 || path.size < 2) return Float.MAX_VALUE
+    private fun resampleWordTrajectory(keyPositions: List<PointF>, count: Int = 32): List<PointF> {
+        if (keyPositions.isEmpty()) return emptyList()
+        if (keyPositions.size == 1) return List(count) { keyPositions[0] }
+        val arcLengths = FloatArray(keyPositions.size)
+        var total = 0f
+        for (i in 1 until keyPositions.size) {
+            total += distance(keyPositions[i - 1], keyPositions[i])
+            arcLengths[i] = total
+        }
+        if (total <= 0.0001f) return List(count) { keyPositions[0] }
 
-        val firstCharPos = keyCoordinates[cleanWord.first()] ?: return Float.MAX_VALUE
-        val lastCharPos = keyCoordinates[cleanWord.last()] ?: return Float.MAX_VALUE
+        val result = ArrayList<PointF>(count)
+        result.add(keyPositions.first())
+        val step = total / (count - 1)
+        var seg = 0
 
-        val startDist = distance(firstCharPos, path.first())
-        if (startDist > 0.38f) return Float.MAX_VALUE
+        for (i in 1 until count - 1) {
+            val target = i * step
+            while (seg < keyPositions.size - 2 && arcLengths[seg + 1] < target) {
+                seg++
+            }
+            val sStart = arcLengths[seg]
+            val sEnd = arcLengths[seg + 1]
+            val sLen = sEnd - sStart
+            val r = if (sLen > 0.00001f) ((target - sStart) / sLen).coerceIn(0f, 1f) else 0f
+            val p1 = keyPositions[seg]
+            val p2 = keyPositions[seg + 1]
+            result.add(PointF(p1.x + r * (p2.x - p1.x), p1.y + r * (p2.y - p1.y)))
+        }
+        result.add(keyPositions.last())
+        return result
+    }
 
-        val endDist = distance(lastCharPos, path.last())
-        if (endDist > 0.38f) return Float.MAX_VALUE
+    private fun calculateDtwDistance(p1: List<PointF>, p2: List<PointF>, band: Int = 10): Float {
+        val n = p1.size
+        val m = p2.size
+        if (n == 0 || m == 0) return Float.MAX_VALUE
+        val dtw = Array(n + 1) { FloatArray(m + 1) { Float.MAX_VALUE } }
+        dtw[0][0] = 0f
 
-        // 1. Unique sequence of keys (collapsing duplicate adjacent letters e.g. 'l-o-o-k' -> 'l-o-k')
-        val charSequence = cleanWord.fold(StringBuilder()) { sb, c ->
-            if (sb.isEmpty() || sb.last() != c) sb.append(c) else sb
-        }.toString()
-
-        val uniqueKeys = charSequence.mapNotNull { keyCoordinates[it] }
-        if (uniqueKeys.size < 2) return Float.MAX_VALUE
-
-        // 2. Compute letter-to-path sequential matching distance
-        var currentPathIdx = 0
-        var totalSeqDist = 0f
-
-        for (keyPos in uniqueKeys) {
-            var minLetterDist = Float.MAX_VALUE
-            var bestIdx = currentPathIdx
-
-            for (i in currentPathIdx until path.size) {
-                val dist = distance(keyPos, path[i])
-                if (dist < minLetterDist) {
-                    minLetterDist = dist
-                    bestIdx = i
+        for (i in 1..n) {
+            val jStart = maxOf(1, i - band)
+            val jEnd = minOf(m, i + band)
+            val pt1 = p1[i - 1]
+            for (j in jStart..jEnd) {
+                val pt2 = p2[j - 1]
+                val cost = distance(pt1, pt2)
+                val minPrev = minOf(dtw[i - 1][j], dtw[i][j - 1], dtw[i - 1][j - 1])
+                if (minPrev != Float.MAX_VALUE) {
+                    dtw[i][j] = cost + minPrev
                 }
             }
+        }
+        val finalDist = dtw[n][m]
+        return if (finalDist == Float.MAX_VALUE) 2.0f else finalDist / maxOf(n, m)
+    }
 
-            totalSeqDist += minLetterDist
-            currentPathIdx = bestIdx
+    fun isBigramFollower(prev: String, next: String): Boolean {
+        val p = prev.lowercase().trim()
+        val n = next.lowercase().trim()
+        if (p.isEmpty() || n.isEmpty()) return false
+        val preconfigured = bigrams[p]?.any { it.equals(n, ignoreCase = true) } == true
+        if (preconfigured) return true
+        val learned = personalizedBigrams[p]?.any { it.equals(n, ignoreCase = true) } == true
+        return learned
+    }
+
+    private fun calculateSwipeMatchCost(
+        word: String,
+        frequency: Int,
+        userSwipe: ResampledSwipe,
+        prevWord: String? = null,
+        mlMatchSimilarity: Float = 0f
+    ): Float {
+        val cleanWord = word.lowercase().trim().filter { it.isLetter() }
+        if (cleanWord.length < 2) return Float.MAX_VALUE
+
+        // Collapse adjacent duplicates (e.g. "look" -> "lok", "good" -> "god", "hello" -> "helo")
+        val skeleton = StringBuilder()
+        for (c in cleanWord) {
+            if (skeleton.isEmpty() || skeleton.last() != c) {
+                skeleton.append(c)
+            }
         }
 
-        val normalizedSeqDistance = totalSeqDist / uniqueKeys.size
+        val keyPositions = skeleton.mapNotNull { keyCoordinates[it] }
+        if (keyPositions.size < 2) return Float.MAX_VALUE
 
-        // 3. Calculate path length vs expected word trajectory length mismatch
-        var expectedWordLength = 0f
-        for (i in 0 until uniqueKeys.size - 1) {
-            expectedWordLength += distance(uniqueKeys[i], uniqueKeys[i + 1])
+        val userPoints = userSwipe.points
+        val numPoints = userPoints.size
+
+        // 1. Start & End key proximity
+        val dStart = distance(userPoints.first(), keyPositions.first())
+        val dEnd = distance(userPoints.last(), keyPositions.last())
+        if (dStart > 0.30f || dEnd > 0.30f) return Float.MAX_VALUE
+        val startEndCost = (dStart * 2.2f) + (dEnd * 2.5f)
+
+        // 2. Ideal word trajectory length
+        var idealArcLength = 0f
+        for (i in 1 until keyPositions.size) {
+            idealArcLength += distance(keyPositions[i - 1], keyPositions[i])
+        }
+        idealArcLength = maxOf(0.04f, idealArcLength)
+
+        // 3. Length ratio check
+        val lengthRatio = userSwipe.arcLength / idealArcLength
+        var lengthPenalty = 0f
+        if (lengthRatio < 0.38f) {
+            lengthPenalty = (0.38f - lengthRatio) * 2.0f
+        } else if (lengthRatio > 3.0f) {
+            lengthPenalty = (lengthRatio - 3.0f) * 0.3f
         }
 
-        var actualPathLength = 0f
-        for (i in 0 until path.size - 1) {
-            actualPathLength += distance(path[i], path[i + 1])
+        // 4. Ideal trajectory resampling
+        val idealPoints = resampleWordTrajectory(keyPositions, numPoints)
+
+        // 5. Continuous Dynamic Time Warping (DTW) shape alignment with generous search band
+        val shapeDtw = calculateDtwDistance(userPoints, idealPoints, band = 12)
+
+        // 6. Ordered key traversal & coverage (robust against natural curved swiping)
+        var coveragePenalty = 0f
+        var orderPenalty = 0f
+        var keyBonus = 0f
+        var prevBestIdx = 0
+
+        for (pos in keyPositions) {
+            var minD = Float.MAX_VALUE
+            var bestIdx = 0
+            for (k in 0 until numPoints) {
+                val d = distance(userPoints[k], pos)
+                if (d < minD) {
+                    minD = d
+                    bestIdx = k
+                }
+            }
+            if (minD > 0.16f) {
+                // Key was not closely traversed by the swipe trajectory
+                coveragePenalty += (minD - 0.16f) * 2.4f
+            } else if (minD < 0.08f) {
+                // Key was traversed directly
+                keyBonus += 0.04f
+            }
+
+            // Check temporal ordering: key should occur after previous key
+            if (bestIdx < prevBestIdx - 2) {
+                orderPenalty += ((prevBestIdx - bestIdx).toFloat() / numPoints.toFloat()) * 0.45f
+            }
+            prevBestIdx = bestIdx
+        }
+        val avgCoveragePenalty = coveragePenalty / keyPositions.size
+
+        // 7. Inflection / Dwell Pause Alignment
+        // Reward words when user's pauses or directional curves align with intermediate letters
+        var inflectionScore = 0f
+        if (userSwipe.inflectionPoints.isNotEmpty()) {
+            for (inflection in userSwipe.inflectionPoints) {
+                val minDistToKeys = keyPositions.minOf { distance(it, inflection) }
+                if (minDistToKeys <= 0.12f) {
+                    // Turn or deceleration pause closely matches an intended letter
+                    inflectionScore -= 0.10f
+                } else if (minDistToKeys > 0.24f) {
+                    // Turn or pause far from any letter in this word
+                    inflectionScore += 0.05f
+                }
+            }
         }
 
-        val lengthDiff = kotlin.math.abs(actualPathLength - expectedWordLength)
-        val lengthMismatchPenalty = lengthDiff * 0.35f
+        // 8. Raw cost calculation
+        val baseCost = (shapeDtw * 1.8f) + startEndCost + avgCoveragePenalty + orderPenalty + lengthPenalty
+        val bonusMultiplier = (1.0f - minOf(0.20f, keyBonus)) * (1.0f - minOf(0.15f, maxOf(0f, -inflectionScore)))
+        val rawCost = baseCost * bonusMultiplier
 
-        // 4. Calculate path divergence (sample points along user swipe path to penalize points far from word skeleton)
-        val sampleCount = kotlin.math.min(12, path.size)
-        val step = kotlin.math.max(1, path.size / sampleCount)
-        var totalDivergence = 0f
-        var sampledPoints = 0
+        // 9. Language Model Priors & Context
+        val effectiveFreq = commonWordsFreqMap[cleanWord] ?: frequency
+        val freqFactor = 1.0f - minOf(0.20f, (effectiveFreq / 255f) * 0.18f)
+        val contextBonus = if (prevWord != null && isBigramFollower(prevWord, cleanWord)) 0.80f else 1.0f
+        val mlBonus = if (mlMatchSimilarity > 0.5f) (1.0f - (mlMatchSimilarity - 0.5f) * 0.25f) else 1.0f
 
-        var idx = 0
-        while (idx < path.size) {
-            val pt = path[idx]
-            val minDistToWordKeys = uniqueKeys.minOf { distance(it, pt) }
-            totalDivergence += minDistToWordKeys
-            sampledPoints++
-            idx += step
+        return maxOf(0.001f, rawCost) * freqFactor * contextBonus * mlBonus
+    }
+
+    /**
+     * Decodes a list of normalized touch points (0.0 to 1.0) into the most likely matching words
+     * using continuous trajectory resampling, true DTW shape comparison, sequential key verification,
+     * inflection & dwell pause analysis, and language model context priors.
+     */
+    fun decodeSwipePath(path: List<PointF>, prevWord: String? = null): List<String> {
+        if (path.size < 2) return emptyList()
+
+        val userSwipe = preprocessSwipePath(path) ?: return emptyList()
+        val pStart = userSwipe.points.first()
+        val pEnd = userSwipe.points.last()
+
+        // 1. Identify candidate start & end keys from keyboard grid with soft proximity
+        val startCandidates = keyCoordinates.entries
+            .map { it.key to distance(pStart, it.value) }
+            .filter { it.second <= 0.26f }
+            .sortedBy { it.second }
+            .map { it.first }
+            .take(5)
+            .ifEmpty {
+                keyCoordinates.entries
+                    .map { it.key to distance(pStart, it.value) }
+                    .sortedBy { it.second }
+                    .map { it.first }
+                    .take(2)
+            }
+
+        val endCandidates = keyCoordinates.entries
+            .map { it.key to distance(pEnd, it.value) }
+            .filter { it.second <= 0.26f }
+            .sortedBy { it.second }
+            .map { it.first }
+            .take(5)
+            .ifEmpty {
+                keyCoordinates.entries
+                    .map { it.key to distance(pEnd, it.value) }
+                    .sortedBy { it.second }
+                    .map { it.first }
+                    .take(2)
+            }
+
+        // 2. Bucketed lookup of candidate words from gesture index
+        val candidateMap = LinkedHashMap<String, Int>()
+        synchronized(swipeWordIndex) {
+            for (s in startCandidates) {
+                for (e in endCandidates) {
+                    val list = swipeWordIndex[Pair(s, e)] ?: continue
+                    for (entry in list) {
+                        val existing = candidateMap[entry.first] ?: 0
+                        if (entry.second > existing) {
+                            candidateMap[entry.first] = entry.second
+                        }
+                    }
+                }
+            }
         }
-        val avgDivergence = if (sampledPoints > 0) totalDivergence / sampledPoints else 0f
 
-        // Combined cost score
-        return normalizedSeqDistance + (startDist * 1.2f) + (endDist * 1.2f) + lengthMismatchPenalty + (avgDivergence * 0.7f)
+        // 3. Candidate expansion: always include common high-frequency words starting near pStart
+        val maxWordLen = maxOf(6, (userSwipe.arcLength * 16).toInt() + 2)
+        commonWords.forEach { item ->
+            val clean = item.word.lowercase().trim()
+            if (clean.length in 2..maxWordLen && clean.first() in startCandidates) {
+                if (!candidateMap.containsKey(item.word)) {
+                    candidateMap[item.word] = item.frequency
+                }
+            }
+        }
+
+        // Also check personalized learned words
+        synchronized(candidateLearnFrequency) {
+            candidateLearnFrequency.forEach { (word, freq) ->
+                val clean = word.lowercase().trim()
+                if (clean.length in 2..maxWordLen && clean.first() in startCandidates) {
+                    if (!candidateMap.containsKey(word)) {
+                        candidateMap[word] = freq
+                    }
+                }
+            }
+        }
+
+        // 4. Query strictly confident ML template predictions if available
+        val mlSwipePredictions = mlPredictor.predictFromSwipePatterns(path, 0.03f)
+
+        // 5. Score all candidate words
+        val scoredList = mutableListOf<Pair<String, Float>>()
+        for ((word, freq) in candidateMap) {
+            val clean = word.lowercase().trim()
+            if (clean.length < 2) continue
+
+            val mlMatch = mlSwipePredictions.firstOrNull { it.first.equals(clean, ignoreCase = true) }
+            val mlSim = mlMatch?.second ?: 0f
+
+            val score = calculateSwipeMatchCost(
+                word = word,
+                frequency = freq,
+                userSwipe = userSwipe,
+                prevWord = prevWord,
+                mlMatchSimilarity = mlSim
+            )
+
+            if (score < 10.0f) {
+                scoredList.add(Pair(word, score))
+            }
+        }
+
+        return scoredList
+            .sortedBy { it.second }
+            .map { it.first }
+            .distinct()
+            .take(5)
     }
 
     private fun distance(p1: PointF, p2: PointF): Float {
@@ -1780,6 +2133,10 @@ class DictionaryManager(private val context: Context) {
 
         // Missed space split match (e.g. "goodmorning" <-> "good morning", "thankyou" <-> "thank you", "infront" <-> "in front")
         if (w2.contains(" ") && w2.replace(" ", "") == w1) {
+            // Never split an already valid word
+            if (isWordInDictionary(w1) || userWords.contains(w1) || recentlyAcceptedWords.contains(w1)) {
+                return 0.0f
+            }
             val parts = w2.split(" ")
             val allValid = parts.all { it == "a" || it == "i" || isWordInDictionary(it) }
             if (allValid) {
@@ -1914,16 +2271,16 @@ class DictionaryManager(private val context: Context) {
             phoneticScore = 0.22f
         }
 
-        // --- Signal 7: Neural TFLite Agreement ---
-        var tfLiteScore = 0.0f
+        // --- Signal 7: Neural Sequence Correction Agreement ---
+        var neuralScore = 0.0f
         try {
-            val tfliteFix = tfLiteModel.correctText(w1).trim().lowercase()
-            if (tfliteFix.isNotEmpty() && tfliteFix == w2) {
-                tfLiteScore = 0.35f
+            val neuralFix = neuralEngine.correctText(w1).trim().lowercase()
+            if (neuralFix.isNotEmpty() && neuralFix == w2) {
+                neuralScore = 0.35f
             }
         } catch (_: Exception) {}
 
-        var totalConfidence = editDistScore + tapGeometryScore + lmScore + userFreqScore + unigramScore + phoneticScore + tfLiteScore
+        var totalConfidence = editDistScore + tapGeometryScore + lmScore + userFreqScore + unigramScore + phoneticScore + neuralScore
 
         // Short word penalty (only for large edit distance on short words)
         if (w1.length <= 3 && d > 1.1f) {
@@ -1936,6 +2293,15 @@ class DictionaryManager(private val context: Context) {
     companion object {
         const val SILENT_CORRECT_THRESHOLD = 0.40f // Autocorrect threshold
         const val SUGGESTION_THRESHOLD = 0.30f     // Suggestion candidate threshold
+
+        @Volatile
+        private var instance: DictionaryManager? = null
+
+        fun getInstance(context: Context): DictionaryManager {
+            return instance ?: synchronized(this) {
+                instance ?: DictionaryManager(context.applicationContext ?: context).also { instance = it }
+            }
+        }
 
         val SUPPLEMENTAL_WORDS: Set<String> by lazy {
             val vocabText = """
@@ -1952,7 +2318,10 @@ class DictionaryManager(private val context: Context) {
         val w = word.lowercase().trim()
         if (w.isEmpty()) return 0
         if (userWords.contains(w)) return 120
-        return commonWordsFreqMap[w] ?: 10
+        commonWordsFreqMap[w]?.let { return it }
+        if (commonWordsSet.contains(w)) return 40
+        if (isWordInDictionary(w)) return 30
+        return 0
     }
 
     /**

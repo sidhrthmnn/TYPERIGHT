@@ -17,6 +17,7 @@ class KeyboardSettings(context: Context) {
         const val KEY_SOUND_ENABLED = "sound_enabled"
         const val KEY_HAPTIC_ENABLED = "haptic_enabled"
         const val KEY_AUTOCORRECT_ENABLED = "autocorrect_enabled"
+        const val KEY_AUTOCORRECT_SENSITIVITY = "autocorrect_sensitivity"
         const val KEY_SWIPE_ENABLED = "swipe_enabled"
         const val KEY_SUPPORT_TIER = "support_tier" // "auto", "tier_1", "tier_2", "tier_3"
         const val KEY_PROFANITY_FILTER_ENABLED = "profanity_filter_enabled"
@@ -58,19 +59,21 @@ class KeyboardSettings(context: Context) {
         const val KEY_RETRO_MONOSPACE = "keyboard_retro_monospace"
         const val KEY_MECHANICAL_SOUND = "keyboard_mechanical_sound"
 
-        // Retro Theme Presets
-        const val THEME_RETRO_BEIGE = "Retro Beige (Model M)"
-        const val THEME_RETRO_CRT_GREEN = "Retro CRT Terminal"
-        const val THEME_RETRO_AMBER = "Retro Amber Terminal"
-        const val THEME_RETRO_MAC1984 = "Retro 1984 Macintosh"
-        const val THEME_RETRO_SYNTHWAVE = "Retro 80s Synthwave"
+        // Keyboard Themes: Light (Arrangement), Dark (Standard), and Night (AMOLED Deep Black)
+        const val THEME_LIGHT = "Light"
+        const val THEME_DARK = "Dark"
+        const val THEME_NIGHT = "Night"
 
-        const val THEME_LIGHT = "Minimal Light"
-        const val THEME_DARK = "Minimal Dark"
-        const val THEME_MATERIAL_YOU = "Material You"
-        const val THEME_AMOLED = "AMOLED Black"
-        const val THEME_MINT = "Pixel Mint"
-        const val THEME_CORAL = "Coral Glow"
+        // Compatibility constants mapped appropriately
+        const val THEME_AMOLED = "Night"
+        const val THEME_RETRO_BEIGE = "Light"
+        const val THEME_RETRO_CRT_GREEN = "Night"
+        const val THEME_RETRO_AMBER = "Dark"
+        const val THEME_RETRO_MAC1984 = "Light"
+        const val THEME_RETRO_SYNTHWAVE = "Night"
+        const val THEME_MATERIAL_YOU = "Dark"
+        const val THEME_MINT = "Light"
+        const val THEME_CORAL = "Light"
 
         const val HEIGHT_SHORT = "Short"
         const val HEIGHT_NORMAL = "Normal"
@@ -84,6 +87,10 @@ class KeyboardSettings(context: Context) {
 
         const val VOICE_MODE_CLOUD = "Fast Mode (Cloud)"
         const val VOICE_MODE_LOCAL = "Private Mode (On-Device)"
+
+        const val SENSITIVITY_MILD = "Mild"
+        const val SENSITIVITY_BALANCED = "Balanced"
+        const val SENSITIVITY_AGGRESSIVE = "Aggressive"
     }
 
     var wisprFlowMode: WisprFlowMode
@@ -157,7 +164,9 @@ class KeyboardSettings(context: Context) {
         }
 
     var aiModel: String
-        get() = prefs.getString(KEY_AI_MODEL, "gemini-3.5-flash") ?: "gemini-3.5-flash"
+        get() = (prefs.getString(KEY_AI_MODEL, "gemini-3.1-flash-lite-preview") ?: "gemini-3.1-flash-lite-preview").let {
+            if (it.contains("3.5-flash-lite") || it.contains("2.5-flash-lite")) "gemini-3.1-flash-lite-preview" else it
+        }
         set(value) {
             prefs.edit().putString(KEY_AI_MODEL, value).apply()
             dataStore.updateAsync { it.setAiModel(value) }
@@ -228,12 +237,23 @@ class KeyboardSettings(context: Context) {
         }
 
     var theme: String
-        get() = prefs.getString(KEY_THEME, THEME_DARK) ?: THEME_DARK
+        get() {
+            val t = prefs.getString(KEY_THEME, THEME_DARK) ?: THEME_DARK
+            return when {
+                t.equals(THEME_LIGHT, ignoreCase = true) || t.equals("Light Arrangement", ignoreCase = true) -> THEME_LIGHT
+                t.equals(THEME_NIGHT, ignoreCase = true) || t.equals("Night", ignoreCase = true) || t.equals("AMOLED Black", ignoreCase = true) -> THEME_NIGHT
+                else -> THEME_DARK
+            }
+        }
         set(value) {
-            prefs.edit().putString(KEY_THEME, value).apply()
-            // Keep isDarkMode in sync for components that check dark mode
-            isDarkMode = (value == THEME_DARK || value == THEME_RETRO_CRT_GREEN || value == THEME_RETRO_AMBER || value == THEME_RETRO_SYNTHWAVE || value == THEME_AMOLED)
-            dataStore.updateAsync { it.setTheme(value) }
+            val normalized = when {
+                value.equals(THEME_LIGHT, ignoreCase = true) || value.equals("Light Arrangement", ignoreCase = true) -> THEME_LIGHT
+                value.equals(THEME_NIGHT, ignoreCase = true) || value.equals("Night", ignoreCase = true) -> THEME_NIGHT
+                else -> THEME_DARK
+            }
+            prefs.edit().putString(KEY_THEME, normalized).apply()
+            isDarkMode = normalized != THEME_LIGHT
+            dataStore.updateAsync { it.setTheme(normalized) }
         }
 
     var keyBevelEnabled: Boolean
@@ -298,6 +318,13 @@ class KeyboardSettings(context: Context) {
         set(value) {
             prefs.edit().putBoolean(KEY_AUTOCORRECT_ENABLED, value).apply()
             dataStore.updateAsync { it.setAutocorrectEnabled(value) }
+        }
+
+    var autocorrectSensitivity: String
+        get() = prefs.getString(KEY_AUTOCORRECT_SENSITIVITY, SENSITIVITY_BALANCED) ?: SENSITIVITY_BALANCED
+        set(value) {
+            prefs.edit().putString(KEY_AUTOCORRECT_SENSITIVITY, value).apply()
+            dataStore.updateAsync { it.setAutocorrectSensitivity(value) }
         }
 
     var swipeEnabled: Boolean

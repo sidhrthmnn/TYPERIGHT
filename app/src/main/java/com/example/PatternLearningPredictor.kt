@@ -215,6 +215,19 @@ class PatternLearningPredictor private constructor(context: Context) {
         return matches.sortedByDescending { it.second }
     }
 
+    fun clearSwipeTemplates() {
+        scope.launch {
+            try {
+                dao.clearSwipePatterns()
+                synchronized(swipeTemplates) {
+                    swipeTemplates.clear()
+                }
+            } catch (e: Exception) {
+                Log.e("MLPredictor", "Error clearing swipe patterns: ${e.message}")
+            }
+        }
+    }
+
     // ------------------------------------------
     // 2. Typing Touch Offsets Learning (Online Mean Estimation)
     // ------------------------------------------

@@ -1,6 +1,6 @@
 {
   "name": "Type Right",
-  "description": "Clean smart keyboard with compact short layout, genuine on-device AI polish powered by LiteRT-LM, real-time proofreading, and offline text correction.",
+  "description": "Smart keyboard with compact short layout, Gboard & SwiftKey predictive N-gram models, Apple QuickType candidates, real-time proofreading, and offline text correction.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

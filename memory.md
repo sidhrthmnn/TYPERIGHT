@@ -19,4 +19,4 @@ FlowKey is a flagship Gboard-equivalent Android Input Method Editor (IME) built 
 - **Spacebar Autocorrect Commit**: Pressing spacebar automatically commits top prediction candidate if a typo is detected.
 - **Keyboard Hide Button**: Added dedicated `ArrowDropDown` key to collapse the keyboard input window smoothly.
 - **Responsive Insets**: Applied `imePadding()` to `MainActivity.kt` container to ensure text sandbox and setup options adjust cleanly when the IME is active.
-- **Publish Version**: Updated `versionCode` to `34` and `versionName` to `"34.0"` in `app/build.gradle.kts` for publication release.
+- **Publish Version**: Updated `versionCode` to `175` and `versionName` to `"175.0"` in `app/build.gradle.kts` for publication release.

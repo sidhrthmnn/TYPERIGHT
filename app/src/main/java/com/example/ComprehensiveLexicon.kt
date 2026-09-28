@@ -355,6 +355,147 @@ object ComprehensiveLexicon {
         )
         grammarParts.forEach { add(it.first, it.second) }
 
+        // --- Major Companies, Tech Giants & Global Brands ---
+        val companiesAndBrands = listOf(
+            "Google" to 260, "Apple" to 250, "Microsoft" to 240, "Amazon" to 250, "Meta" to 220,
+            "Netflix" to 240, "Spotify" to 230, "Tesla" to 230, "Uber" to 220, "Lyft" to 190,
+            "Airbnb" to 200, "OpenAI" to 220, "Nvidia" to 220, "Intel" to 210, "AMD" to 190,
+            "Samsung" to 230, "Sony" to 220, "Adobe" to 200, "Twitter" to 230, "TikTok" to 250,
+            "Instagram" to 250, "WhatsApp" to 250, "YouTube" to 260, "Reddit" to 230, "Discord" to 230,
+            "Telegram" to 210, "Zoom" to 220, "Slack" to 210, "Pinterest" to 190, "Snapchat" to 220,
+            "LinkedIn" to 210, "Twitch" to 210, "Tumblr" to 170, "GitHub" to 210, "GitLab" to 170,
+            "Patreon" to 180, "Stripe" to 190, "PayPal" to 220, "Shopify" to 190, "eBay" to 210,
+            "Etsy" to 190, "Wikipedia" to 210, "Nike" to 220, "Adidas" to 210, "Puma" to 180,
+            "Zara" to 190, "Gucci" to 200, "Prada" to 180, "Chanel" to 190, "Rolex" to 190,
+            "Starbucks" to 220, "McDonald's" to 220, "KFC" to 190, "Subway" to 190, "Domino's" to 190,
+            "Pepsi" to 200, "Coca-Cola" to 210, "Coke" to 220, "Red Bull" to 180, "Nestle" to 180,
+            "Toyota" to 210, "Honda" to 200, "Ford" to 210, "BMW" to 210, "Mercedes" to 210,
+            "Audi" to 200, "Porsche" to 190, "Ferrari" to 190, "Lamborghini" to 180, "Volkswagen" to 190,
+            "Hyundai" to 190, "Kia" to 190, "Volvo" to 180, "Disney" to 240, "Nintendo" to 230,
+            "PlayStation" to 230, "Xbox" to 230, "Sega" to 180, "Capcom" to 170, "Warner" to 190,
+            "Universal" to 190, "Paramount" to 180, "HBO" to 210
+        )
+        companiesAndBrands.forEach { add(it.first, it.second) }
+
+        // --- Hardware, Products, Operating Systems & Devices ---
+        val productsAndPlatforms = listOf(
+            "iPhone" to 250, "iPad" to 230, "Mac" to 230, "MacBook" to 230, "iMac" to 190,
+            "AirPods" to 220, "Vision Pro" to 180, "Android" to 250, "Pixel" to 220, "Chromebook" to 190,
+            "Windows" to 240, "Galaxy" to 220, "Surface" to 190, "Switch" to 220, "Kindle" to 200,
+            "Roku" to 180, "Chromecast" to 180, "Alexa" to 210, "Siri" to 210, "ChatGPT" to 240,
+            "Claude" to 210, "Gemini" to 220, "Copilot" to 200, "Linux" to 200, "Ubuntu" to 180,
+            "iOS" to 230, "macOS" to 210, "watchOS" to 180, "Wear OS" to 170, "Chrome" to 230,
+            "Safari" to 210, "Firefox" to 200, "Edge" to 200, "Bluetooth" to 210, "Wi-Fi" to 230,
+            "HDMI" to 190, "USB" to 210, "OLED" to 180, "AMOLED" to 170, "4K" to 200,
+            "5G" to 220, "LTE" to 190, "eSIM" to 180, "MagSafe" to 180, "Steam" to 210,
+            "GeForce" to 190, "Radeon" to 180, "Snapdragon" to 190
+        )
+        productsAndPlatforms.forEach { add(it.first, it.second) }
+
+        // --- Countries, Nations & Regions ---
+        val countriesAndTerritories = listOf(
+            "United States" to 240, "USA" to 260, "America" to 250, "Canada" to 240, "Mexico" to 230,
+            "United Kingdom" to 230, "UK" to 250, "Britain" to 220, "England" to 230, "Scotland" to 210,
+            "Wales" to 190, "Ireland" to 220, "France" to 240, "Germany" to 240, "Italy" to 230,
+            "Spain" to 230, "Portugal" to 210, "Netherlands" to 220, "Belgium" to 210, "Switzerland" to 220,
+            "Austria" to 210, "Sweden" to 220, "Norway" to 210, "Denmark" to 210, "Finland" to 210,
+            "Iceland" to 200, "Poland" to 220, "Ukraine" to 220, "Czechia" to 190, "Greece" to 210,
+            "Turkey" to 220, "Russia" to 230, "China" to 250, "Japan" to 250, "South Korea" to 230,
+            "India" to 250, "Pakistan" to 220, "Bangladesh" to 210, "Sri Lanka" to 190, "Nepal" to 190,
+            "Indonesia" to 220, "Malaysia" to 220, "Singapore" to 230, "Thailand" to 220, "Vietnam" to 220,
+            "Philippines" to 220, "Australia" to 240, "New Zealand" to 220, "Fiji" to 180, "Brazil" to 240,
+            "Argentina" to 220, "Colombia" to 210, "Chile" to 210, "Peru" to 200, "Egypt" to 220,
+            "South Africa" to 220, "Nigeria" to 220, "Kenya" to 210, "Morocco" to 200, "Saudi Arabia" to 210,
+            "UAE" to 220, "Israel" to 220, "Qatar" to 200, "Kuwait" to 190
+        )
+        countriesAndTerritories.forEach { add(it.first, it.second) }
+
+        // --- Major World Cities & Capitals ---
+        val worldCitiesAndCapitals = listOf(
+            "London" to 250, "Paris" to 250, "Berlin" to 230, "Rome" to 240, "Madrid" to 230,
+            "Barcelona" to 230, "Amsterdam" to 230, "Brussels" to 210, "Vienna" to 220, "Zurich" to 210,
+            "Geneva" to 200, "Dublin" to 220, "Edinburgh" to 210, "Stockholm" to 210, "Oslo" to 200,
+            "Copenhagen" to 210, "Helsinki" to 200, "Warsaw" to 200, "Prague" to 210, "Budapest" to 200,
+            "Athens" to 210, "Istanbul" to 220, "Moscow" to 220, "Tokyo" to 250, "Kyoto" to 220,
+            "Osaka" to 220, "Seoul" to 240, "Beijing" to 230, "Shanghai" to 230, "Shenzhen" to 200,
+            "Hong Kong" to 240, "Taipei" to 220, "Bangkok" to 230, "Jakarta" to 210, "Manila" to 220,
+            "Kuala Lumpur" to 210, "Mumbai" to 230, "Delhi" to 230, "Bangalore" to 230, "Hyderabad" to 210,
+            "Chennai" to 200, "Kolkata" to 200, "Dubai" to 240, "Abu Dhabi" to 210, "Riyadh" to 200,
+            "Doha" to 200, "Cairo" to 220, "Johannesburg" to 200, "Cape Town" to 210, "Nairobi" to 200,
+            "Lagos" to 200, "Sydney" to 240, "Melbourne" to 230, "Brisbane" to 210, "Auckland" to 210,
+            "Toronto" to 240, "Montreal" to 220, "Vancouver" to 230, "New York" to 260, "Los Angeles" to 250,
+            "Chicago" to 240, "Houston" to 220, "Phoenix" to 210, "Philadelphia" to 210, "San Antonio" to 200,
+            "San Diego" to 220, "Dallas" to 220, "Austin" to 230, "San Jose" to 210, "San Francisco" to 240,
+            "Seattle" to 230, "Denver" to 220, "Boston" to 230, "Miami" to 230, "Atlanta" to 220,
+            "Las Vegas" to 230, "Washington" to 240, "Honolulu" to 210, "Mexico City" to 220, "Sao Paulo" to 210,
+            "Rio de Janeiro" to 210, "Buenos Aires" to 210, "Santiago" to 200, "Bogota" to 200, "Lima" to 200
+        )
+        worldCitiesAndCapitals.forEach { add(it.first, it.second) }
+
+        // --- Modern Slang, Internet Culture & Colloquialisms ---
+        val popularSlangAndModernLingo = listOf(
+            "rizz" to 220, "rizzler" to 190, "bet" to 230, "cap" to 220, "nocap" to 200, "bussin" to 190,
+            "sus" to 220, "sussy" to 180, "slay" to 220, "slayed" to 200, "slaying" to 190, "vibe" to 240,
+            "vibes" to 230, "vibing" to 220, "flex" to 220, "flexing" to 200, "ghosted" to 200, "ghosting" to 200,
+            "stan" to 200, "stanning" to 180, "goat" to 230, "mid" to 210, "fam" to 220, "bro" to 260,
+            "bruh" to 240, "dude" to 240, "simp" to 200, "simping" to 180, "drip" to 210, "drippy" to 180,
+            "salty" to 200, "lowkey" to 230, "highkey" to 210, "lit" to 220, "fire" to 240, "periodt" to 190,
+            "bop" to 200, "cringe" to 220, "cringey" to 200, "clout" to 200, "based" to 210, "iykyk" to 200,
+            "fomo" to 200, "yolo" to 200, "mood" to 230, "aesthetic" to 220, "wholesome" to 210, "valid" to 220,
+            "toxic" to 210, "tea" to 210, "ratio" to 200, "ratioed" to 190, "woke" to 200, "shook" to 200,
+            "deadass" to 190, "snatched" to 180, "glowup" to 190, "sayless" to 180, "ate" to 200, "finna" to 190,
+            "skibidi" to 180, "gyatt" to 180, "ong" to 210, "fr" to 240, "frfr" to 220, "ngl" to 230,
+            "hmu" to 210, "lmk" to 230, "tbh" to 240, "idk" to 250, "imo" to 230, "imho" to 200,
+            "fyi" to 230, "btw" to 250, "brb" to 220, "np" to 230, "yw" to 220, "ty" to 240,
+            "rn" to 240, "asap" to 230, "ttyl" to 210, "omw" to 230, "ikr" to 220, "smh" to 220,
+            "fwiw" to 190, "tldr" to 210, "afaik" to 190, "nvm" to 230, "ofc" to 230, "bff" to 210,
+            "gg" to 220, "ggs" to 210
+        )
+        popularSlangAndModernLingo.forEach { add(it.first, it.second) }
+
+        // --- Movies, Pop Culture, Comic & Entertainment Franchises ---
+        val moviesPopCultureAndEntertainment = listOf(
+            "Marvel" to 230, "MCU" to 210, "Avengers" to 230, "Iron Man" to 220, "Spider-Man" to 240,
+            "Spiderman" to 240, "Thor" to 220, "Hulk" to 210, "Captain America" to 220, "Black Panther" to 220,
+            "Thanos" to 210, "Loki" to 220, "Deadpool" to 220, "Wolverine" to 210, "X-Men" to 210,
+            "DC" to 220, "Batman" to 240, "Superman" to 230, "Joker" to 230, "Wonder Woman" to 210,
+            "Flash" to 210, "Aquaman" to 200, "Gotham" to 200, "Star Wars" to 240, "Jedi" to 220,
+            "Sith" to 200, "Skywalker" to 220, "Darth Vader" to 220, "Yoda" to 220, "Mandalorian" to 220,
+            "Harry Potter" to 240, "Hogwarts" to 220, "Gryffindor" to 200, "Dumbledore" to 210, "Voldemort" to 200,
+            "Pixar" to 220, "DreamWorks" to 200, "Barbie" to 230, "Oppenheimer" to 220, "Avatar" to 220,
+            "Titanic" to 210, "Jurassic Park" to 210, "Matrix" to 220, "Inception" to 210, "Interstellar" to 210,
+            "Gladiator" to 200, "Lord of the Rings" to 230, "Hobbit" to 210, "Frodo" to 200, "Gandalf" to 210,
+            "Game of Thrones" to 230, "Westeros" to 190, "Stranger Things" to 230, "Breaking Bad" to 220,
+            "Anime" to 240, "Manga" to 220, "Pokemon" to 240, "Pikachu" to 230, "Naruto" to 230,
+            "Sasuke" to 210, "Dragon Ball" to 220, "Goku" to 220, "Vegeta" to 210, "One Piece" to 230,
+            "Luffy" to 220, "Zoro" to 210, "Attack on Titan" to 220, "Demon Slayer" to 220, "Jujutsu Kaisen" to 220,
+            "Bleach" to 200, "Ghibli" to 210, "Totoro" to 200, "Zelda" to 220, "Mario" to 230,
+            "Luigi" to 210, "Bowser" to 200, "Sonic" to 220, "Fortnite" to 230, "Minecraft" to 240,
+            "Roblox" to 230, "Call of Duty" to 230, "GTA" to 230, "Cyberpunk" to 210, "Witcher" to 210,
+            "Elden Ring" to 220, "Skyrim" to 200, "Fallout" to 210, "League of Legends" to 220, "Valorant" to 220,
+            "Apex Legends" to 210, "Overwatch" to 210, "FIFA" to 220, "NBA" to 230, "NFL" to 230,
+            "Oscars" to 210, "Grammys" to 210, "Emmys" to 190, "Hollywood" to 230, "Broadway" to 210,
+            "Coachella" to 200, "Billboard" to 210
+        )
+        moviesPopCultureAndEntertainment.forEach { add(it.first, it.second) }
+
+        // --- Common Global Given Names ---
+        val commonGivenNames = listOf(
+            "Alex" to 220, "Sam" to 220, "Chris" to 220, "Jordan" to 210, "Taylor" to 210, "Morgan" to 200,
+            "Michael" to 230, "David" to 230, "James" to 230, "John" to 230, "Robert" to 220, "William" to 220,
+            "Joseph" to 210, "Thomas" to 210, "Daniel" to 220, "Matthew" to 220, "Anthony" to 210, "Mark" to 220,
+            "Steven" to 200, "Paul" to 210, "Andrew" to 210, "Joshua" to 210, "Kevin" to 210, "Brian" to 210,
+            "George" to 200, "Edward" to 200, "Ryan" to 220, "Jacob" to 210, "Nicholas" to 200, "Eric" to 210,
+            "Jonathan" to 200, "Stephen" to 200, "Justin" to 210, "Brandon" to 200, "Benjamin" to 210,
+            "Alexander" to 220, "Jack" to 220, "Tyler" to 210, "Aaron" to 200, "Adam" to 210, "Nathan" to 200,
+            "Henry" to 210, "Zachary" to 200, "Peter" to 210, "Kyle" to 200, "Ethan" to 210, "Noah" to 230,
+            "Liam" to 230, "Lucas" to 220, "Oliver" to 230, "Leo" to 220, "Elijah" to 220, "Sarah" to 230,
+            "Emily" to 230, "Jessica" to 220, "Ashley" to 210, "Amanda" to 210, "Emma" to 230, "Olivia" to 230,
+            "Sophia" to 230, "Ava" to 230, "Isabella" to 220, "Mia" to 230, "Harper" to 210, "Luna" to 210,
+            "Ella" to 220, "Chloe" to 210, "Grace" to 220, "Lily" to 220, "Zoe" to 210, "Hannah" to 220
+        )
+        commonGivenNames.forEach { add(it.first, it.second) }
+
         wordList.distinctBy { it.word.lowercase() }
     }
 
@@ -363,14 +504,14 @@ object ComprehensiveLexicon {
      */
     val TYPOS: Map<String, String> = mapOf(
         // Core typos & transpositions
-        "teh" to "the", "yhe" to "the", "hte" to "the", "tha" to "the", "tht" to "that",
+        "teh" to "the", "yhe" to "the", "hte" to "the", "tht" to "that",
         "taht" to "that", "tgat" to "that", "yhat" to "that", "tath" to "that",
         "adn" to "and", "nad" to "and", "annd" to "and", "smd" to "and",
         "wiht" to "with", "wtih" to "with", "wth" to "with", "whit" to "with",
         "thsi" to "this", "tihs" to "this", "thid" to "this", "tjos" to "this",
         "thye" to "they", "tgey" to "they", "thwy" to "they", "tje" to "the",
         "cna" to "can", "xan" to "can", "acn" to "can",
-        "fro" to "for", "fpr" to "for", "fir" to "for", "dor" to "for",
+        "fro" to "for", "fpr" to "for", "dor" to "for",
         "oyu" to "you", "yuo" to "you", "yu" to "you", "yoy" to "you",
         "ahve" to "have", "hvea" to "have", "hav" to "have", "haev" to "have",
         "whcih" to "which", "wich" to "which", "whci" to "which",
@@ -438,19 +579,67 @@ object ComprehensiveLexicon {
         "priviledge" to "privilege", "privlege" to "privilege",
         "rember" to "remember", "remeber" to "remember", "remeber" to "remember",
         "themselfs" to "themselves", "themself" to "themselves",
-        "fomr" to "from", "frm" to "from", "form" to "from",
+        "fomr" to "from", "frm" to "from",
         "somthing" to "something", "smth" to "something", "someting" to "something",
         "anyting" to "anything", "anythng" to "anything",
         "evning" to "evening", "mornign" to "morning", "mrng" to "morning",
         "fone" to "phone", "enuf" to "enough", "nite" to "night", "thru" to "through",
-        "hw" to "how", "hwo" to "how", "hwo" to "how",
+        "hw" to "how", "hwo" to "how",
         "helo" to "hello", "helllo" to "hello", "hllo" to "hello",
         "thx" to "thanks", "pls" to "please", "plz" to "please", "tks" to "thanks",
         "idk" to "I don't know", "tbh" to "to be honest", "imo" to "in my opinion",
         "imho" to "in my humble opinion", "fyi" to "for your information",
         "btw" to "by the way", "brb" to "be right back", "np" to "no problem",
         "yw" to "you're welcome", "ty" to "thank you", "rn" to "right now",
-        "asap" to "as soon as possible", "ttyl" to "talk to you later"
+        "asap" to "as soon as possible", "ttyl" to "talk to you later",
+        // Missed-space and run-together digital phrases
+        "thankyou" to "thank you", "goodmorning" to "good morning", "goodnight" to "good night",
+        "howareyou" to "how are you", "seeyou" to "see you", "loveyou" to "love you",
+        "letsgo" to "let's go", "withyou" to "with you", "goingto" to "going to",
+        "wantto" to "want to", "infront" to "in front", "atleast" to "at least",
+        "alot" to "a lot", "ofcourse" to "of course", "aswell" to "as well",
+        "bytheway" to "by the way", "nevermind" to "never mind", "eachother" to "each other",
+        "allright" to "all right", "noone" to "no one", "gonna" to "going to",
+        "wanna" to "want to", "gotta" to "got to", "dontknow" to "don't know",
+        "thanksalot" to "thanks a lot",
+        // Popular company, brand & product typos
+        "googl" to "Google", "gogle" to "Google", "googel" to "Google",
+        "aple" to "Apple", "appl" to "Apple",
+        "amzon" to "Amazon", "amazn" to "Amazon",
+        "netflx" to "Netflix", "netfllix" to "Netflix",
+        "spotfy" to "Spotify", "spotfiy" to "Spotify",
+        "telsa" to "Tesla", "tesal" to "Tesla",
+        "instgram" to "Instagram", "insta" to "Instagram",
+        "whatspp" to "WhatsApp", "whatapp" to "WhatsApp", "watsapp" to "WhatsApp",
+        "yotube" to "YouTube", "youtub" to "YouTube",
+        "reddt" to "Reddit", "reditt" to "Reddit",
+        "twiter" to "Twitter", "twittr" to "Twitter",
+        "tikok" to "TikTok", "tiktk" to "TikTok",
+        "iphoen" to "iPhone", "iphon" to "iPhone",
+        "macbok" to "MacBook", "macbk" to "MacBook",
+        "playstaion" to "PlayStation", "plstation" to "PlayStation",
+        "nintndo" to "Nintendo", "ninetendo" to "Nintendo",
+        // Popular country & city typos
+        "amrica" to "America", "ameica" to "America",
+        "canad" to "Canada", "canade" to "Canada",
+        "japn" to "Japan", "jpan" to "Japan",
+        "germny" to "Germany", "grmany" to "Germany",
+        "engalnd" to "England", "england" to "England",
+        "austraila" to "Australia", "astralia" to "Australia",
+        "brazil" to "Brazil", "brasil" to "Brazil",
+        "mexco" to "Mexico", "mexcio" to "Mexico",
+        "itly" to "Italy", "itlay" to "Italy",
+        "spian" to "Spain", "sapin" to "Spain",
+        // Entertainment & pop culture typos
+        "marvl" to "Marvel", "marvels" to "Marvel",
+        "spidrman" to "Spider-Man", "spideman" to "Spider-Man",
+        "pokmon" to "Pokemon", "pokemn" to "Pokemon",
+        // Additional Modern Slang & Abbreviations
+        "ngl" to "not gonna lie", "frfr" to "for real", "fr" to "for real",
+        "hmu" to "hit me up", "lmk" to "let me know", "smh" to "shaking my head",
+        "ikr" to "I know, right", "fwiw" to "for what it's worth", "tldr" to "too long; didn't read",
+        "afaik" to "as far as I know", "nvm" to "never mind", "ofc" to "of course",
+        "omg" to "oh my god", "gg" to "good game", "ggs" to "good games"
     )
 
     /**
@@ -458,9 +647,9 @@ object ComprehensiveLexicon {
      */
     val UNPUNCTUATED_CONTRACTIONS: Map<String, String> = mapOf(
         "dont" to "don't", "cant" to "can't", "wont" to "won't",
-        "im" to "I'm", "ive" to "I've", "ill" to "I'll", "id" to "I'd",
+        "im" to "I'm", "ive" to "I've",
         "youre" to "you're", "youve" to "you've", "youll" to "you'll", "youd" to "you'd",
-        "hes" to "he's", "shes" to "she's", "its" to "it's",
+        "hes" to "he's", "shes" to "she's",
         "theyre" to "they're", "theyve" to "they've", "theyll" to "they'll", "theyd" to "they'd",
         "weve" to "we've", "we're" to "we're", "didnt" to "didn't",
         "doesnt" to "doesn't", "isnt" to "isn't", "arent" to "aren't",
@@ -468,7 +657,13 @@ object ComprehensiveLexicon {
         "havent" to "haven't", "hadnt" to "hadn't", "wouldnt" to "wouldn't",
         "shouldnt" to "shouldn't", "couldnt" to "couldn't",
         "thats" to "that's", "whats" to "what's", "heres" to "here's",
-        "theres" to "there's", "wheres" to "where's", "hows" to "how's", "lets" to "let's"
+        "theres" to "there's", "wheres" to "where's", "hows" to "how's",
+        "shouldve" to "should've", "couldve" to "could've", "wouldve" to "would've",
+        "mightve" to "might've", "mustve" to "must've",
+        "whove" to "who've", "wholl" to "who'll", "whatll" to "what'll", "thatll" to "that'll",
+        "thereve" to "there've", "therell" to "there'll", "itll" to "it'll",
+        "whos" to "who's", "whens" to "when's", "whys" to "why's",
+        "cmon" to "c'mon", "yall" to "y'all", "aint" to "ain't", "maam" to "ma'am", "oclock" to "o'clock"
     )
 
     /**

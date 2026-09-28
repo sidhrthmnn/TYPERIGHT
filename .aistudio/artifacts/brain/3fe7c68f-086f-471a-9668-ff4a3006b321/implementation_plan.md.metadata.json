@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan to accelerate AI polish using Gemini 3.1 Flash Lite Preview with real-time streaming, instant session reset to prevent stale text, and reliable on-device fallback.",
+  "updatedAt":  "2026-09-28T13:27:08.248454933Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

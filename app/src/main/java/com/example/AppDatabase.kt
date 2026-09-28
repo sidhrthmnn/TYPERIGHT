@@ -13,9 +13,13 @@ import androidx.room.RoomDatabase
         LearnedTouchOffset::class, 
         LearnedBigram::class,
         LearnedTrigram::class,
-        GrammarRuleEntity::class
+        GrammarRuleEntity::class,
+        FrequentlyUsedWord::class,
+        CustomDictionaryEntry::class,
+        NGramFrequency::class,
+        BlockedSuggestion::class
     ], 
-    version = 5, 
+    version = 8, 
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,6 +27,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun learnedWordDao(): LearnedWordDao
     abstract fun patternLearningDao(): PatternLearningDao
     abstract fun grammarRuleDao(): GrammarRuleDao
+    abstract fun frequentlyUsedWordDao(): FrequentlyUsedWordDao
+    abstract fun customDictionaryDao(): CustomDictionaryDao
+    abstract fun ngramFrequencyDao(): NGramFrequencyDao
+    abstract fun blockedSuggestionDao(): BlockedSuggestionDao
 
     companion object {
         @Volatile

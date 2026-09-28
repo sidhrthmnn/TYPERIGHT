@@ -5,9 +5,7 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <exclude domain="file" path="litert_models"/>
     </cloud-backup>
     <device-transfer>
-        <exclude domain="file" path="litert_models"/>
     </device-transfer>
 </data-extraction-rules>

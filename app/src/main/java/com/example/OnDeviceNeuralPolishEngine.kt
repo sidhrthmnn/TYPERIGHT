@@ -93,6 +93,15 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
             .replace(Regex("(?i)\\bhey\\b"), "Hello")
             .replace(Regex("(?i)\\byeah\\b"), "yes")
             .replace(Regex("(?i)\\byep\\b"), "yes")
+            .replace(Regex("(?i)\\bpls\\b|\\bplz\\b"), "please")
+            .replace(Regex("(?i)\\basap\\b"), "as soon as possible")
+            .replace(Regex("(?i)\\blet you know\\b"), "inform you")
+            .replace(Regex("(?i)\\bget in touch\\b"), "contact you")
+            .replace(Regex("(?i)\\bmake sure\\b"), "ensure")
+            .replace(Regex("(?i)\\btalk about\\b"), "discuss")
+            .replace(Regex("(?i)\\bdeal with\\b"), "manage")
+            .replace(Regex("(?i)\\babout to\\b"), "intending to")
+            .replace(Regex("(?i)\\blook into\\b"), "examine")
         if (result.isNotEmpty() && result[0].isLowerCase()) {
             result = result.replaceFirstChar { it.uppercase() }
         }
@@ -109,7 +118,15 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
             .replace(Regex("(?i)\\bwill not\\b"), "won't")
             .replace(Regex("(?i)\\bI am\\b"), "I'm")
             .replace(Regex("(?i)\\bIt is\\b"), "It's")
+            .replace(Regex("(?i)\\bWe are\\b"), "We're")
+            .replace(Regex("(?i)\\bThey are\\b"), "They're")
+            .replace(Regex("(?i)\\bI have\\b"), "I've")
             .replace(Regex("(?i)\\bHello\\b"), "Hey")
+            .replace(Regex("(?i)\\bThank you\\b"), "Thanks!")
+            .replace(Regex("(?i)\\bI would like to\\b"), "I'd love to")
+            .replace(Regex("(?i)\\bPlease inform me\\b"), "Let me know")
+            .replace(Regex("(?i)\\bAt your earliest convenience\\b"), "Whenever you can")
+            .replace(Regex("(?i)\\bGood morning\\b"), "Morning!")
     }
 
     private fun applyConciseStyle(text: String): String {
@@ -121,6 +138,11 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
             .replace(Regex("(?i)\\bfor the purpose of\\b"), "for")
             .replace(Regex("(?i)\\bI am writing to\\b"), "")
             .replace(Regex("(?i)\\bjust wanted to\\b"), "")
+            .replace(Regex("(?i)\\bfeel free to\\b"), "please")
+            .replace(Regex("(?i)\\btake into consideration\\b"), "consider")
+            .replace(Regex("(?i)\\bin the event that\\b"), "if")
+            .replace(Regex("(?i)\\bwith regard to\\b"), "regarding")
+            .replace(Regex("(?i)\\bin reference to\\b"), "regarding")
             .trim()
         if (result.isNotEmpty() && result[0].isLowerCase()) {
             result = result.replaceFirstChar { it.uppercase() }
@@ -136,6 +158,10 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
             .replace(Regex("(?i)\\bvery important\\b"), "paramount")
             .replace(Regex("(?i)\\bshow\\b"), "demonstrate")
             .replace(Regex("(?i)\\bhelp\\b"), "assist")
+            .replace(Regex("(?i)\\bstart\\b"), "commence")
+            .replace(Regex("(?i)\\bend\\b"), "conclude")
+            .replace(Regex("(?i)\\buse\\b"), "utilize")
+            .replace(Regex("(?i)\\bthink\\b"), "contemplate")
         if (result.isNotEmpty() && result[0].isLowerCase()) {
             result = result.replaceFirstChar { it.uppercase() }
         }
@@ -150,5 +176,54 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
             .replace(Regex("(?i)\\b(um|uh|er|ah|like|you know|sort of|kind of)\\b,?\\s*"), "")
             .replace(Regex("\\s+"), " ")
             .trim()
+    }
+
+    /**
+     * Contextual Auto Format: identifies what kind of text it is (email, list, instructions, notes, address, prose)
+     * and formats it based on that text, auto-correcting spelling, typos, and grammar.
+     */
+    fun autoFormatAndCorrect(input: String): String {
+        if (input.isBlank()) return input
+        val corrected = quickProofread(input)
+        val lower = corrected.lowercase()
+
+        // 1. Email or formal letter detection
+        val isEmailCue = lower.startsWith("hi ") || lower.startsWith("hello ") || lower.startsWith("dear ") ||
+                lower.startsWith("hey ") || lower.startsWith("good morning") || lower.startsWith("good afternoon") ||
+                lower.contains("regards") || lower.contains("thanks,") || lower.contains("thank you,") ||
+                lower.contains("best,") || lower.contains("sincerely,") || lower.contains("cheers,")
+
+        // 2. Step-by-step instructions or recipe detection
+        val isNumberedCue = Regex("(?i)\\b(first|step 1|1\\.|item 1)\\b").containsMatchIn(corrected) &&
+                Regex("(?i)\\b(second|then|after that|next|step 2|2\\.)\\b").containsMatchIn(corrected)
+
+        // 3. To-Do / Checklist detection
+        val isChecklistCue = lower.startsWith("todo:") || lower.startsWith("tasks:") || lower.startsWith("checklist:") ||
+                lower.startsWith("to-do:") || lower.contains("[ ]") || lower.contains("need to buy") ||
+                lower.contains("groceries:") || lower.contains("shopping list:")
+
+        // 4. Bulleted list detection
+        val hasListCues = corrected.lines().size > 1 && corrected.lines().any { it.trim().startsWith("-") || it.trim().startsWith("•") || it.trim().startsWith("*") } ||
+                lower.contains("buy ") && lower.contains(",") ||
+                Regex("(?i)\\b(items|notes|agenda|meeting notes):").containsMatchIn(corrected)
+
+        val formatted = when {
+            isEmailCue -> {
+                VoiceTranscriptionFormatter.formatTranscription(corrected, TranscriptionFormatStyle.EMAIL)
+            }
+            isNumberedCue -> {
+                VoiceTranscriptionFormatter.formatTranscription(corrected, TranscriptionFormatStyle.NUMBERED)
+            }
+            isChecklistCue -> {
+                VoiceTranscriptionFormatter.formatTranscription(corrected, TranscriptionFormatStyle.CHECKLIST)
+            }
+            hasListCues -> {
+                VoiceTranscriptionFormatter.formatTranscription(corrected, TranscriptionFormatStyle.BULLETS)
+            }
+            else -> {
+                VoiceTranscriptionFormatter.formatTranscription(corrected, TranscriptionFormatStyle.SMART_CLEAN)
+            }
+        }
+        return if (formatted.isNotBlank()) formatted else corrected
     }
 }

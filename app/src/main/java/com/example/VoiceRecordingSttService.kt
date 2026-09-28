@@ -113,7 +113,7 @@ class VoiceRecordingSttService(private val context: Context) {
      */
     fun stopRecording(
         scope: CoroutineScope,
-        shouldPolish: Boolean = true,
+        shouldPolish: Boolean = false,
         onFinalTranscript: (String) -> Unit
     ) {
         isRecordingActive = false
