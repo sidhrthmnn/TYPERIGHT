@@ -396,7 +396,11 @@ class KeyboardSettings(context: Context) {
         }
 
     val activeAiEngine: ActiveAiEngine
-        get() = if (geminiAiEnabled) ActiveAiEngine.ONLINE else ActiveAiEngine.NONE
+        get() = when (prefs.getString("polish_backend", null)) {
+            "local" -> ActiveAiEngine.OFFLINE
+            "off" -> ActiveAiEngine.NONE
+            else -> if (geminiAiEnabled) ActiveAiEngine.ONLINE else ActiveAiEngine.NONE
+        }
 
     var vocabAutoUpdateEnabled: Boolean
         get() = prefs.getBoolean(KEY_VOCAB_AUTO_UPDATE_ENABLED, true)
@@ -427,8 +431,18 @@ class KeyboardSettings(context: Context) {
         set(value) = prefs.edit().putInt(KEY_USER_WORDS_COUNT, value).apply()
 
     fun setActiveAiEngine(engine: ActiveAiEngine) {
+        prefs.edit().putString("polish_backend", when (engine) {
+            ActiveAiEngine.OFFLINE -> "local"
+            ActiveAiEngine.NONE -> "off"
+            else -> "cloud"
+        }).commit()
         when (engine) {
-            ActiveAiEngine.BOTH, ActiveAiEngine.OFFLINE, ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> {
+            ActiveAiEngine.OFFLINE -> {
+                offlineAiEnabled = true
+                geminiAiEnabled = false
+                nemotronAiEnabled = false
+            }
+            ActiveAiEngine.BOTH, ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> {
                 offlineAiEnabled = false
                 geminiAiEnabled = true
                 nemotronAiEnabled = false
@@ -449,7 +463,7 @@ enum class ActiveAiEngine(
     val description: String
 ) {
     BOTH("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
-    OFFLINE("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
+    OFFLINE("Local GGUF · Qwen2.5 0.5B", "Local", "📱", "Runs on this phone after a one-time model download"),
     ONLINE("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
     NEMOTRON("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
     NONE("AI Off", "Off", "⚪", "AI assistants disabled")

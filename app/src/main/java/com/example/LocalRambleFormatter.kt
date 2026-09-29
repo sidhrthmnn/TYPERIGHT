@@ -58,12 +58,13 @@ class LocalRambleFormatter(private val context: Context) {
 
         // 2. Pass through Google Gemini Cloud AI for synthesis and grammar refinement
         try {
-            val geminiResult = GeminiApiClient.generatePolish(heuristicCleaned, PolishMode.VOICE_CLEANUP)
+            val geminiResult = AiPolishBackend.generatePolish(heuristicCleaned, PolishMode.VOICE_CLEANUP)
             if (!geminiResult.isNullOrBlank()) {
                 return@withContext geminiResult
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Gemini Ramble synthesis fallback: ${e.message}")
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.w(TAG, "Basic offline dictation cleanup used: ${e.message}")
         }
 
         return@withContext heuristicCleaned

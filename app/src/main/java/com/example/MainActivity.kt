@@ -426,22 +426,21 @@ private fun SandboxTabSection(settings: KeyboardSettings) {
                     onClick = {
                         if (inputText.isBlank()) return@Button
                         isPolishing = true
-                        polishFeedback = "Polishing with Gemini Flash Lite..."
+                        polishFeedback = "Polishing with ${AiPolishBackend.label}..."
+                        val original = inputText
                         coroutineScope.launch {
                             val start = System.currentTimeMillis()
-                            val result = GeminiApiClient.generatePolish(
-                                input = inputText,
-                                mode = PolishMode.POLISH,
-                                preferredModel = "gemini-3.1-flash-lite-preview"
-                            )
-                            val duration = System.currentTimeMillis() - start
-                            isPolishing = false
-                            if (!result.isNullOrBlank()) {
-                                inputText = AiOutputValidator.sanitize(result, inputText)
-                                polishFeedback = "Polished in ${duration}ms via Gemini Flash Lite"
-                            } else {
-                                polishFeedback = "Polish completed (local fallback)"
-                            }
+                            try {
+                                val result = AiPolishBackend.generatePolish(original, PolishMode.POLISH)
+                                if (!result.isNullOrBlank() && inputText == original) {
+                                    inputText = result
+                                    polishFeedback = "Polished in ${System.currentTimeMillis() - start}ms via ${AiPolishBackend.label}"
+                                } else {
+                                    polishFeedback = "No edit applied. Text changed or AI is unavailable."
+                                }
+                            } catch (e: kotlinx.coroutines.CancellationException) { throw e
+                            } catch (e: Exception) { polishFeedback = e.message ?: "Polish failed"
+                            } finally { isPolishing = false }
                         }
                     },
                     modifier = Modifier.weight(1f).testTag("sandbox_flash_lite_polish_button"),
@@ -464,23 +463,19 @@ private fun SandboxTabSection(settings: KeyboardSettings) {
                         if (inputText.isBlank()) return@Button
                         isPolishing = true
                         polishFeedback = "Contextually auto-formatting..."
+                        val original = inputText
                         coroutineScope.launch {
                             val start = System.currentTimeMillis()
-                            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                                var candidate: String? = null
-                                try {
-                                    candidate = GeminiApiClient.generatePolish(inputText, PolishMode.AUTO_FORMAT)
-                                } catch (_: Exception) {}
-                                if (!candidate.isNullOrBlank()) {
-                                    AiOutputValidator.sanitize(candidate!!, inputText)
-                                } else {
-                                    OnDeviceNeuralPolishEngine.getInstance(context).autoFormatAndCorrect(inputText)
-                                }
-                            }
-                            val duration = System.currentTimeMillis() - start
-                            isPolishing = false
-                            inputText = result
-                            polishFeedback = "Auto formatted & corrected in ${duration}ms"
+                            try {
+                                val result = AiPolishBackend.generatePolish(original, PolishMode.AUTO_FORMAT)
+                                    ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                                        OnDeviceNeuralPolishEngine.getInstance(context).autoFormatAndCorrect(original)
+                                    }
+                                if (inputText == original) inputText = result
+                                polishFeedback = "Auto formatted in ${System.currentTimeMillis() - start}ms"
+                            } catch (e: kotlinx.coroutines.CancellationException) { throw e
+                            } catch (e: Exception) { polishFeedback = e.message ?: "Auto-format failed"
+                            } finally { isPolishing = false }
                         }
                     },
                     modifier = Modifier.weight(1f).testTag("sandbox_auto_format_button"),
@@ -1157,192 +1152,7 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
 
 @Composable
 private fun AiPolishFlashLiteTabSection(settings: KeyboardSettings) {
-    val coroutineScope = rememberCoroutineScope()
-    var geminiEnabled by remember { mutableStateOf(settings.geminiAiEnabled) }
-    var selectedModel by remember { mutableStateOf("gemini-3.1-flash-lite-preview") }
-    var testInput by remember { mutableStateOf("helo wrld I is writing this on my phone") }
-    var testOutput by remember { mutableStateOf<String?>(null) }
-    var latencyMs by remember { mutableLongStateOf(0L) }
-    var isPolishing by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Gemini Flash Lite Polish",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Exclusively powered by Gemini Flash Lite models",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF10B981).copy(alpha = 0.15f)
-                ) {
-                    Text(
-                        text = "FLASH LITE",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF10B981)
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            // Master Polish Toggle
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text(
-                        text = "Cloud AI Polish",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Enables one-tap sentence rewriting and smart select auto-polish",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = geminiEnabled,
-                    onCheckedChange = {
-                        geminiEnabled = it
-                        settings.geminiAiEnabled = it
-                    },
-                    modifier = Modifier.testTag("gemini_polish_switch")
-                )
-            }
-
-            // Exclusive Flash Lite Model Selection Card
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
-                modifier = Modifier.fillMaxWidth().testTag("gemini_model_gemini-3.1-flash-lite-preview")
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    RadioButton(
-                        selected = true,
-                        onClick = { settings.aiModel = "gemini-3.1-flash-lite-preview" }
-                    )
-                    Column {
-                        Text(
-                            text = "Gemini 3.1 Flash Lite",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Ultra-fast response latency optimized for mobile keyboard polish.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            // Test Playground
-            Text(
-                text = "Test Polish Engine",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            OutlinedTextField(
-                value = testInput,
-                onValueChange = { testInput = it },
-                modifier = Modifier.fillMaxWidth().testTag("polish_playground_input"),
-                shape = RoundedCornerShape(10.dp)
-            )
-
-            // Mode Pills
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    PolishMode.PROOFREAD to "Proofread",
-                    PolishMode.POLISH to "Smart Polish",
-                    PolishMode.PROFESSIONAL to "Professional",
-                    PolishMode.CASUAL to "Casual",
-                    PolishMode.SHORTEN to "Shorten"
-                ).forEach { (mode, label) ->
-                    AssistChip(
-                        onClick = {
-                            if (testInput.isBlank() || isPolishing) return@AssistChip
-                            isPolishing = true
-                            coroutineScope.launch {
-                                val start = System.currentTimeMillis()
-                                val res = GeminiApiClient.generatePolish(
-                                    input = testInput,
-                                    mode = mode,
-                                    preferredModel = "gemini-3.1-flash-lite-preview"
-                                )
-                                latencyMs = System.currentTimeMillis() - start
-                                isPolishing = false
-                                testOutput = res?.let { AiOutputValidator.sanitize(it, testInput) } ?: "Fallback applied"
-                            }
-                        },
-                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.testTag("polish_button_${mode.name.lowercase()}")
-                    )
-                }
-            }
-
-            testOutput?.let { out ->
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Result:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            Text("${latencyMs}ms", style = MaterialTheme.typography.labelSmall, color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
-                        }
-                        Text(out, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                }
-            }
-        }
-    }
+    AiBackendSettings(settings)
 }
 
 @Composable

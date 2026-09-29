@@ -55,7 +55,7 @@ sealed interface PolishUiState {
 
 /**
  * Orchestrates on-device AI Polish requests, coordinates with the keyboard editor,
- * ensures truthful labeling ("Offline AI — Qwen3 1.7B" vs "Basic offline correction"),
+ * ensures truthful labeling ("Local GGUF · Qwen2.5 0.5B" vs "Basic offline correction"),
  * performs output validation, and manages atomic Apply/Undo.
  */
 class PolishCoordinator(
@@ -64,7 +64,7 @@ class PolishCoordinator(
 ) {
     companion object {
         private const val TAG = "PolishCoordinator"
-        const val LABEL_OFFLINE_QWEN = "Offline AI — Qwen3 1.7B"
+        const val LABEL_OFFLINE_QWEN = LocalGgufModel.LABEL
         const val LABEL_BASIC_OFFLINE = "Basic offline correction"
 
         @Volatile
@@ -121,28 +121,29 @@ class PolishCoordinator(
 
             try {
                 var lastStreamedText: String? = null
-                var isFromGemini = false
+                var isFromModel = false
+                val selectedEngine = AiPolishBackend.engine
 
                 if (!forceBasicOffline) {
                     try {
-                        kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                            GeminiApiClient.streamPolish(originalText, mode).collect { chunk ->
+                        kotlinx.coroutines.withTimeoutOrNull(AiPolishBackend.timeoutMillis) {
+                            AiPolishBackend.streamPolish(originalText, mode).collect { chunk ->
                                 if (currentSessionId == thisSessionId && chunk.isNotBlank()) {
                                     lastStreamedText = chunk
-                                    isFromGemini = true
+                                    isFromModel = true
                                     _uiState.value = PolishUiState.Streaming(chunk, mode, thisSessionId)
                                 }
                             }
                         }
                     } catch (e: Exception) {
-                        if (e is CancellationException) throw e
+                        if (e is CancellationException || selectedEngine == ActiveAiEngine.OFFLINE) throw e
                         Log.w(TAG, "Gemini polish streaming error: ${e.message}")
                     }
                 }
 
                 if (currentSessionId != thisSessionId) return@launch
 
-                val candidateText = if (isFromGemini && !lastStreamedText.isNullOrBlank()) {
+                val candidateText = if (isFromModel && !lastStreamedText.isNullOrBlank()) {
                     AiOutputValidator.sanitize(lastStreamedText!!, originalText)
                 } else {
                     withContext(Dispatchers.Default) {
@@ -177,7 +178,7 @@ class PolishCoordinator(
                 if (currentSessionId != thisSessionId) return@launch
 
                 val isValid = AiOutputValidator.isValid(originalText, candidateText, mode)
-                val finalText = if (candidateText.isNotBlank() && (isFromGemini || isValid)) {
+                val finalText = if (candidateText.isNotBlank() && (isFromModel || isValid)) {
                     candidateText
                 } else {
                     withContext(Dispatchers.Default) {
@@ -188,7 +189,7 @@ class PolishCoordinator(
                 if (currentSessionId != thisSessionId) return@launch
 
                 // If not streamed from Gemini, stream the on-device result word-by-word for responsive UI
-                if (!isFromGemini && finalText.isNotBlank() && finalText != originalText) {
+                if (!isFromModel && finalText.isNotBlank() && finalText != originalText) {
                     val words = finalText.split(Regex("\\s+"))
                     val streamSb = StringBuilder()
                     for (i in words.indices) {
@@ -212,8 +213,8 @@ class PolishCoordinator(
                 )
                 lastUndoSnapshot = undo
 
-                val activeLabel = if (isFromGemini && isValid) "AI Cloud (Gemini Flash Lite)" else "Smart On-Device"
-                val activeBackend = if (isFromGemini && isValid) "Gemini 3.1 Flash Lite" else "On-Device Engine"
+                val activeLabel = if (isFromModel) selectedEngine.title else LABEL_BASIC_OFFLINE
+                val activeBackend = if (isFromModel) selectedEngine.shortLabel else "Local rules"
 
                 _uiState.value = PolishUiState.Ready(
                     result = PolishResult(

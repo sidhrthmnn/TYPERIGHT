@@ -1105,7 +1105,12 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     fun autoPolishWithGemini(targetScope: SmartSelectLevel? = null) {
+        if (!allowsTextAssistance()) return
         val ic = currentInputConnection ?: return
+        val requestId = ++currentAiRequestId
+        val before = ic.getTextBeforeCursor(10000, 0)?.toString()
+        val after = ic.getTextAfterCursor(10000, 0)?.toString()
+        val selection = ic.getSelectedText(0)?.toString()
         ic.finishComposingText()
 
         // Always target the entire text in the field to format, edit, spell-check, and proofread fully
@@ -1118,10 +1123,11 @@ class TypeRightKeyboardService : KeyboardService() {
         }
 
         isAiPolishing.value = true
-        smartSelectFeedback.value = "⚡ Gemini polishing..."
+        smartSelectFeedback.value = "Polishing with ${AiPolishBackend.label}..."
         playFeedback(FeedbackType.Standard)
 
-        serviceScope.launch {
+        currentAiJob?.cancel()
+        currentAiJob = serviceScope.launch {
             val startTime = System.currentTimeMillis()
             var polishedResult: String? = null
             val preferredModel = settings.aiModel.takeIf { 
@@ -1129,15 +1135,21 @@ class TypeRightKeyboardService : KeyboardService() {
             } ?: "gemini-3.1-flash-lite-preview"
 
             try {
-                kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                    GeminiApiClient.generatePolish(
+                kotlinx.coroutines.withTimeoutOrNull(AiPolishBackend.timeoutMillis) {
+                    AiPolishBackend.generatePolish(
                         input = textToPolish,
                         mode = PolishMode.PROOFREAD,
                         preferredModel = preferredModel
                     )
                 }?.let { polishedResult = it }
             } catch (e: Exception) {
-                Log.w("TypeRight", "Gemini auto-polish call failed: ${e.message}")
+                isAiPolishing.value = false
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (AiPolishBackend.engine == ActiveAiEngine.OFFLINE) {
+                    smartSelectFeedback.value = e.message ?: "Local polish failed"
+                    return@launch
+                }
+                Log.w("TypeRight", "Cloud auto-polish unavailable")
             }
 
             val finalPolished = if (!polishedResult.isNullOrBlank()) {
@@ -1153,7 +1165,15 @@ class TypeRightKeyboardService : KeyboardService() {
             }
 
             withContext(Dispatchers.Main) {
+                if (requestId != currentAiRequestId) return@withContext
                 isAiPolishing.value = false
+                if (!allowsTextAssistance() || currentInputConnection != ic ||
+                    ic.getTextBeforeCursor(10000, 0)?.toString() != before ||
+                    ic.getTextAfterCursor(10000, 0)?.toString() != after ||
+                    ic.getSelectedText(0)?.toString() != selection) {
+                    smartSelectFeedback.value = "Text changed; polish again"
+                    return@withContext
+                }
                 if (finalPolished.isNotBlank() && finalPolished != textToPolish) {
                     ic.beginBatchEdit()
                     try {
@@ -1168,8 +1188,8 @@ class TypeRightKeyboardService : KeyboardService() {
                     val durationMs = System.currentTimeMillis() - startTime
                     AiExecutionLogger.logAiAction(
                         context = applicationContext,
-                        operation = "Gemini Auto-Polish",
-                        engine = if (!polishedResult.isNullOrBlank()) "Google Gemini ($preferredModel)" else "Smart On-Device",
+                        operation = "AI Auto-Polish",
+                        engine = if (!polishedResult.isNullOrBlank()) AiPolishBackend.label else "Basic offline correction",
                         input = textToPolish,
                         output = finalPolished,
                         durationMs = durationMs
@@ -1184,7 +1204,7 @@ class TypeRightKeyboardService : KeyboardService() {
                         timestamp = System.currentTimeMillis()
                     )
                     showUndoAutoPolishPill.value = true
-                    smartSelectFeedback.value = "✨ Polished with Gemini ($durationMs ms)"
+                    smartSelectFeedback.value = "Polished with ${AiPolishBackend.label} ($durationMs ms)"
                     playFeedback(FeedbackType.Standard)
                 } else {
                     smartSelectFeedback.value = "Text is already clear and polished!"
@@ -2114,11 +2134,12 @@ class TypeRightKeyboardService : KeyboardService() {
                 val candidateResult = withContext(Dispatchers.Default) {
                     var cloudResult: String? = null
                     try {
-                        kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                            GeminiApiClient.generatePolish(textToProofread, PolishMode.PROOFREAD)
+                        kotlinx.coroutines.withTimeoutOrNull(AiPolishBackend.timeoutMillis) {
+                            AiPolishBackend.generatePolish(textToProofread, PolishMode.PROOFREAD)
                         }?.let { cloudResult = it }
                     } catch (e: Exception) {
-                        Log.w("TypeRight", "Gemini polish failed or timed out: ${e.message}")
+                        if (e is kotlinx.coroutines.CancellationException || AiPolishBackend.engine == ActiveAiEngine.OFFLINE) throw e
+                        Log.w("TypeRight", "Cloud polish unavailable")
                     }
 
                     if (!cloudResult.isNullOrBlank()) {
@@ -2167,6 +2188,10 @@ class TypeRightKeyboardService : KeyboardService() {
                     }
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(applicationContext, e.message ?: "Polish failed", android.widget.Toast.LENGTH_LONG).show()
+                }
                 Log.e("TypeRight", "Direct AI polish error: ${e.message}")
             } finally {
                 withContext(Dispatchers.Main) {
@@ -2309,10 +2334,12 @@ class TypeRightKeyboardService : KeyboardService() {
                 val formattedResult = withContext(Dispatchers.Default) {
                     var candidate: String? = null
                     try {
-                        kotlinx.coroutines.withTimeoutOrNull(4000L) {
-                            GeminiApiClient.generatePolish(textToFormat, PolishMode.AUTO_FORMAT)
+                        kotlinx.coroutines.withTimeoutOrNull(AiPolishBackend.timeoutMillis) {
+                            AiPolishBackend.generatePolish(textToFormat, PolishMode.AUTO_FORMAT)
                         }?.let { candidate = it }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException || AiPolishBackend.engine == ActiveAiEngine.OFFLINE) throw e
+                    }
                     if (!candidate.isNullOrBlank()) {
                         AiOutputValidator.sanitize(candidate!!, textToFormat)
                     } else {
@@ -2349,6 +2376,10 @@ class TypeRightKeyboardService : KeyboardService() {
                     android.widget.Toast.makeText(applicationContext, "✨ Auto Formatted & Corrected", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(applicationContext, e.message ?: "Polish failed", android.widget.Toast.LENGTH_LONG).show()
+                }
                 Log.e("TypeRight", "Direct auto-format error: ${e.message}")
             } finally {
                 withContext(Dispatchers.Main) {
@@ -3304,7 +3335,7 @@ fun KeyboardLayout(
                                         } else {
                                             Icon(
                                                 imageVector = Icons.Default.Bolt,
-                                                contentDescription = "Fast Gemini Auto-Polish",
+                                                contentDescription = "AI Auto-Polish",
                                                 tint = Color.White,
                                                 modifier = Modifier.size(15.dp)
                                             )
@@ -3348,7 +3379,7 @@ fun KeyboardLayout(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Text(
-                                        text = "✨ Polished with Gemini • Tap to Undo",
+                                        text = "Polished • Tap to Undo",
                                         color = keyTextColor,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
@@ -3967,10 +3998,10 @@ fun KeyboardLayout(
                                                     accentColor = accentColor,
                                                     keyTextColor = keyTextColor,
                                                     onClick = {
-                                                        val next = if (activeAiEngineState == ActiveAiEngine.ONLINE || activeAiEngineState == ActiveAiEngine.BOTH) {
-                                                            ActiveAiEngine.NONE
-                                                        } else {
-                                                            ActiveAiEngine.ONLINE
+                                                        val next = when (activeAiEngineState) {
+                                                            ActiveAiEngine.ONLINE, ActiveAiEngine.BOTH -> ActiveAiEngine.OFFLINE
+                                                            ActiveAiEngine.OFFLINE -> ActiveAiEngine.NONE
+                                                            else -> ActiveAiEngine.ONLINE
                                                         }
                                                         settings.setActiveAiEngine(next)
                                                         activeAiEngineState = next
@@ -5893,7 +5924,7 @@ fun AiEngineIndicatorBadge(
     val bgColor = if (isEngineOn) Color(0xFF3B82F6).copy(alpha = 0.16f) else keyTextColor.copy(alpha = 0.06f)
     val borderColor = if (isEngineOn) Color(0xFF3B82F6).copy(alpha = 0.50f) else keyTextColor.copy(alpha = 0.18f)
     val contentColor = if (isEngineOn) Color(0xFF3B82F6) else keyTextColor.copy(alpha = 0.55f)
-    val icon = if (isEngineOn) Icons.Default.Cloud else Icons.Default.CloudOff
+    val icon = if (activeEngine == ActiveAiEngine.OFFLINE) Icons.Default.PhoneAndroid else if (isEngineOn) Icons.Default.Cloud else Icons.Default.CloudOff
 
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()

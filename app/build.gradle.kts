@@ -11,12 +11,18 @@ plugins {
 }
 
 android {
+  ndkVersion = "28.0.12433566"
+  externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
+  sourceSets.getByName("main").assets.srcDir(rootProject.file("models"))
+  androidResources { ignoreAssetsPattern = "*.gguf:*.part" }
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
     applicationId = "com.aistudio.typeright.jkwpzq"
     minSdk = 24
+    ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+    externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
     targetSdk = 36
     versionCode = 175
     versionName = "175.0"
