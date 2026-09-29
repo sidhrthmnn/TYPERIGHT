@@ -82,9 +82,9 @@ Type Right is an intelligent, modern Android keyboard designed to make typing fa
 
 ### 9. Privacy & Control
 * **On-Device Core Processing**: Standard typing, predictions, and dictionary lookups operate entirely on your device.
-* **Configurable AI Modes**: Easily select your preferred AI assistance level or toggle cloud features on/off at any time.
+* **Configurable AI Modes**: Select local Gemma AI polish or turn AI off.
 * **Profanity Filter**: Optional filter to keep suggestions clean and family-friendly.
 
 ## Local GGUF AI polish
 
-AI Polish settings now offer Cloud, Local GGUF, and Off. Local mode runs Qwen2.5 0.5B Instruct on the Android device after a verified one-time download. See [setup, model provenance, and verification](docs/LOCAL_GGUF.md).
+AI Polish settings offer Local GGUF and Off. Local mode runs Gemma 3 1B Instruct on the Android device after accepting the Gemma terms and completing a verified one-time 806 MB download. The keyboard includes 46,693 frequency-ranked English words for predictions and corrections. See [setup, model provenance, and verification](docs/LOCAL_GGUF.md).

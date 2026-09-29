@@ -263,10 +263,10 @@ class KeyboardEditingTest {
         assertEquals("world", text.toString())
     }
 
-    @Test fun proofreadingDoesNotSilentlyReplaceHeartWithEmoji() = kotlinx.coroutines.runBlocking {
-        val manager = AiPolishManager(service)
+    @Test fun basicCorrectionDoesNotSilentlyReplaceHeartWithEmoji() {
+        val manager = OnDeviceNeuralPolishEngine.getInstance(service)
         val sample = "She has a kind heart."
-        val proofread = manager.proofreadTextStream(sample).first()
+        val proofread = manager.quickProofread(sample)
         assertFalse(proofread.contains("❤️"))
     }
 

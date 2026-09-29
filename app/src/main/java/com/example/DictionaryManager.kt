@@ -15,7 +15,8 @@ import kotlinx.coroutines.launch
 class DictionaryManager(private val context: Context) {
 
     val mlPredictor = PatternLearningPredictor.getInstance(context)
-    val nGramModel = NGramLanguageModel()
+    private val corpus = EnglishFrequencyLexicon.get(context)
+    val nGramModel = NGramLanguageModel().apply { seedUnigramFrequencies(corpus.frequencies) }
     val localGrammarPredictor by lazy { LocalGrammarSpellPredictor(context) }
     val gboardEngine by lazy { GboardPredictionEngine(context) }
 
@@ -56,7 +57,11 @@ class DictionaryManager(private val context: Context) {
     }
 
     fun findWordsWithPrefix(prefix: String, maxResults: Int = 3): List<String> {
-        return trie.searchPrefix(prefix, maxResults).map { it.first }
+        return (wordTrie.findByPrefix(prefix, maxResults) + corpus.prefix(prefix, maxResults))
+            .distinctBy { it.lowercase(java.util.Locale.ROOT) }
+            .filter { isWordInDictionary(it) && !isBlocked(it) }
+            .sortedWith(compareByDescending<String> { getWordFrequency(it) }.thenBy { it })
+            .take(maxResults)
     }
 
     /**
@@ -1253,7 +1258,7 @@ class DictionaryManager(private val context: Context) {
      */
     fun isBlocked(word: String): Boolean {
         val clean = word.lowercase(java.util.Locale.ROOT).trim().trim { !it.isLetterOrDigit() && it != '\'' }
-        return clean in blockedSuggestions
+        return clean in blockedSuggestions || (settings.profanityFilterEnabled && isProfane(clean))
     }
 
     fun isProfane(word: String): Boolean {
@@ -1396,7 +1401,7 @@ class DictionaryManager(private val context: Context) {
             .filter { !isBlocked(it) }
 
         // 4. Query Trie for prefix matching in O(k) time
-        val trieRawMatches = trie.searchPrefix(normalizedPrefix, 30)
+        val trieRawMatches = findWordsWithPrefix(normalizedPrefix, 30).map { it to getWordFrequency(it) }
             .map { it.first }
             .filter { (!settings.profanityFilterEnabled || !isProfane(it)) && !isBlocked(it) }
 
@@ -1432,7 +1437,7 @@ class DictionaryManager(private val context: Context) {
                 if (userWords.contains(lower)) score += 1200f
                 if (nGramMatches.any { it.lowercase() == lower }) score += 1000f
                 if (contextBigrams.any { it.lowercase() == lower }) score += 700f
-                val wordFreq = commonWords.firstOrNull { it.word.lowercase() == lower }?.frequency ?: 10
+                val wordFreq = getWordFrequency(lower).coerceAtLeast(1)
                 score += wordFreq.toFloat()
                 // Prefer words whose length is close to typed prefix
                 score -= (lower.length - normalizedPrefix.length) * 4f
@@ -1572,7 +1577,7 @@ class DictionaryManager(private val context: Context) {
             .map { it.word }
 
         // 5. SymSpell candidates
-        val symSpellCandidates = gboardEngine.symSpellEngine.lookup(normalized, maxDistance = 2f).map { it.term }
+        val symSpellCandidates = findDictionaryCorrections(normalized, maxDistance = 2f).map { it.term }
 
         // 6. Neural NLP correction candidate
         val neuralCandidate = try {
@@ -2101,9 +2106,7 @@ class DictionaryManager(private val context: Context) {
             val allValid = parts.all { it == "a" || it == "i" || isWordInDictionary(it) }
             if (!allValid) return false
         } else {
-            val dictionaryWords = (commonWords.map { it.word } + userWords)
-            val isValid = dictionaryWords.any { it.lowercase() == w2 }
-            if (!isValid) return false
+            if (!isWordInDictionary(w2)) return false
         }
         
         val confidence = calculateCorrectionConfidence(w1, w2, prevWord, prevWord2, tapCoords)
@@ -2260,7 +2263,7 @@ class DictionaryManager(private val context: Context) {
         }
 
         // --- Signal 5: Corpus Frequency Prior (w5 * unigram_freq) ---
-        val freq = commonWords.firstOrNull { it.word.lowercase() == w2 }?.frequency ?: 10
+        val freq = getWordFrequency(w2).coerceAtLeast(1)
         val unigramScore = (freq / 1000f) * 0.10f
 
         // --- Signal 6: Phonetic Sound-Alike Signal (Soundex / Metaphone match) ---
@@ -2315,14 +2318,20 @@ class DictionaryManager(private val context: Context) {
      * Get frequency for a word from corpus or user dictionary in O(1) time.
      */
     fun getWordFrequency(word: String): Int {
-        val w = word.lowercase().trim()
+        val w = word.lowercase(java.util.Locale.ROOT).trim()
         if (w.isEmpty()) return 0
-        if (userWords.contains(w)) return 120
-        commonWordsFreqMap[w]?.let { return it }
+        val base = maxOf(corpus.frequency(w), commonWordsFreqMap[w] ?: 0)
+        if (synchronized(userWords) { userWords.contains(w) }) return maxOf(120, base)
+        if (base > 0) return base
         if (commonWordsSet.contains(w)) return 40
-        if (isWordInDictionary(w)) return 30
         return 0
     }
+
+    fun findDictionaryCorrections(word: String, maxDistance: Float = 2f, maxResults: Int = 16): List<SymSpellCorrectionEngine.SuggestionItem> =
+        (gboardEngine.symSpellEngine.lookup(word, maxDistance, maxResults) + corpus.corrections(word, maxDistance, maxResults))
+            .filter { isWordInDictionary(it.term) && !isBlocked(it.term) }
+            .distinctBy { it.term }.sortedWith(compareBy<SymSpellCorrectionEngine.SuggestionItem> { it.distance }
+                .thenByDescending { getWordFrequency(it.term) }).take(maxResults)
 
     /**
      * Check if a word exists in the app's dictionary or libraries (case-insensitive) in O(1) time.
@@ -2331,6 +2340,7 @@ class DictionaryManager(private val context: Context) {
         val w = word.lowercase().trim()
         if (w.isEmpty()) return false
         if (commonWordsSet.contains(w) || userWords.contains(w) || slangExpansions.containsKey(w) || recentlyAcceptedWords.contains(w)) return true
+        if (corpus.frequency(w) > 0 && !gboardEngine.isKnownTypo(w)) return true
 
         // Strict grammatical suffix check to prevent false positives on random typos
         if (w.length >= 3 && w.endsWith("s") && !w.endsWith("ss") && commonWordsSet.contains(w.dropLast(1))) return true

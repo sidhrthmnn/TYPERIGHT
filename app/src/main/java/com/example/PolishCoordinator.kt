@@ -55,7 +55,7 @@ sealed interface PolishUiState {
 
 /**
  * Orchestrates on-device AI Polish requests, coordinates with the keyboard editor,
- * ensures truthful labeling ("Local GGUF · Qwen2.5 0.5B" vs "Basic offline correction"),
+ * ensures truthful labeling ("Local GGUF · Gemma 3 1B" vs "Basic offline correction"),
  * performs output validation, and manages atomic Apply/Undo.
  */
 class PolishCoordinator(
@@ -64,7 +64,7 @@ class PolishCoordinator(
 ) {
     companion object {
         private const val TAG = "PolishCoordinator"
-        const val LABEL_OFFLINE_QWEN = LocalGgufModel.LABEL
+        const val LABEL_OFFLINE_MODEL = LocalGgufModel.LABEL
         const val LABEL_BASIC_OFFLINE = "Basic offline correction"
 
         @Volatile

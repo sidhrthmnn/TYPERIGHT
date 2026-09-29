@@ -1,0 +1,5 @@
+Gemma is provided under and subject to the Gemma Terms of Use found at ai.google.dev/gemma/terms
+
+Base model: Google DeepMind Gemma 3 1B Instruct.
+GGUF conversion/quantization: ggml-org. Quantized model derivative; Q4_K_M weights are unmodified from the pinned upstream file.
+See LICENSE-Gemma.txt and GEMMA-PROHIBITED-USES.txt.

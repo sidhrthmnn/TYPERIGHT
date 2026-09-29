@@ -20,32 +20,18 @@ data class ModelDownloadState(val busy: Boolean = false, val progress: Float = 0
 
 /** Only this explicit download operation uses the network. Inference never downloads. */
 object LocalGgufModel {
-    const val LABEL = "Local GGUF · Qwen2.5 0.5B"
+    const val LABEL = "Local GGUF · Gemma 3 1B"
     private val mutex = Mutex()
     private val _state = MutableStateFlow(ModelDownloadState())
     val state = _state.asStateFlow()
     private val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS).build()
 
-    private fun spec(context: Context): JSONObject {
-        return try {
-            JSONObject(context.assets.open("qwen-polish.json").bufferedReader().use { it.readText() })
-        } catch (_: Exception) {
-            JSONObject(
-                """
-                {
-                  "name": "Qwen2.5 0.5B Instruct Q4_K_M",
-                  "filename": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-                  "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-                  "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
-                  "bytes": 491400032,
-                  "license": "Apache-2.0",
-                  "source": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF"
-                }
-                """.trimIndent()
-            )
-        }
-    }
+    private fun spec(context: Context) = JSONObject(context.assets.open("gemma-polish.json").bufferedReader().use { it.readText() })
+    fun termsAccepted(context: Context): Boolean = context.getSharedPreferences(KeyboardSettings.PREFS_NAME, Context.MODE_PRIVATE)
+        .getBoolean("gemma_terms_2026_04_01", false)
+    fun acceptTerms(context: Context, accepted: Boolean) { context.getSharedPreferences(KeyboardSettings.PREFS_NAME, Context.MODE_PRIVATE)
+        .edit().putBoolean("gemma_terms_2026_04_01", accepted).apply() }
     fun file(context: Context): File = File(context.noBackupFilesDir, "gguf/${spec(context).getString("filename")}")
     fun isReady(context: Context): Boolean = file(context).let {
         it.isFile && it.length() == spec(context).getLong("bytes")
@@ -53,12 +39,13 @@ object LocalGgufModel {
 
     suspend fun download(context: Context) = withContext(Dispatchers.IO) {
         mutex.withLock {
+            check(termsAccepted(context)) { "Accept the Gemma terms in AI Polish settings first" }
             if (isReady(context)) return@withLock
             val spec = spec(context)
             val target = file(context)
             check(target.parentFile!!.isDirectory || target.parentFile!!.mkdirs()) { "Cannot create model directory" }
             check(target.parentFile!!.usableSpace > spec.getLong("bytes") + 64L * 1024 * 1024) {
-                "Free at least 550 MB of storage before downloading"
+                "Free at least 900 MB of storage before downloading"
             }
             val partial = File(target.path + ".part")
             _state.value = ModelDownloadState(busy = true, message = "Downloading model…")
@@ -92,6 +79,7 @@ object LocalGgufModel {
                     currentCoroutineContext().ensureActive()
                     check(partial.renameTo(target)) { "Cannot install downloaded model" }
                 }
+                File(target.parentFile, "qwen2.5-0.5b-instruct-q4_k_m.gguf").delete()
                 _state.value = ModelDownloadState(message = "Ready for offline polish")
             } finally {
                 partial.delete()

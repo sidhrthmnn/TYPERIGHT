@@ -17,6 +17,8 @@ class GgufInferenceTest {
         assumeTrue("Download model before running this test", LocalGgufModel.isReady(context))
         val settings = KeyboardSettings(context)
         val previous = settings.activeAiEngine
+        val accepted = LocalGgufModel.termsAccepted(context)
+        LocalGgufModel.acceptTerms(context, true)
         try {
             settings.setActiveAiEngine(ActiveAiEngine.OFFLINE)
             val output = AiPolishBackend.generatePolish("i has a meeting at 5", PolishMode.PROOFREAD)
@@ -24,6 +26,6 @@ class GgufInferenceTest {
             assertTrue(output!!.contains("5"))
             assertFalse(output.contains("i has"))
             assertTrue(AiOutputValidator.isValid("i has a meeting at 5", output, PolishMode.PROOFREAD))
-        } finally { settings.setActiveAiEngine(previous) }
+        } finally { settings.setActiveAiEngine(previous); LocalGgufModel.acceptTerms(context, accepted) }
     }
 }

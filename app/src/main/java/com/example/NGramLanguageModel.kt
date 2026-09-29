@@ -46,6 +46,17 @@ class NGramLanguageModel : IContextLanguageModel {
 
     private val totalUnigramCount = java.util.concurrent.atomic.AtomicLong(0L)
 
+    private var frequencyBackoff: List<String> = emptyList()
+    private var baseFrequencies: Map<String, Int> = emptyMap()
+    private var baseTotal = 0L
+    fun seedUnigramFrequencies(frequencies: Map<String, Int>) {
+        // Share the immutable corpus; each keyboard keeps only its learned/curated counts.
+        baseFrequencies = frequencies
+        baseTotal = frequencies.values.sumOf { it.toLong() }
+        frequencyBackoff = frequencies.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .take(200).map { it.key }
+    }
+
     init {
         seedCommonNGrams()
     }
@@ -353,8 +364,8 @@ class NGramLanguageModel : IContextLanguageModel {
         }
 
         // Unigram component
-        val uniCount = unigrams[target]?.toFloat() ?: 1f
-        val totalCount = totalUnigramCount.get().toFloat().coerceAtLeast(1000f)
+        val uniCount = ((unigrams[target] ?: 0) + (baseFrequencies[target] ?: 0)).coerceAtLeast(1).toFloat()
+        val totalCount = (totalUnigramCount.get() + baseTotal).toFloat().coerceAtLeast(1000f)
         uniProb = (uniCount / totalCount).coerceIn(0.000001f, 1.0f)
 
         // Jelinek-Mercer weights (0.40 Quadgram, 0.30 Trigram, 0.20 Bigram, 0.10 Unigram)
@@ -422,6 +433,11 @@ class NGramLanguageModel : IContextLanguageModel {
             }
         }
 
+        // Small frequency fallback fills gaps while observed context keeps priority.
+        val total = (totalUnigramCount.get() + baseTotal).coerceAtLeast(1).toFloat()
+        frequencyBackoff.filter { cleanPrefix.isEmpty() || it.startsWith(cleanPrefix) }.forEach { word ->
+            candidatesWithScores.putIfAbsent(word, ((unigrams[word] ?: 0) + (baseFrequencies[word] ?: 0)).coerceAtLeast(1) / total * 0.01f)
+        }
         // Sort candidates by total interpolated score
         return candidatesWithScores.entries
             .sortedByDescending { it.value }

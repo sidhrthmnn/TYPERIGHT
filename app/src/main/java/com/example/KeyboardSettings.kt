@@ -382,7 +382,7 @@ class KeyboardSettings(context: Context) {
         }
 
     var geminiAiEnabled: Boolean
-        get() = prefs.getBoolean(KEY_GEMINI_AI_ENABLED, true)
+        get() = prefs.getBoolean(KEY_GEMINI_AI_ENABLED, false)
         set(value) {
             prefs.edit().putBoolean(KEY_GEMINI_AI_ENABLED, value).commit()
             dataStore.updateAsync { it.setGeminiAiEnabled(value) }
@@ -451,7 +451,7 @@ enum class ActiveAiEngine(
     val description: String
 ) {
     BOTH("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
-    OFFLINE("Local On-Device AI (Qwen2.5)", "Local", "📱", "Runs 100% on this phone offline without cloud dependency"),
+    OFFLINE("Local On-Device AI (Gemma 3 1B)", "Local", "📱", "Runs 100% on this phone offline without cloud dependency"),
     ONLINE("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
     NEMOTRON("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
     NONE("AI Off", "Off", "⚪", "AI assistants disabled")

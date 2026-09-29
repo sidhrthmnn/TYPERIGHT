@@ -36,7 +36,7 @@ class ExampleUnitTest {
     assertFalse(manager.isSpellingCorrection("in", "into"))
 
     // 3. Clear spelling typos should trigger spelling correction
-    assertTrue(manager.isSpellingCorrection("thx", "the"))
+    assertTrue(manager.isSpellingCorrection("teh", "the"))
     assertTrue(manager.isSpellingCorrection("helo", "hello"))
 
     // 4. Random gibberish with edit distance > 2 should NOT trigger spelling correction
@@ -58,9 +58,10 @@ class ExampleUnitTest {
     assertTrue("Real word override should have significantly penalized confidence", realWordConfidence < DictionaryManager.SILENT_CORRECT_THRESHOLD)
 
     // 3. Bigram context bonus: typing a typo that fits context should boost score
-    val confidenceWithoutContext = manager.calculateCorrectionConfidence("tha", "the", null)
-    val confidenceWithContext = manager.calculateCorrectionConfidence("tha", "the", "is")
-    assertTrue("N-gram context should boost correction confidence", confidenceWithContext > confidenceWithoutContext)
+    // Use a less certain typo so the score is not already capped at 1 before adding context.
+    val confidenceWithoutContext = manager.calculateCorrectionConfidence("zxhe", "the", null)
+    val confidenceWithContext = manager.calculateCorrectionConfidence("zxhe", "the", "is")
+    assertTrue("Context should boost $confidenceWithoutContext to $confidenceWithContext", confidenceWithContext > confidenceWithoutContext)
   }
 
   @Test
@@ -80,30 +81,17 @@ class ExampleUnitTest {
   }
 
   @Test
-  fun testAiProofreadingFormatting() = runBlocking {
+  fun proofreadingRequiresTheInstalledGgufRatherThanSilentFallback() = runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
-    val manager = AiPolishManager(context)
-
-    // 1. Test letter / greeting formatting in proofreading
-    val greetingResult = manager.proofreadTextStream("hey john how are you doing").last()
-    assertTrue("Greeting should contain John: $greetingResult", greetingResult.contains("John", ignoreCase = true))
-    assertTrue("Greeting should contain question mark: $greetingResult", greetingResult.contains("?"))
-
-    // 2. Test bullet points lists
-    val listResult = manager.proofreadTextStream("first point confirm venue second point bring laptop").last()
-    assertTrue("Should contain venue and laptop: $listResult", listResult.contains("venue", ignoreCase = true) && listResult.contains("laptop", ignoreCase = true))
-
-    // 3. Test numeric lists
-    val numericResult = manager.proofreadTextStream("number one buy milk number two wash car").last()
-    assertTrue("Should contain milk and car: $numericResult", numericResult.contains("milk", ignoreCase = true) && numericResult.contains("car", ignoreCase = true))
-
-    // 4. Test paragraph splitting with transition words
-    val transitionResult = manager.proofreadTextStream("I like apples by the way did you get my mail anyway let me know").last()
-    assertTrue("Should contain core sentences: $transitionResult", transitionResult.contains("apples", ignoreCase = true))
-
-    // 5. Test sign-offs
-    val closingResult = manager.proofreadTextStream("hope to see you soon best regards sally").last()
-    assertTrue("Should contain sign-off and Sally: $closingResult", closingResult.contains("Sally", ignoreCase = true))
+    AiPolishBackend.initialize(context)
+    KeyboardSettings(context).setActiveAiEngine(ActiveAiEngine.OFFLINE)
+    LocalGgufModel.acceptTerms(context, true)
+    try {
+      AiPolishManager(context).proofreadTextStream("hey john how are you doing").last()
+      fail("Proofreading must require the native model")
+    } catch (e: IllegalStateException) {
+      assertTrue(e.message!!.contains("64-bit") || e.message!!.contains("Download"))
+    }
   }
 
   @Test
@@ -123,23 +111,22 @@ class ExampleUnitTest {
     val selfCorrectionResult = manager.cleanupVoiceText("let's meet at five no wait six")
     assertTrue("Should resolve to six: $selfCorrectionResult", selfCorrectionResult.contains("six", ignoreCase = true) || selfCorrectionResult.contains("6"))
 
-    // 4. Test local LLM symbol and emoji translation
-    val symbolResult = manager.proofreadTextStream("I love heart symbol and smiley face arrow right").last()
-    assertTrue("Result should be non-blank: $symbolResult", symbolResult.isNotBlank())
   }
 
   @Test
-  fun testAiPolishStyles() = runBlocking {
+  fun polishStylesRequireTheInstalledGguf() = runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
+    AiPolishBackend.initialize(context)
+    KeyboardSettings(context).setActiveAiEngine(ActiveAiEngine.OFFLINE)
+    LocalGgufModel.acceptTerms(context, true)
     val manager = AiPolishManager(context)
-
-    // 1. Test Formal Polish
-    val formalResult = manager.polishTextStream("thanks i cant make it gonna be late", mode = "formalize").last()
-    assertTrue("Formal polish should be non-empty and eliminate slang: $formalResult", formalResult.isNotBlank() && !formalResult.contains("gonna", ignoreCase = true))
-
-    // 2. Test Direct polishText
-    val directFormal = manager.polishText("hey buddy", "formalize")
-    assertNotNull(directFormal)
+    assertEquals("", manager.polishText("", "formalize"))
+    try {
+      manager.polishTextStream("hey buddy", "formalize").last()
+      fail("Style changes must require the native model")
+    } catch (e: IllegalStateException) {
+      assertTrue(e.message!!.contains("64-bit") || e.message!!.contains("Download"))
+    }
   }
 
   @Test
@@ -269,12 +256,12 @@ class ExampleUnitTest {
   }
 
   @Test
-  fun testKeyboardSettingsGeminiDefaults() {
+  fun testKeyboardSettingsLocalDefaults() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val settings = KeyboardSettings(context)
 
-    assertTrue("Gemini AI should be enabled by default", settings.geminiAiEnabled)
-    assertEquals(ActiveAiEngine.ONLINE, settings.activeAiEngine)
+    assertFalse("Cloud AI is disabled", settings.geminiAiEnabled)
+    assertEquals(ActiveAiEngine.OFFLINE, settings.activeAiEngine)
   }
 
   @Test

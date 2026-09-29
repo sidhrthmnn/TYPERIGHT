@@ -16,6 +16,8 @@ import kotlinx.coroutines.launch
 fun AiBackendSettings(settings: KeyboardSettings) {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    var termsAccepted by remember { mutableStateOf(LocalGgufModel.termsAccepted(context)) }
     var engine by remember { mutableStateOf(settings.activeAiEngine) }
     val download by LocalGgufModel.state.collectAsState()
     var ready by remember { mutableStateOf(LocalGgufModel.isReady(context)) }
@@ -43,14 +45,23 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                     Column(Modifier.weight(1f).padding(top = 10.dp)) {
                         Text(option.title)
                         Text(when (option) {
-                            ActiveAiEngine.OFFLINE -> "Processes text 100% on this phone. Completely offline, private, and private."
+                            ActiveAiEngine.OFFLINE -> "Processes text 100% on this phone. Works offline after the model download."
                             else -> "Disable AI text assistance."
                         }, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
             if (engine == ActiveAiEngine.OFFLINE) {
-                Text("Qwen2.5 0.5B Instruct · 4-bit GGUF · 491 MB", style = MaterialTheme.typography.bodyMedium)
+                Text("Gemma 3 1B Instruct · 4-bit GGUF · 806 MB", style = MaterialTheme.typography.bodyMedium)
+                Row {
+                    Checkbox(checked = termsAccepted, onCheckedChange = {
+                        termsAccepted = it; LocalGgufModel.acceptTerms(context, it)
+                    }, modifier = Modifier.testTag("gemma_terms_checkbox"))
+                    Text("I agree to the Gemma Terms of Use, including its prohibited-use policy.",
+                        modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") }) { Text("Gemma Terms of Use") }
+                TextButton(onClick = { uriHandler.openUri("https://ai.google.dev/gemma/prohibited_use_policy") }) { Text("Prohibited-use policy") }
                 Text("Download once, then polish offline. Short selections work best; speed and quality depend on your device.",
                     style = MaterialTheme.typography.bodySmall)
                 if (!GgufPolishEngine.isSupported()) {
@@ -64,7 +75,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                         Text("Cancel download")
                     }
                 } else {
-                    Button(onClick = {
+                    Button(enabled = termsAccepted, onClick = {
                         message = null
                         downloadJob = scope.launch {
                             try {
@@ -73,7 +84,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                             } catch (e: CancellationException) { throw e
                             } catch (e: Exception) { message = e.message ?: "Download failed. Tap to retry." }
                         }
-                    }, modifier = Modifier.testTag("download_gguf")) { Text("Download model (491 MB)") }
+                    }, modifier = Modifier.testTag("download_gguf")) { Text("Download model (806 MB)") }
                 }
             }
             message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -83,7 +94,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                 modifier = Modifier.fillMaxWidth().testTag("polish_playground_input"))
             listOf(PolishMode.PROOFREAD, PolishMode.POLISH, PolishMode.PROFESSIONAL, PolishMode.CASUAL, PolishMode.SHORTEN).forEach { mode ->
                 OutlinedButton(enabled = !polishing && input.isNotBlank() && engine != ActiveAiEngine.NONE &&
-                    (engine != ActiveAiEngine.OFFLINE || (ready && GgufPolishEngine.isSupported())),
+                    (engine != ActiveAiEngine.OFFLINE || (ready && termsAccepted && GgufPolishEngine.isSupported())),
                     onClick = {
                         polishing = true
                         result = null

@@ -149,6 +149,9 @@ class GboardPredictionEngine(private val context: Context) {
         "applicatoin" to "application", "messgae" to "message", "quetion" to "question"
     ) + ComprehensiveLexicon.TYPOS
 
+    // Subtitle corpora contain misspellings too; explicit corrections take priority over those entries.
+    fun isKnownTypo(word: String): Boolean = commonTypoLookup[word]?.let { it != word } == true
+
     // Contraction expansions (apostrophe restoration)
     val contractionLookup: Map<String, String> = mapOf(
         "dont" to "don't", "cant" to "can't", "wont" to "won't",
@@ -194,7 +197,7 @@ class GboardPredictionEngine(private val context: Context) {
         val candidates = LinkedHashSet<String>()
 
         // 1. Fast SymSpell bounded edit-distance lookup (distance <= 2)
-        val symSpellMatches = symSpellEngine.lookup(lower, maxDistance = 2.0f)
+        val symSpellMatches = dictionaryManager.findDictionaryCorrections(lower, maxDistance = 2.0f)
         for (match in symSpellMatches) {
             candidates.add(match.term)
         }
@@ -328,7 +331,7 @@ class GboardPredictionEngine(private val context: Context) {
 
         val rawIsValid = (dictionaryManager.isWordInDictionary(lower) || symSpellEngine.hasWord(lower)) && !dictionaryManager.isBlocked(lower)
         val matches = if (lower.length >= 2 && !rawIsValid) {
-            symSpellEngine.lookup(lower, maxDistance = if (lower.length <= 3) 1f else 2f, maxResults = 16).filter { !dictionaryManager.isBlocked(it.term) }
+            dictionaryManager.findDictionaryCorrections(lower, maxDistance = if (lower.length <= 3) 1f else 2f, maxResults = 16).filter { !dictionaryManager.isBlocked(it.term) }
         } else emptyList()
         val googleSpellChecker = GoogleDeviceSpellChecker.getInstance(this.context)
         val deviceSpellMatches = if (lower.length >= 3 && !rawIsValid) {
@@ -337,7 +340,7 @@ class GboardPredictionEngine(private val context: Context) {
         val pool = linkedSetOf<String>()
         effectiveDirect?.let { pool.add(it) }
         pool.addAll(deviceSpellMatches)
-        pool.addAll(dictionaryManager.wordTrie.findByPrefix(lower, 8).filter { !dictionaryManager.isBlocked(it) })
+        pool.addAll(dictionaryManager.findWordsWithPrefix(lower, 8).filter { !dictionaryManager.isBlocked(it) })
         pool.addAll(model.predictNextWords(context, lower, 6).filter { !dictionaryManager.isBlocked(it) })
         pool.addAll(matches.map { it.term })
         if (!dictionaryManager.isBlocked(typed)) {
@@ -383,7 +386,7 @@ class GboardPredictionEngine(private val context: Context) {
         val margin = if (best != null) best.totalPosterior - (candidates.getOrNull(1)?.totalPosterior ?: 0f) else 0f
         val isAmbiguousOrRealWord = (ambiguousRealWords.contains(lower) && contextualDirect == null) || rawIsValid
 
-        val completions = if (lower.length >= 2) dictionaryManager.wordTrie.findByPrefix(lower, 4).filter { it.length > lower.length && !dictionaryManager.isBlocked(it) } else emptyList()
+        val completions = if (lower.length >= 2) dictionaryManager.findWordsWithPrefix(lower, 4).filter { it.length > lower.length && !dictionaryManager.isBlocked(it) } else emptyList()
         val maxCompletionFreq = completions.maxOfOrNull { dictionaryManager.getWordFrequency(it) } ?: 0
         val bestTermFreq = best?.word?.let { dictionaryManager.getWordFrequency(it.lowercase(Locale.ROOT)) } ?: 0
         val completionSuppresses = when (sensitivity) {
@@ -459,7 +462,7 @@ class GboardPredictionEngine(private val context: Context) {
             else -> 0.45f
         }
 
-        val matches = symSpellEngine.lookup(lower, maxDistance = maxDist, maxResults = 16).filter { !dictionaryManager.isBlocked(it.term) }
+        val matches = dictionaryManager.findDictionaryCorrections(lower, maxDistance = maxDist, maxResults = 16).filter { !dictionaryManager.isBlocked(it.term) }
         if (matches.isEmpty()) return null
 
         val context = contextWords.takeLast(2).map { it.lowercase(Locale.ROOT) }

@@ -1,0 +1,6 @@
+English predictive word frequencies adapted from FrequencyWords by Hermit Dave (2018 English 50k list), based on OpenSubtitles 2018.
+Source: https://github.com/hermitdave/FrequencyWords at revision 525f9b560de45753a5ea01069454e72e9aa541c6
+Dataset license: Creative Commons Attribution-ShareAlike 4.0 (CC-BY-SA-4.0).
+https://creativecommons.org/licenses/by-sa/4.0/
+Adaptation: ASCII English words/apostrophes, 2-24 characters, plus a/i; square-root scaled frequencies 1-1000; alphabetically sorted.
+This adapted dataset remains under CC-BY-SA-4.0. No Google Gboard dictionary is included.

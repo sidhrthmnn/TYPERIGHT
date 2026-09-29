@@ -1,59 +1,50 @@
-# On-device GGUF polish
+# Gemma 3 on-device polish
 
-Open **AI Polish**, select **Local GGUF · Qwen2.5 0.5B**, and tap **Download model (491 MB)**.
-Keep the settings screen open during the download. Progress, cancellation and retry are available.
-Once installed, polish works without an internet connection or Gemini key. The keyboard's AI
-badge cycles **Cloud → Local → Off**. The selection persists across restarts.
-
-Cloud mode uses the existing Gemini configuration. Off mode permits only the existing basic
-offline corrections. Local mode never invokes Gemini, even when its model is missing or fails.
-Explicit polish reports model errors; voice cleanup can retain basic deterministic corrections.
-Voice recognition itself is a separate Android service and is not made offline by this switch.
+Open AI Polish settings, select Local On-Device AI, review and accept the Gemma terms, and tap **Download model (806 MB)**. Keep the screen open during download. After the verified download, text polish runs offline on a 64-bit Android device. The current app supports Local and Off; existing local-only routing remains in place.
 
 ## Model and runtime
 
-- Model: [Qwen2.5-0.5B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF), Q4_K_M, Apache 2.0.
-- Exact size: 491,400,032 bytes (about 469 MiB). The manifest in `models/qwen-polish.json`
-  pins the publisher's revision, download URL and SHA-256. The license is adjacent to it.
-- Runtime: [llama.cpp](https://github.com/ggml-org/llama.cpp/tree/74d4f5b041ad837153b0e90fc864b8290e01d8d5),
-  pinned at b5046 with an archive checksum. CMake builds a JNI library for arm64-v8a phones
-  and x86_64 emulators. NDK 28 and 16 KB ELF alignment are configured.
-- CPU inference: up to four threads, 2,048-token context, 384 output tokens, greedy sampling.
-  Oversized input and incomplete output fail without replacing the original text. Cancellation
-  is checked between prompt batches and generated tokens; a single decode cannot be interrupted.
-  Generation has a 120-second deadline. Models/contexts are released after each request, and
-  requests are serialized to avoid multiple models occupying memory.
-- Prefer short selections and devices with at least 4 GB RAM. Actual latency, available memory
-  and rewrite quality vary; a 0.5B model is less capable than the cloud model.
-- Downloads use HTTPS, validate exact size and SHA-256, and are atomically installed in
-  app-private `no_backup/gguf`. Partial downloads are deleted on cancellation/error. The model
-  is excluded from Android backup. Uninstalling the app removes it.
+- **Gemma 3 1B Instruct Q4_K_M**: 806,058,240 bytes, published as GGUF by [ggml-org](https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF), derived from Google DeepMind's Gemma 3 1B Instruct. The 1B text model is the mobile-size Gemma 3 variant. Larger 4B/12B/27B weights are not bundled.
+- `models/gemma-polish.json` pins the revision, URL, exact size, and SHA-256. The actual weights are committed through Git LFS. `git lfs pull` retrieves them after cloning.
+- Gemma is subject to the [Gemma Terms of Use](https://ai.google.dev/gemma/terms), including the [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy). Copies of the terms, policy and required NOTICE are distributed in models/ and APK assets. The setup checkbox records acceptance before downloading or running Gemma.
+- JNI uses llama.cpp **b5165**, pinned to `1d735c0b4fa0551c51c2f4ac888dd9a01f447985` with an archive checksum, which supports Gemma 3. Android NDK 28 builds ARM64 and x86_64 libraries with 16 KB ELF alignment.
+- Prompt formatting uses Gemma's `user`/`model` turns and a single automatically inserted BOS token. User-supplied reserved markers cannot close the template. The model is instructed to edit text, preserve questions and commands, and return only the edit.
+- CPU execution uses up to four threads, a 2,048-token context and 384-token output limit. The model/context is released after each serialized request. Truncated outputs and unsafe edits are rejected. Cancellation is checked between prompt batches and tokens; a single decode cannot be interrupted. The generation deadline is 180 seconds.
+- Prefer short selections and phones with at least 4 GB RAM; speed and available memory vary. Physical-phone performance has not been benchmarked. Text generation is offline; the separate Android speech-recognition service is not made offline by this setting.
+- Downloads use HTTPS and exact size/SHA-256 checks before atomic installation in app-private `no_backup/gguf`. The model is excluded from backup. After successful Gemma installation, the obsolete app-private Qwen weight file is removed. Qwen files remain recoverable in Git history but are removed from the current branch.
 
-## Reproduce the local download
+## Reproduce and verify
 
 ```sh
 python scripts/download_model.py
-```
-
-This downloads and verifies the same model into `models/`. The weights are tracked with Git LFS and excluded from APK assets; they exceed GitHub's normal 100 MB file limit. Run `git lfs pull` after cloning to fetch them, or use the verified downloader above. APKs include the native runtime, manifest and license; the app's download button installs the weights on the phone.
-
-## Build and verify
-
-```sh
+python scripts/build_dictionary.py
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
-The first native build downloads the pinned llama.cpp source. Standard CI does not download
-model weights. `GgufBackendTest` checks persistent selection, legacy preferences, missing-model
-behavior, off mode and prompt boundaries. `GgufInferenceTest` runs real inference on Android
-when the model is installed, otherwise it is skipped. Install the model through the settings
-screen before running:
+The APK includes the runtime, licenses and model manifest, and excludes the large GGUF weights. The model is downloaded once on the device. CI does not need to download the weights to compile the app or run unit tests.
+
+`GgufInferenceTest` runs actual inference when the model is installed, otherwise it is skipped. For a real smoke check, install/download Gemma first, disable networking, then run:
 
 ```sh
 ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.GgufInferenceTest
 ```
 
-For an offline smoke check, download first, enable airplane mode, then run the test or polish
-`i has a meeting at 5` in the playground. Confirm the output corrects the grammar and keeps `5`.
-Also check switching back to cloud, missing-model guidance, cancellation, and changing editor
-text during generation. Never apply a result to an editor snapshot that has changed.
+Try `i has a meeting at 5` and verify that grammar improves while `5` is retained. Also verify missing-model guidance, terms acceptance, cancellation, and changing editor text during generation.
+
+## Predictive dictionary
+
+The keyboard now includes **46,693 frequency-ranked English words**, adapted from Hermit Dave's [FrequencyWords English 2018 50k list](https://github.com/hermitdave/FrequencyWords). This is an open corpus implementation; Google's Gboard dictionary is not included.
+
+The asset improves prefix completions, known-word recognition, fuzzy spelling candidates and unigram backoff for unknown contexts. Existing bigram/trigram/quadgram predictions, user vocabulary and sensitive-field protections remain active. Existing language and swipe engines remain in place.
+
+A shared sorted vocabulary avoids building a large trie for each DictionaryManager. A shared symmetric-delete correction index is prepared in the background; five-character prefix keys and primitive word IDs bound its memory while full-word distance still validates corrections. Curated corrections work while that index warms up. Explicit typo corrections take precedence over misspellings found in the subtitle corpus; learned words and recognized slang remain protected. Unigram counts reference the shared corpus rather than copying it per keyboard. Frequency and personal-context ranking choose candidates, and the enabled profanity filter applies to suggestions.
+
+The adapted dataset is **CC-BY-SA-4.0**. Its attribution, license, pinned source revision, source checksum, filtering and normalization recipe are in `app/src/main/assets/dictionaries/`. The script reproduces and checks the committed asset. It adds roughly 0.5 MB of uncompressed vocabulary data and needs no dictionary network request during typing.
+
+## Device smoke verification
+
+The actual pinned Gemma weights passed `GgufInferenceTest` on an Android 36 x86_64 Pixel 9 emulator with airplane mode enabled, Wi-Fi/mobile data disabled and no network route. Grammar correction preserved the number in `i has a meeting at 5`; the test completed in 14.1 seconds. This is an emulator smoke check, not a physical-phone speed benchmark.
+
+`FrequencyDictionaryDeviceTest` built the entire compact index under Android's app heap and checked vocabulary completion, a long-word typo, and `helo` → `hello` in 6.7 seconds. Both ARM64 and x86_64 runtime libraries, the debug APK and instrumentation APK build successfully. The APK was checked to contain the pinned manifest, all model licenses/notices and the dictionary, while excluding GGUF weights.
+
+The complete local unit suite passes: 92 tests, zero failures/errors. Regression coverage includes local-only routing, terms acceptance, Gemma prompt boundaries, corpus prefix/ranking, known typos, long-word corrections, context predictions, and keyboard editing.

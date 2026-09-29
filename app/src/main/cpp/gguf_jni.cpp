@@ -29,7 +29,7 @@ Java_com_example_GgufNative_generate(JNIEnv *env, jobject, jbyteArray modelPath,
         std::call_once(backendInit, [] { llama_backend_init(); });
         const auto cancellationClass = env->GetObjectClass(cancellation);
         const auto isCancelled = env->GetMethodID(cancellationClass, "isCancelled", "()Z");
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
         const auto check = [&] {
             if (env->CallBooleanMethod(cancellation, isCancelled))
                 throw std::runtime_error("Local polish cancelled");

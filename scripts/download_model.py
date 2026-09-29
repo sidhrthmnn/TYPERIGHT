@@ -5,7 +5,7 @@ from pathlib import Path
 import urllib.request
 
 root = Path(__file__).resolve().parents[1]
-spec = json.loads((root / "models/qwen-polish.json").read_text())
+spec = json.loads((root / "models/gemma-polish.json").read_text())
 target = root / "models" / spec["filename"]
 
 

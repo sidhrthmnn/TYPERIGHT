@@ -36,7 +36,7 @@ object AiPolishBackend {
     }
 
     val label: String get() = engine.title
-    val timeoutMillis: Long get() = 120_000L
+    val timeoutMillis: Long get() = 185_000L
 
     suspend fun generatePolish(input: String, mode: String): String? = generatePolish(input, PolishMode.fromString(mode))
 

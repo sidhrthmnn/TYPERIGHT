@@ -16,7 +16,8 @@ import kotlin.math.min
  */
 class SymSpellCorrectionEngine(
     private val spatialModel: SpatialKeyProximityModel = SpatialKeyProximityModel(),
-    val maxEditDistance: Int = 2
+    val maxEditDistance: Int = 2,
+    private val prefixLength: Int = 7
 ) {
 
     data class SuggestionItem(
@@ -45,10 +46,13 @@ class SymSpellCorrectionEngine(
         val lower = word.lowercase().trim()
         if (lower.isEmpty() || lower.length > 32) return
 
-        wordFrequencyMap[lower] = maxOf(wordFrequencyMap[lower] ?: 0, frequency)
-
-        // Precompute deletes up to distance 2
-        val deletes = getDeletes(lower, maxEditDistance)
+        val existing = wordFrequencyMap.putIfAbsent(lower, frequency)
+        if (existing != null) {
+            wordFrequencyMap[lower] = maxOf(existing, frequency)
+            return
+        }
+        // Prefix deletions bound memory; candidates still use full-word edit distance.
+        val deletes = getDeletes(lower.take(prefixLength), maxEditDistance)
         for (del in deletes) {
             val set = deletesMap.getOrPut(del) { ConcurrentHashMap.newKeySet() }
             set.add(lower)
@@ -92,7 +96,7 @@ class SymSpellCorrectionEngine(
         if (lower.isEmpty() || lower.length > 32 || maxResults <= 0) return emptyList()
 
         val candidates = HashSet<String>()
-        val inputDeletes = getDeletes(lower, maxEditDistance)
+        val inputDeletes = getDeletes(lower.take(prefixLength), maxEditDistance)
 
         // 1. Direct dictionary match
         if (wordFrequencyMap.containsKey(lower)) {

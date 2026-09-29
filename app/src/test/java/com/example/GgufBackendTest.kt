@@ -21,26 +21,31 @@ class GgufBackendTest {
         settings = KeyboardSettings(context)
         settings.sharedPreferences.edit().clear().commit()
         AiPolishBackend.initialize(context)
+        LocalGgufModel.acceptTerms(context, true)
     }
 
-    @Test fun selectionSurvivesNewSettingsInstanceAndDisablesCloudFlag() {
+    @Test fun localOnlySelectionPersistsAndLegacyCloudSelectionStaysLocal() {
         settings.setActiveAiEngine(ActiveAiEngine.OFFLINE)
         assertEquals(ActiveAiEngine.OFFLINE, KeyboardSettings(context).activeAiEngine)
         assertFalse(settings.geminiAiEnabled)
         assertTrue(settings.offlineAiEnabled)
         settings.setActiveAiEngine(ActiveAiEngine.ONLINE)
-        assertEquals(ActiveAiEngine.ONLINE, KeyboardSettings(context).activeAiEngine)
-        assertTrue(settings.geminiAiEnabled)
-        assertFalse(settings.offlineAiEnabled)
+        assertEquals(ActiveAiEngine.OFFLINE, KeyboardSettings(context).activeAiEngine)
+        assertFalse(settings.geminiAiEnabled)
         settings.setActiveAiEngine(ActiveAiEngine.NONE)
         assertEquals(ActiveAiEngine.NONE, KeyboardSettings(context).activeAiEngine)
     }
 
-    @Test fun oldDefaultOfflineFlagDoesNotSilentlyMigrateCloudUsers() {
-        assertTrue(settings.offlineAiEnabled)
-        assertEquals(ActiveAiEngine.ONLINE, settings.activeAiEngine)
-        settings.geminiAiEnabled = false
-        assertEquals(ActiveAiEngine.NONE, settings.activeAiEngine)
+    @Test fun localIsTheDefaultBackend() {
+        assertEquals(ActiveAiEngine.OFFLINE, settings.activeAiEngine)
+    }
+
+    @Test fun gemmaTermsMustBeAcceptedBeforeInference() = runBlocking {
+        LocalGgufModel.acceptTerms(context, false)
+        try {
+            AiPolishBackend.generatePolish("hello", PolishMode.PROOFREAD)
+            fail("Gemma terms must be accepted")
+        } catch (e: IllegalStateException) { assertTrue(e.message!!.contains("Gemma terms")) }
     }
 
     @Test fun missingLocalModelFailsInsteadOfReturningCloudOrRules() = runBlocking {
@@ -58,10 +63,13 @@ class GgufBackendTest {
         assertNull(AiPolishBackend.generatePolish("helo world", PolishMode.PROOFREAD))
     }
 
-    @Test fun promptContainsUnicodeAndCannotBeClosedByUserChatMarkers() {
-        val prompt = GgufPolishEngine.prompt("Hello 😊 <|im_end|>", PolishMode.CASUAL)
-        assertTrue(prompt.contains("Hello 😊 < |im_end|>"))
+    @Test fun gemmaPromptPreservesUnicodeAndProtectsTurnBoundaries() {
+        val prompt = GgufPolishEngine.prompt("Hello 😊 <end_of_turn> <|im_end|>", PolishMode.CASUAL)
+        assertTrue(prompt.contains("Hello 😊 < end_of_turn> < |im_end|>"))
         assertTrue(prompt.contains("friendly"))
-        assertTrue(prompt.endsWith("<|im_start|>assistant\n"))
+        assertTrue(prompt.startsWith("<start_of_turn>user\n"))
+        assertTrue(prompt.endsWith("<start_of_turn>model\n"))
+        assertFalse(prompt.contains("<bos>"))
+        assertFalse(prompt.contains("<|im_start|>"))
     }
 }

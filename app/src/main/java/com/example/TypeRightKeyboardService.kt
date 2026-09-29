@@ -6398,7 +6398,7 @@ fun GboardProofreadPanel(
                         onDismissRequest = { showOverflowMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("On-Device AI (Qwen2.5)") },
+                            text = { Text("On-Device AI (Gemma 3 1B)") },
                             leadingIcon = { Icon(Icons.Default.PhoneAndroid, contentDescription = null) },
                             onClick = {
                                 showOverflowMenu = false
@@ -6528,7 +6528,7 @@ fun GboardProofreadPanel(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "The on-device Qwen2.5 (491 MB) model is not downloaded. Open Settings to download it once for full offline polish.",
+                                    text = "The on-device Gemma 3 1B (806 MB) model is not downloaded. Open Settings to download it once for full offline polish.",
                                     color = titleAndIconColor.copy(alpha = 0.75f),
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center
