@@ -271,6 +271,7 @@ class TypeRightKeyboardService : KeyboardService() {
     override fun onCreate() {
         super.onCreate()
         CrashReporter.init(this)
+        AiPolishBackend.initialize(this)
         settings = KeyboardSettings(this)
         dictionaryManager = DictionaryManager(this)
         aiPolishManager = AiPolishManager(this)
@@ -6284,6 +6285,7 @@ fun GboardProofreadPanel(
     val context = LocalContext.current
     val editorService = context as? TypeRightKeyboardService
     val coordinator = remember { PolishCoordinator.getInstance(context) }
+    val settings = remember { KeyboardSettings(context) }
 
     // Always capture the entire text for Writing Tools freshly when panel opens
     val snapshot = remember(Unit) {
@@ -6305,6 +6307,15 @@ fun GboardProofreadPanel(
     var selectedTone by remember { mutableStateOf(PolishMode.PROOFREAD) }
     var hasApplied by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    var currentEngine by remember { mutableStateOf(settings.activeAiEngine) }
+
+    DisposableEffect(settings) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            currentEngine = settings.activeAiEngine
+        }
+        settings.sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { settings.sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     val uiState by coordinator.uiState.collectAsState()
 
@@ -6401,7 +6412,22 @@ fun GboardProofreadPanel(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Apply button removed as requested: tapping the text box card directly performs Apply!
+                AiEngineIndicatorBadge(
+                    activeEngine = currentEngine,
+                    accentColor = activePillBg,
+                    keyTextColor = titleAndIconColor,
+                    compact = false,
+                    onClick = {
+                        val next = when (currentEngine) {
+                            ActiveAiEngine.ONLINE, ActiveAiEngine.BOTH -> ActiveAiEngine.OFFLINE
+                            ActiveAiEngine.OFFLINE -> ActiveAiEngine.NONE
+                            else -> ActiveAiEngine.ONLINE
+                        }
+                        settings.setActiveAiEngine(next)
+                        currentEngine = next
+                        runPolish(selectedTone)
+                    }
+                )
 
                 Box {
                     Box(
@@ -6424,6 +6450,27 @@ fun GboardProofreadPanel(
                         expanded = showOverflowMenu,
                         onDismissRequest = { showOverflowMenu = false }
                     ) {
+                        DropdownMenuItem(
+                            text = { Text("Use Cloud Gemini AI") },
+                            leadingIcon = { Icon(Icons.Default.Cloud, contentDescription = null) },
+                            onClick = {
+                                showOverflowMenu = false
+                                settings.setActiveAiEngine(ActiveAiEngine.ONLINE)
+                                currentEngine = ActiveAiEngine.ONLINE
+                                runPolish(selectedTone)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Use Local LLM (Qwen2.5)") },
+                            leadingIcon = { Icon(Icons.Default.PhoneAndroid, contentDescription = null) },
+                            onClick = {
+                                showOverflowMenu = false
+                                settings.setActiveAiEngine(ActiveAiEngine.OFFLINE)
+                                currentEngine = ActiveAiEngine.OFFLINE
+                                runPolish(selectedTone)
+                            }
+                        )
+                        HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Copy to clipboard") },
                             leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
@@ -6509,7 +6556,7 @@ fun GboardProofreadPanel(
                             CircularProgressIndicator(color = activePillBg, modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
                         }
                     }
-                    is PolishUiState.Generating, is PolishUiState.PreparingModel, is PolishUiState.ModelNotDownloaded -> {
+                    is PolishUiState.Generating, is PolishUiState.PreparingModel -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -6522,6 +6569,64 @@ fun GboardProofreadPanel(
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Normal
                                 )
+                            }
+                        }
+                    }
+                    is PolishUiState.ModelNotDownloaded -> {
+                        Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PhoneAndroid,
+                                    contentDescription = null,
+                                    tint = activePillBg,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Text(
+                                    text = "Local Model Not Downloaded",
+                                    color = titleAndIconColor,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "The offline Qwen2.5 (491 MB) model is not on device. Switch to Cloud Gemini or open Settings to download.",
+                                    color = titleAndIconColor.copy(alpha = 0.75f),
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            settings.setActiveAiEngine(ActiveAiEngine.ONLINE)
+                                            currentEngine = ActiveAiEngine.ONLINE
+                                            runPolish(selectedTone)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Text("Use Cloud Gemini", color = activePillContent, fontSize = 12.sp)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            try {
+                                                val intent = Intent(context, MainActivity::class.java).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                                    putExtra("target_tab", 2)
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {}
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = elementBg),
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Text("Download in Settings", color = titleAndIconColor, fontSize = 12.sp)
+                                    }
+                                }
                             }
                         }
                     }
@@ -6586,17 +6691,35 @@ fun GboardProofreadPanel(
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Text(
-                                    text = "Could not polish: ${state.message}",
+                                    text = state.message,
                                     color = MaterialTheme.colorScheme.error,
                                     fontSize = 13.sp,
                                     textAlign = TextAlign.Center
                                 )
-                                Button(
-                                    onClick = { runPolish(selectedTone) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
-                                    shape = RoundedCornerShape(16.dp)
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Retry", color = activePillContent, fontSize = 13.sp)
+                                    if (settings.activeAiEngine == ActiveAiEngine.OFFLINE) {
+                                        Button(
+                                            onClick = {
+                                                settings.setActiveAiEngine(ActiveAiEngine.ONLINE)
+                                                currentEngine = ActiveAiEngine.ONLINE
+                                                runPolish(selectedTone)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
+                                            shape = RoundedCornerShape(16.dp)
+                                        ) {
+                                            Text("Use Cloud Gemini", color = activePillContent, fontSize = 12.sp)
+                                        }
+                                    }
+                                    Button(
+                                        onClick = { runPolish(selectedTone) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = elementBg),
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Text("Retry", color = titleAndIconColor, fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }

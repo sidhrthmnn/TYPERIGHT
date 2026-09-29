@@ -15,9 +15,26 @@ class TypeRightApplication : Application() {
 
 /** Single routing boundary shared by keyboard, playground, proofreading and dictation. */
 object AiPolishBackend {
-    private lateinit var appContext: Context
-    fun initialize(context: Context) { appContext = context.applicationContext }
-    val engine: ActiveAiEngine get() = KeyboardSettings(appContext).activeAiEngine
+    @Volatile
+    private var appContext: Context? = null
+
+    fun initialize(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    fun ensureInitialized(context: Context) {
+        if (appContext == null) {
+            appContext = context.applicationContext
+        }
+    }
+
+    val context: Context? get() = appContext
+
+    val engine: ActiveAiEngine get() {
+        val ctx = appContext ?: return ActiveAiEngine.ONLINE
+        return KeyboardSettings(ctx).activeAiEngine
+    }
+
     val label: String get() = engine.title
     val timeoutMillis: Long get() = if (engine == ActiveAiEngine.OFFLINE) 125_000L else 5_000L
 
@@ -27,7 +44,10 @@ object AiPolishBackend {
                                preferredModel: String? = null): String? {
         if (input.isBlank()) return ""
         return when (engine) {
-            ActiveAiEngine.OFFLINE -> GgufPolishEngine.polish(appContext, input, mode)
+            ActiveAiEngine.OFFLINE -> {
+                val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
+                GgufPolishEngine.polish(ctx, input, mode)
+            }
             ActiveAiEngine.NONE -> null
             else -> GeminiApiClient.generatePolish(input, mode, context, preferredModel)
         }
@@ -36,7 +56,10 @@ object AiPolishBackend {
     fun streamPolish(input: String, mode: PolishMode, context: TextContext? = null,
                      preferredModel: String? = null): Flow<String> = flow {
         when (engine) {
-            ActiveAiEngine.OFFLINE -> emit(GgufPolishEngine.polish(appContext, input, mode))
+            ActiveAiEngine.OFFLINE -> {
+                val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
+                emit(GgufPolishEngine.polish(ctx, input, mode))
+            }
             ActiveAiEngine.NONE -> Unit
             else -> emitAll(GeminiApiClient.streamPolish(input, mode, context, preferredModel))
         }

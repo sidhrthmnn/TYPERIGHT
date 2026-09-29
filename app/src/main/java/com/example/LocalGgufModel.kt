@@ -27,7 +27,25 @@ object LocalGgufModel {
     private val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS).build()
 
-    private fun spec(context: Context) = JSONObject(context.assets.open("qwen-polish.json").bufferedReader().use { it.readText() })
+    private fun spec(context: Context): JSONObject {
+        return try {
+            JSONObject(context.assets.open("qwen-polish.json").bufferedReader().use { it.readText() })
+        } catch (_: Exception) {
+            JSONObject(
+                """
+                {
+                  "name": "Qwen2.5 0.5B Instruct Q4_K_M",
+                  "filename": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+                  "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+                  "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+                  "bytes": 491400032,
+                  "license": "Apache-2.0",
+                  "source": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+                }
+                """.trimIndent()
+            )
+        }
+    }
     fun file(context: Context): File = File(context.noBackupFilesDir, "gguf/${spec(context).getString("filename")}")
     fun isReady(context: Context): Boolean = file(context).let {
         it.isFile && it.length() == spec(context).getLong("bytes")

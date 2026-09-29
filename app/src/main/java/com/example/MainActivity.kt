@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashReporter.init(this)
+        AiPolishBackend.initialize(this)
         enableEdgeToEdge()
         DictionaryUpdateScheduler.schedulePeriodicUpdate(this)
 
@@ -113,7 +114,9 @@ fun MainMinimalScreen(modifier: Modifier = Modifier) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) }
+    val activity = context as? ComponentActivity
+    val initialTab = remember { activity?.intent?.getIntExtra("target_tab", 0) ?: 0 }
+    var selectedTab by remember { mutableIntStateOf(if (initialTab in 0..3) initialTab else 0) }
     val tabs = listOf("Sandbox", "Predictive Systems", "AI Polish", "Settings")
 
     Column(

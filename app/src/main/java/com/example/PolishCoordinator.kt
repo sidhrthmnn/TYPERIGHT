@@ -124,6 +124,11 @@ class PolishCoordinator(
                 var isFromModel = false
                 val selectedEngine = AiPolishBackend.engine
 
+                if (!forceBasicOffline && selectedEngine == ActiveAiEngine.OFFLINE && !LocalGgufModel.isReady(context)) {
+                    _uiState.value = PolishUiState.ModelNotDownloaded
+                    return@launch
+                }
+
                 if (!forceBasicOffline) {
                     try {
                         kotlinx.coroutines.withTimeoutOrNull(AiPolishBackend.timeoutMillis) {

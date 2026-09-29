@@ -19,4 +19,6 @@ FlowKey is a flagship Gboard-equivalent Android Input Method Editor (IME) built 
 - **Spacebar Autocorrect Commit**: Pressing spacebar automatically commits top prediction candidate if a typo is detected.
 - **Keyboard Hide Button**: Added dedicated `ArrowDropDown` key to collapse the keyboard input window smoothly.
 - **Responsive Insets**: Applied `imePadding()` to `MainActivity.kt` container to ensure text sandbox and setup options adjust cleanly when the IME is active.
-- **Publish Version**: Updated `versionCode` to `175` and `versionName` to `"175.0"` in `app/build.gradle.kts` for publication release.
+- **Publish Version**: Updated `versionCode` to `176` and `versionName` to `"176.0"` in `app/build.gradle.kts` for publication release.
+- **Dual-Brain AI Architecture (Cloud Gemini vs Local LLM)**: Maintained full support for local on-device LLM (`Qwen2.5 0.5B Instruct` 4-bit GGUF via native C++ inference) as well as Google Gemini Cloud AI (`gemini-3.1-flash-lite-preview`). Users can seamlessly toggle between Cloud Gemini, Local LLM, and Basic Offline corrections via the companion app's AI Polish settings tab, the keyboard toolbar AI badge, or the Writing Tools overflow menu. If the local model is not yet downloaded, the UI presents an informative card with single-tap options to run with Cloud Gemini or open settings to download the 491 MB weights.
+

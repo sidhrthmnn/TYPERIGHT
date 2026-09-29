@@ -17,7 +17,24 @@ class GgufCancellation(private val job: Job?) {
 
 @androidx.annotation.Keep
 internal object GgufNative {
-    init { System.loadLibrary("typeright_gguf") }
+    private var isLoaded = false
+    private var loadError: Throwable? = null
+
+    init {
+        try {
+            System.loadLibrary("typeright_gguf")
+            isLoaded = true
+        } catch (t: Throwable) {
+            loadError = t
+        }
+    }
+
+    fun ensureLoaded() {
+        if (!isLoaded) {
+            throw IllegalStateException("Local GGUF runtime is unavailable on this device", loadError)
+        }
+    }
+
     external fun generate(path: ByteArray, prompt: ByteArray, cancellation: GgufCancellation): ByteArray
 }
 
@@ -52,6 +69,7 @@ object GgufPolishEngine {
             val coroutine = currentCoroutineContext()
             coroutine.ensureActive()
             val result = try {
+                GgufNative.ensureLoaded()
                 GgufNative.generate(LocalGgufModel.file(context).absolutePath.toByteArray(Charsets.UTF_8),
                     prompt(input, mode).toByteArray(Charsets.UTF_8), GgufCancellation(coroutine[Job]))
             } catch (e: LinkageError) {
