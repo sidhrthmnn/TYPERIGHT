@@ -35,7 +35,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AI Polish", style = MaterialTheme.typography.titleMedium)
             Text("Choose where your text is processed.", style = MaterialTheme.typography.bodySmall)
-            listOf(ActiveAiEngine.ONLINE, ActiveAiEngine.OFFLINE, ActiveAiEngine.NONE).forEach { option ->
+            listOf(ActiveAiEngine.OFFLINE, ActiveAiEngine.NONE).forEach { option ->
                 Row(Modifier.fillMaxWidth()) {
                     RadioButton(selected = engine == option, enabled = !polishing,
                         onClick = { settings.setActiveAiEngine(option); engine = option; result = null },
@@ -43,9 +43,8 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                     Column(Modifier.weight(1f).padding(top = 10.dp)) {
                         Text(option.title)
                         Text(when (option) {
-                            ActiveAiEngine.ONLINE -> "Sends selected text to Gemini. Requires internet and an API key."
-                            ActiveAiEngine.OFFLINE -> "Processes text on this phone. No cloud fallback."
-                            else -> "Use basic offline corrections only."
+                            ActiveAiEngine.OFFLINE -> "Processes text 100% on this phone. Completely offline, private, and private."
+                            else -> "Disable AI text assistance."
                         }, style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -93,7 +92,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                             val start = System.currentTimeMillis()
                             try {
                                 val output = AiPolishBackend.generatePolish(input, mode)
-                                result = if (output.isNullOrBlank()) "Cloud polish unavailable. Check your connection and API key."
+                                result = if (output.isNullOrBlank()) "Local polish returned no changes."
                                     else "$selectedLabel · ${System.currentTimeMillis() - start} ms\n$output"
                             } catch (e: CancellationException) { throw e
                             } catch (e: Exception) { result = e.message ?: "Polish failed"

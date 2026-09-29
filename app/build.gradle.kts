@@ -24,8 +24,8 @@ android {
     ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
     targetSdk = 36
-    versionCode = 177
-    versionName = "177.0"
+    versionCode = 178
+    versionName = "178.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

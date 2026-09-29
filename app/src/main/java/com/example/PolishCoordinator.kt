@@ -141,8 +141,8 @@ class PolishCoordinator(
                             }
                         }
                     } catch (e: Exception) {
-                        if (e is CancellationException || selectedEngine == ActiveAiEngine.OFFLINE) throw e
-                        Log.w(TAG, "Gemini polish streaming error: ${e.message}")
+                        if (e is CancellationException) throw e
+                        Log.w(TAG, "Local polish streaming error: ${e.message}")
                     }
                 }
 

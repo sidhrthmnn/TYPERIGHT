@@ -396,10 +396,9 @@ class KeyboardSettings(context: Context) {
         }
 
     val activeAiEngine: ActiveAiEngine
-        get() = when (prefs.getString("polish_backend", null)) {
-            "local" -> ActiveAiEngine.OFFLINE
+        get() = when (prefs.getString("polish_backend", "local")) {
             "off" -> ActiveAiEngine.NONE
-            else -> if (geminiAiEnabled) ActiveAiEngine.ONLINE else ActiveAiEngine.NONE
+            else -> ActiveAiEngine.OFFLINE
         }
 
     var vocabAutoUpdateEnabled: Boolean
@@ -431,27 +430,16 @@ class KeyboardSettings(context: Context) {
         set(value) = prefs.edit().putInt(KEY_USER_WORDS_COUNT, value).apply()
 
     fun setActiveAiEngine(engine: ActiveAiEngine) {
-        prefs.edit().putString("polish_backend", when (engine) {
-            ActiveAiEngine.OFFLINE -> "local"
-            ActiveAiEngine.NONE -> "off"
-            else -> "cloud"
-        }).commit()
-        when (engine) {
-            ActiveAiEngine.OFFLINE -> {
-                offlineAiEnabled = true
-                geminiAiEnabled = false
-                nemotronAiEnabled = false
-            }
-            ActiveAiEngine.BOTH, ActiveAiEngine.ONLINE, ActiveAiEngine.NEMOTRON -> {
-                offlineAiEnabled = false
-                geminiAiEnabled = true
-                nemotronAiEnabled = false
-            }
-            ActiveAiEngine.NONE -> {
-                offlineAiEnabled = false
-                geminiAiEnabled = false
-                nemotronAiEnabled = false
-            }
+        val backendString = if (engine == ActiveAiEngine.NONE) "off" else "local"
+        prefs.edit().putString("polish_backend", backendString).commit()
+        if (engine == ActiveAiEngine.NONE) {
+            offlineAiEnabled = false
+            geminiAiEnabled = false
+            nemotronAiEnabled = false
+        } else {
+            offlineAiEnabled = true
+            geminiAiEnabled = false
+            nemotronAiEnabled = false
         }
     }
 }
@@ -462,9 +450,9 @@ enum class ActiveAiEngine(
     val symbol: String,
     val description: String
 ) {
-    BOTH("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
-    OFFLINE("Local GGUF · Qwen2.5 0.5B", "Local", "📱", "Runs on this phone after a one-time model download"),
-    ONLINE("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
-    NEMOTRON("Gemini Cloud AI", "Gemini", "✨", "Google Gemini Free Cloud AI"),
+    BOTH("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
+    OFFLINE("Local On-Device AI (Qwen2.5)", "Local", "📱", "Runs 100% on this phone offline without cloud dependency"),
+    ONLINE("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
+    NEMOTRON("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
     NONE("AI Off", "Off", "⚪", "AI assistants disabled")
 }

@@ -97,6 +97,7 @@ import androidx.compose.ui.text.TextMeasurer
 import android.util.Log
 import kotlin.random.Random
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.RevampedEmojiLayout
 import com.example.giphy.GiphyMediaItem
@@ -2497,19 +2498,10 @@ fun VoiceWaveformVisualizer(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1100, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "pulse"
-    )
-    val waveHarmonic by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2 * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(
             animation = tween(1200, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "harmonic"
+        label = "pulse"
     )
 
     val animatedAudioLevel by androidx.compose.animation.core.animateFloatAsState(
@@ -2525,28 +2517,39 @@ fun VoiceWaveformVisualizer(
         val width = size.width
         val height = size.height
         val centerY = height / 2f
-        val micCenterX = height * 0.55f
+        val micCenterX = width / 2f
 
-        // 1. Pulsating microphone ring (Gboard / SwiftKey style halo)
-        val baseRadius = height * 0.26f
+        val baseRadius = height * 0.28f
         val maxPulseRadius = height * 0.48f
-        val currentPulseRadius = baseRadius + (maxPulseRadius - baseRadius) * pulseProgress
-        val pulseAlpha = (1f - pulseProgress) * 0.45f * (0.35f + 0.65f * animatedAudioLevel)
 
-        // Expanding outer halo ring
+        // 1. Expanding outer halo ring 1
+        val currentPulseRadius = baseRadius + (maxPulseRadius - baseRadius) * pulseProgress
+        val pulseAlpha = (1f - pulseProgress) * 0.40f * (0.35f + 0.65f * animatedAudioLevel)
         drawCircle(
             color = accentColor.copy(alpha = pulseAlpha),
             radius = currentPulseRadius,
             center = Offset(micCenterX, centerY)
         )
-        // Reactive inner halo
-        val voiceReactRadius = baseRadius + (height * 0.14f * animatedAudioLevel)
+
+        // 2. Phased secondary ripple ring 2
+        val progress2 = (pulseProgress + 0.5f) % 1f
+        val currentPulseRadius2 = baseRadius + (maxPulseRadius - baseRadius) * progress2
+        val pulseAlpha2 = (1f - progress2) * 0.30f * (0.35f + 0.65f * animatedAudioLevel)
         drawCircle(
-            color = accentColor.copy(alpha = 0.22f + 0.35f * animatedAudioLevel),
+            color = accentColor.copy(alpha = pulseAlpha2),
+            radius = currentPulseRadius2,
+            center = Offset(micCenterX, centerY)
+        )
+
+        // 3. Audio-reactive inner halo
+        val voiceReactRadius = baseRadius + (height * 0.12f * animatedAudioLevel)
+        drawCircle(
+            color = accentColor.copy(alpha = 0.20f + 0.35f * animatedAudioLevel),
             radius = voiceReactRadius,
             center = Offset(micCenterX, centerY)
         )
-        // Core mic circle badge
+
+        // 4. Core mic circle badge
         drawCircle(
             color = accentColor,
             radius = baseRadius,
@@ -2573,43 +2576,6 @@ fun VoiceWaveformVisualizer(
             topLeft = Offset(micCenterX - 2.5.dp.toPx(), centerY + micH / 2f + 1.5.dp.toPx()),
             size = Size(5.dp.toPx(), 1.dp.toPx())
         )
-
-        // 2. Symmetrical smooth audio wave equalizer bars (Gboard / SwiftKey style)
-        val startBarsX = micCenterX + maxPulseRadius + 6.dp.toPx()
-        val availableWidth = (width - startBarsX - 4.dp.toPx()).coerceAtLeast(10f)
-        val numBars = 5
-        val barSpacing = 4.dp.toPx()
-        val totalSpacing = barSpacing * (numBars - 1)
-        val barWidth = ((availableWidth.coerceAtMost(90.dp.toPx()) - totalSpacing) / numBars).coerceIn(3.dp.toPx(), 6.5.dp.toPx())
-        val minBarHeight = 4.dp.toPx()
-        val maxBarHeight = height * 0.72f
-
-        for (i in 0 until numBars) {
-            val barX = startBarsX + i * (barWidth + barSpacing)
-            val centerFactor = 1f - (kotlin.math.abs(i - (numBars - 1) / 2f) / ((numBars - 1) / 2f)) * 0.4f
-            val phaseOffset = i * 0.75f
-            val waveOscillation = (kotlin.math.sin(waveHarmonic + phaseOffset) + 1f) / 2f
-            val dynamicHeight = minBarHeight + (maxBarHeight - minBarHeight) * 
-                (animatedAudioLevel * 0.85f + 0.15f * waveOscillation) * centerFactor
-
-            val top = centerY - dynamicHeight / 2f
-            val cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f)
-
-            // Gboard 4-color palette
-            val barColor = when (i % 4) {
-                0 -> Color(0xFF4285F4) // Google Blue
-                1 -> Color(0xFFEA4335) // Google Red
-                2 -> Color(0xFFFBBC05) // Google Yellow
-                else -> Color(0xFF34A853) // Google Green
-            }
-
-            drawRoundRect(
-                color = barColor,
-                topLeft = Offset(barX, top),
-                size = Size(barWidth, dynamicHeight),
-                cornerRadius = cornerRadius
-            )
-        }
     }
 }
 
@@ -2758,6 +2724,7 @@ fun KeyboardLayout(
     var oneHandedModeState by remember { mutableStateOf(settings.oneHandedMode) }
     var emojiSuggestionsState by remember { mutableStateOf(settings.emojiSuggestionsEnabled) }
     var spaceSwipeState by remember { mutableStateOf(settings.spaceSwipeEnabled) }
+    var swipeEnabledState by remember { mutableStateOf(settings.swipeEnabled) }
     var navBarClearanceState by remember { mutableStateOf(settings.navBarClearance) }
 
     DisposableEffect(sharedPrefs) {
@@ -2776,6 +2743,7 @@ fun KeyboardLayout(
                 KeyboardSettings.KEY_ONE_HANDED_MODE -> oneHandedModeState = settings.oneHandedMode
                 KeyboardSettings.KEY_EMOJI_SUGGESTIONS -> emojiSuggestionsState = settings.emojiSuggestionsEnabled
                 KeyboardSettings.KEY_SPACE_SWIPE_ENABLED -> spaceSwipeState = settings.spaceSwipeEnabled
+                KeyboardSettings.KEY_SWIPE_ENABLED -> swipeEnabledState = settings.swipeEnabled
                 KeyboardSettings.KEY_NAV_BAR_CLEARANCE -> navBarClearanceState = settings.navBarClearance
             }
         }
@@ -3446,35 +3414,20 @@ fun KeyboardLayout(
                                                 )
                                             }
 
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .background(Color(0xFFE53935).copy(alpha = 0.12f))
-                                                    .padding(horizontal = 6.dp, vertical = 3.dp)
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(6.dp)
-                                                        .clip(CircleShape)
-                                                        .background(Color(0xFFE53935))
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = "Ramble",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = Color(0xFFE53935)
-                                                )
-                                            }
-
                                             VoiceWaveformVisualizer(
                                                 audioLevel = rambleAudioLevel,
                                                 accentColor = Color(0xFFE53935),
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .fillMaxHeight()
-                                                    .padding(vertical = 4.dp)
+                                                modifier = Modifier.size(36.dp)
+                                            )
+
+                                            Text(
+                                                text = if (rambleTranscript.isNotBlank()) rambleTranscript else "Speak naturally...",
+                                                color = if (rambleTranscript.isNotBlank()) keyTextColor else keyTextColor.copy(alpha = 0.6f),
+                                                fontSize = 13.sp,
+                                                fontWeight = if (rambleTranscript.isNotBlank()) FontWeight.Medium else FontWeight.Normal,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                                             )
 
                                             IconButton(
@@ -3529,17 +3482,17 @@ fun KeyboardLayout(
                                             VoiceWaveformVisualizer(
                                                 audioLevel = audioLevel,
                                                 accentColor = accentColor,
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .fillMaxHeight()
-                                                    .padding(vertical = 4.dp)
+                                                modifier = Modifier.size(36.dp)
                                             )
 
                                             Text(
-                                                text = "Listening...",
-                                                color = keyTextColor.copy(alpha = 0.75f),
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Medium
+                                                text = if (voiceText.isNotBlank()) voiceText else "Speak now...",
+                                                color = if (voiceText.isNotBlank()) keyTextColor else keyTextColor.copy(alpha = 0.6f),
+                                                fontSize = 13.sp,
+                                                fontWeight = if (voiceText.isNotBlank()) FontWeight.Medium else FontWeight.Normal,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                                             )
 
                                             IconButton(
@@ -3999,11 +3952,7 @@ fun KeyboardLayout(
                                                     accentColor = accentColor,
                                                     keyTextColor = keyTextColor,
                                                     onClick = {
-                                                        val next = when (activeAiEngineState) {
-                                                            ActiveAiEngine.ONLINE, ActiveAiEngine.BOTH -> ActiveAiEngine.OFFLINE
-                                                            ActiveAiEngine.OFFLINE -> ActiveAiEngine.NONE
-                                                            else -> ActiveAiEngine.ONLINE
-                                                        }
+                                                        val next = if (activeAiEngineState == ActiveAiEngine.OFFLINE) ActiveAiEngine.NONE else ActiveAiEngine.OFFLINE
                                                         settings.setActiveAiEngine(next)
                                                         activeAiEngineState = next
                                                         try {
@@ -4440,7 +4389,8 @@ fun KeyboardLayout(
                             onSpaceSwipeRight = onSpaceSwipeRight,
                             spacebarLabel = spacebarLabel,
                             onSpaceLongClick = onToggleLanguage,
-                            prevWord = previousWords.lastOrNull()
+                            prevWord = previousWords.lastOrNull(),
+                            swipeEnabled = swipeEnabledState
                         )
                     }
                 }
@@ -4525,7 +4475,8 @@ fun QwertyLayout(
     showNumberRow: Boolean = false,
     spacebarLabel: String = "English",
     onSpaceLongClick: (() -> Unit)? = null,
-    prevWord: String? = null
+    prevWord: String? = null,
+    swipeEnabled: Boolean = true
 ) {
     val numberRow = listOf('1', '2', '3', '4', '5', '6', '7', '8', '9', '0')
     val row1 = listOf('q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p')
@@ -4603,8 +4554,8 @@ fun QwertyLayout(
                             // 2. Gesture-based typing should NEVER originate from the bottom control row (?123, comma, emoji, space, period, enter)
                             val isTouchInBottomRow = colH > 0 && startPosition.y >= (bottomRowStartY - 8f)
 
-                            if (isTouchOnSpace || isTouchInBottomRow || isSpaceScrolling || isSpaceTouching) {
-                                // Touch originated on the space button or bottom control row.
+                            if (!swipeEnabled || isTouchOnSpace || isTouchInBottomRow || isSpaceScrolling || isSpaceTouching) {
+                                // Touch originated on the space button or bottom control row, or swipe is disabled.
                                 // Glide action MUST NOT be enabled, no trail should be drawn, and no swipe word decoded.
                                 // We leave pointer events unconsumed so the spacebar's onSwipeLeft/onSwipeRight
                                 // cursor scrolling operates with maximum smoothness.
@@ -4666,7 +4617,7 @@ fun QwertyLayout(
                                     }
 
                                     val dist = (currentPos - startPosition).getDistance()
-                                    if (!detectedSwipe && dist > 10.dp.toPx()) {
+                                    if (!detectedSwipe && swipeEnabled && dist > 32.dp.toPx() && pendingPoints.size >= 4) {
                                         detectedSwipe = true
                                         isSwiping = true
                                         coroutineScope.launch {
@@ -6418,11 +6369,7 @@ fun GboardProofreadPanel(
                     keyTextColor = titleAndIconColor,
                     compact = false,
                     onClick = {
-                        val next = when (currentEngine) {
-                            ActiveAiEngine.ONLINE, ActiveAiEngine.BOTH -> ActiveAiEngine.OFFLINE
-                            ActiveAiEngine.OFFLINE -> ActiveAiEngine.NONE
-                            else -> ActiveAiEngine.ONLINE
-                        }
+                        val next = if (currentEngine == ActiveAiEngine.OFFLINE) ActiveAiEngine.NONE else ActiveAiEngine.OFFLINE
                         settings.setActiveAiEngine(next)
                         currentEngine = next
                         runPolish(selectedTone)
@@ -6451,17 +6398,7 @@ fun GboardProofreadPanel(
                         onDismissRequest = { showOverflowMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Use Cloud Gemini AI") },
-                            leadingIcon = { Icon(Icons.Default.Cloud, contentDescription = null) },
-                            onClick = {
-                                showOverflowMenu = false
-                                settings.setActiveAiEngine(ActiveAiEngine.ONLINE)
-                                currentEngine = ActiveAiEngine.ONLINE
-                                runPolish(selectedTone)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Use Local LLM (Qwen2.5)") },
+                            text = { Text("On-Device AI (Qwen2.5)") },
                             leadingIcon = { Icon(Icons.Default.PhoneAndroid, contentDescription = null) },
                             onClick = {
                                 showOverflowMenu = false
@@ -6591,41 +6528,25 @@ fun GboardProofreadPanel(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "The offline Qwen2.5 (491 MB) model is not on device. Switch to Cloud Gemini or open Settings to download.",
+                                    text = "The on-device Qwen2.5 (491 MB) model is not downloaded. Open Settings to download it once for full offline polish.",
                                     color = titleAndIconColor.copy(alpha = 0.75f),
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center
                                 )
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Button(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(context, MainActivity::class.java).apply {
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                                putExtra("target_tab", 2)
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
+                                    shape = RoundedCornerShape(16.dp)
                                 ) {
-                                    Button(
-                                        onClick = {
-                                            settings.setActiveAiEngine(ActiveAiEngine.ONLINE)
-                                            currentEngine = ActiveAiEngine.ONLINE
-                                            runPolish(selectedTone)
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
-                                        shape = RoundedCornerShape(16.dp)
-                                    ) {
-                                        Text("Use Cloud Gemini", color = activePillContent, fontSize = 12.sp)
-                                    }
-                                    Button(
-                                        onClick = {
-                                            try {
-                                                val intent = Intent(context, MainActivity::class.java).apply {
-                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                                                    putExtra("target_tab", 2)
-                                                }
-                                                context.startActivity(intent)
-                                            } catch (_: Exception) {}
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = elementBg),
-                                        shape = RoundedCornerShape(16.dp)
-                                    ) {
-                                        Text("Download in Settings", color = titleAndIconColor, fontSize = 12.sp)
-                                    }
+                                    Text("Download in Settings", color = activePillContent, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -6700,25 +6621,27 @@ fun GboardProofreadPanel(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    if (settings.activeAiEngine == ActiveAiEngine.OFFLINE) {
-                                        Button(
-                                            onClick = {
-                                                settings.setActiveAiEngine(ActiveAiEngine.ONLINE)
-                                                currentEngine = ActiveAiEngine.ONLINE
-                                                runPolish(selectedTone)
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
-                                            shape = RoundedCornerShape(16.dp)
-                                        ) {
-                                            Text("Use Cloud Gemini", color = activePillContent, fontSize = 12.sp)
-                                        }
-                                    }
                                     Button(
                                         onClick = { runPolish(selectedTone) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Text("Retry", color = activePillContent, fontSize = 12.sp)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            try {
+                                                val intent = Intent(context, MainActivity::class.java).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                                    putExtra("target_tab", 2)
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {}
+                                        },
                                         colors = ButtonDefaults.buttonColors(containerColor = elementBg),
                                         shape = RoundedCornerShape(16.dp)
                                     ) {
-                                        Text("Retry", color = titleAndIconColor, fontSize = 12.sp)
+                                        Text("Open Settings", color = titleAndIconColor, fontSize = 12.sp)
                                     }
                                 }
                             }

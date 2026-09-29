@@ -3,6 +3,7 @@ package com.example
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -193,7 +195,7 @@ fun WisprFlowVoicePanel(
             }
         }
 
-        // --- CENTER: Audio Visualizer & Live Transcript Area ---
+        // --- CENTER: Live Transcript Area ---
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -201,55 +203,36 @@ fun WisprFlowVoicePanel(
                 .clip(RoundedCornerShape(12.dp))
                 .background(keyTextColor.copy(alpha = 0.04f))
                 .border(1.dp, keyTextColor.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
-                .padding(10.dp),
+                .padding(14.dp),
             contentAlignment = Alignment.Center
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Live Transcript Display
-                val displayText = when {
-                    polishedTranscript.isNotBlank() -> polishedTranscript
-                    rawTranscript.isNotBlank() -> rawTranscript
-                    isRecording -> "Listening... Speak naturally, Wispr Flow will format your thoughts"
-                    else -> "Tap the microphone to start voice dictation"
-                }
-
-                Text(
-                    text = displayText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (rawTranscript.isNotBlank() || polishedTranscript.isNotBlank()) keyTextColor else keyTextColor.copy(alpha = 0.5f),
-                    textAlign = TextAlign.Center,
-                    fontWeight = if (polishedTranscript.isNotBlank()) FontWeight.Medium else FontWeight.Normal,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp)
-                        .testTag("wispr_voice_transcript_text")
-                )
-
-                // Dynamic Audio Waveform Visualizer
-                WisprWaveformBars(
-                    isRecording = isRecording,
-                    audioLevel = audioLevel,
-                    accentColor = if (isRecording) Color(0xFFE53935) else accentColor,
-                    pulseAlpha = pulseAlpha,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(38.dp)
-                        .padding(horizontal = 16.dp)
-                )
+            val displayText = when {
+                polishedTranscript.isNotBlank() -> polishedTranscript
+                rawTranscript.isNotBlank() -> rawTranscript
+                isRecording -> "Speak now..."
+                else -> "Tap the microphone to start voice dictation"
             }
+
+            Text(
+                text = displayText,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (rawTranscript.isNotBlank() || polishedTranscript.isNotBlank()) keyTextColor else keyTextColor.copy(alpha = 0.5f),
+                textAlign = TextAlign.Center,
+                fontWeight = if (polishedTranscript.isNotBlank()) FontWeight.Medium else FontWeight.Normal,
+                maxLines = 5,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+                    .testTag("wispr_voice_transcript_text")
+            )
         }
 
-        // --- BOTTOM ROW: Controls (Mic, Clear, Insert) ---
+        // --- BOTTOM ROW: Controls (Mic with Ripple Animation, Clear, Insert) ---
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp),
+                .padding(top = 4.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -257,7 +240,7 @@ fun WisprFlowVoicePanel(
             IconButton(
                 onClick = onCancel,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
                     .background(keyTextColor.copy(alpha = 0.08f))
                     .testTag("wispr_voice_clear_button")
@@ -270,24 +253,13 @@ fun WisprFlowVoicePanel(
                 )
             }
 
-            // Big pulsing Mic Button
-            val micBgColor = if (isRecording) Color(0xFFE53935) else accentColor
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(54.dp)
-                    .clip(CircleShape)
-                    .background(micBgColor)
-                    .clickable { onToggleRecording() }
-                    .testTag("wispr_voice_main_mic_button")
-            ) {
-                Icon(
-                    imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
-                    contentDescription = if (isRecording) "Stop Listening" else "Start Listening",
-                    tint = Color.White,
-                    modifier = Modifier.size(26.dp)
-                )
-            }
+            // Compact Mic with concentric audio level ripple animation
+            VoiceRippleMic(
+                isRecording = isRecording,
+                audioLevel = audioLevel,
+                accentColor = if (isRecording) Color(0xFFE53935) else accentColor,
+                onClick = onToggleRecording
+            )
 
             // Insert / Done button
             val hasContent = rawTranscript.isNotBlank() || polishedTranscript.isNotBlank()
@@ -300,7 +272,7 @@ fun WisprFlowVoicePanel(
                 },
                 enabled = hasContent,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
                     .background(if (hasContent) accentColor else keyTextColor.copy(alpha = 0.08f))
                     .testTag("wispr_voice_insert_button")
@@ -317,44 +289,82 @@ fun WisprFlowVoicePanel(
 }
 
 /**
- * Animated Waveform Bars rendering dynamic audio heights.
+ * Compact Microphone Button with dynamic audio-reactive concentric ripples.
+ * Eliminates busy listening animations while providing clear tactile voice feedback.
  */
 @Composable
-fun WisprWaveformBars(
+fun VoiceRippleMic(
     isRecording: Boolean,
     audioLevel: Float,
     accentColor: Color,
-    pulseAlpha: Float,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val barCount = 21
-    val baseLevel = if (isRecording) audioLevel.coerceIn(0.15f, 1.0f) else 0.08f
+    val infiniteTransition = rememberInfiniteTransition(label = "voice_ripple_anim")
+    val pulseProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ripple_pulse"
+    )
+    val animatedAudioLevel by animateFloatAsState(
+        targetValue = if (isRecording) audioLevel.coerceIn(0f, 1f) else 0f,
+        animationSpec = spring(
+            stiffness = Spring.StiffnessLow,
+            dampingRatio = Spring.DampingRatioMediumBouncy
+        ),
+        label = "ripple_audio_level"
+    )
 
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    Box(
+        modifier = modifier.size(68.dp),
+        contentAlignment = Alignment.Center
     ) {
-        for (i in 0 until barCount) {
-            val offsetFactor = sin((i.toDouble() / barCount) * Math.PI).toFloat()
-            val animatedHeight = if (isRecording) {
-                (baseLevel * offsetFactor * 32.dp.value + 4.dp.value).dp.coerceIn(4.dp, 34.dp)
-            } else {
-                (4.dp.value + offsetFactor * 6.dp.value * pulseAlpha).dp
-            }
+        if (isRecording) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val center = Offset(size.width / 2f, size.height / 2f)
+                val baseRadius = 24.dp.toPx()
+                val maxRadius = size.width / 2f
 
-            Box(
-                modifier = Modifier
-                    .width(3.5.dp)
-                    .height(animatedHeight)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(
-                        if (isRecording) {
-                            accentColor.copy(alpha = (0.5f + offsetFactor * 0.5f).coerceIn(0.3f, 1f))
-                        } else {
-                            accentColor.copy(alpha = 0.3f)
-                        }
-                    )
+                // Outer animated ripple ring 1
+                val r1 = baseRadius + (maxRadius - baseRadius) * pulseProgress
+                val a1 = (1f - pulseProgress) * 0.40f * (0.35f + 0.65f * animatedAudioLevel)
+                drawCircle(color = accentColor.copy(alpha = a1), radius = r1, center = center)
+
+                // Secondary phased ripple ring 2
+                val progress2 = (pulseProgress + 0.5f) % 1f
+                val r2 = baseRadius + (maxRadius - baseRadius) * progress2
+                val a2 = (1f - progress2) * 0.30f * (0.35f + 0.65f * animatedAudioLevel)
+                drawCircle(color = accentColor.copy(alpha = a2), radius = r2, center = center)
+
+                // Inner reactive voice halo
+                val innerRadius = baseRadius + (6.dp.toPx() * animatedAudioLevel)
+                drawCircle(
+                    color = accentColor.copy(alpha = 0.20f + 0.30f * animatedAudioLevel),
+                    radius = innerRadius,
+                    center = center
+                )
+            }
+        }
+
+        val micBgColor = if (isRecording) Color(0xFFE53935) else accentColor
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(micBgColor)
+                .clickable { onClick() }
+                .testTag("wispr_voice_main_mic_button")
+        ) {
+            Icon(
+                imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
+                contentDescription = if (isRecording) "Stop Listening" else "Start Listening",
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
             )
         }
     }

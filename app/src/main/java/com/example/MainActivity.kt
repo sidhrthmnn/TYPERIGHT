@@ -159,7 +159,7 @@ fun MainMinimalScreen(modifier: Modifier = Modifier) {
                         color = MaterialTheme.colorScheme.onBackground
                     )
                     Text(
-                        text = "On-Device & Gemini Flash Lite",
+                        text = "100% On-Device Local AI",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

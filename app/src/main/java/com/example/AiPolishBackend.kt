@@ -31,37 +31,27 @@ object AiPolishBackend {
     val context: Context? get() = appContext
 
     val engine: ActiveAiEngine get() {
-        val ctx = appContext ?: return ActiveAiEngine.ONLINE
+        val ctx = appContext ?: return ActiveAiEngine.OFFLINE
         return KeyboardSettings(ctx).activeAiEngine
     }
 
     val label: String get() = engine.title
-    val timeoutMillis: Long get() = if (engine == ActiveAiEngine.OFFLINE) 125_000L else 5_000L
+    val timeoutMillis: Long get() = 120_000L
 
     suspend fun generatePolish(input: String, mode: String): String? = generatePolish(input, PolishMode.fromString(mode))
 
     suspend fun generatePolish(input: String, mode: PolishMode, context: TextContext? = null,
                                preferredModel: String? = null): String? {
         if (input.isBlank()) return ""
-        return when (engine) {
-            ActiveAiEngine.OFFLINE -> {
-                val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
-                GgufPolishEngine.polish(ctx, input, mode)
-            }
-            ActiveAiEngine.NONE -> null
-            else -> GeminiApiClient.generatePolish(input, mode, context, preferredModel)
-        }
+        if (engine == ActiveAiEngine.NONE) return null
+        val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
+        return GgufPolishEngine.polish(ctx, input, mode)
     }
 
     fun streamPolish(input: String, mode: PolishMode, context: TextContext? = null,
                      preferredModel: String? = null): Flow<String> = flow {
-        when (engine) {
-            ActiveAiEngine.OFFLINE -> {
-                val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
-                emit(GgufPolishEngine.polish(ctx, input, mode))
-            }
-            ActiveAiEngine.NONE -> Unit
-            else -> emitAll(GeminiApiClient.streamPolish(input, mode, context, preferredModel))
-        }
+        if (engine == ActiveAiEngine.NONE) return@flow
+        val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
+        emit(GgufPolishEngine.polish(ctx, input, mode))
     }
 }
