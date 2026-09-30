@@ -72,4 +72,47 @@ class GgufBackendTest {
         assertFalse(prompt.contains("<bos>"))
         assertFalse(prompt.contains("<|im_start|>"))
     }
+
+    @Test fun modelLanguagesRegistryContainsOver140Languages() {
+        assertTrue("Model languages must exceed 140", ModelLanguages.ALL.size >= 140)
+        assertNotNull(ModelLanguages.findByCode("en"))
+        assertNotNull(ModelLanguages.findByCode("ml"))
+        assertNotNull(ModelLanguages.findByCode("hi"))
+        assertNotNull(ModelLanguages.findByCode("es"))
+        assertNotNull(ModelLanguages.findByCode("ja"))
+    }
+
+    @Test fun selectAllLanguagesEnablesAll140PlusLanguagesAndSetsGuidance() {
+        settings.selectAllAiLanguages()
+        assertTrue(settings.isAllAiLanguagesSelected)
+        assertEquals(ModelLanguages.ALL_CODES, settings.getSelectedAiLanguageCodes())
+        val guidance = settings.getActiveAiLanguagePromptGuidance()
+        assertTrue(guidance.contains("ALL 140+ languages"))
+
+        val prompt = GgufPolishEngine.prompt("hello", PolishMode.PROOFREAD, guidance)
+        assertTrue(prompt.contains("ALL 140+ languages"))
+    }
+
+    @Test fun multipleLanguagesSelectionConsidersAllSelectedInPrompt() {
+        settings.deselectAllAiLanguages()
+        settings.toggleAiLanguage("ml", true)
+        settings.toggleAiLanguage("hi", true)
+        settings.toggleAiLanguage("es", true)
+
+        assertFalse(settings.isAllAiLanguagesSelected)
+        assertTrue(settings.isAiLanguageSelected("ml"))
+        assertTrue(settings.isAiLanguageSelected("hi"))
+        assertTrue(settings.isAiLanguageSelected("es"))
+        assertEquals(setOf("ml", "hi", "es"), settings.getSelectedAiLanguageCodes())
+
+        val guidance = settings.getActiveAiLanguagePromptGuidance()
+        assertTrue(guidance.contains("Malayalam"))
+        assertTrue(guidance.contains("Hindi"))
+        assertTrue(guidance.contains("Spanish"))
+
+        val prompt = GgufPolishEngine.prompt("namaste", PolishMode.PROOFREAD, guidance)
+        assertTrue(prompt.contains("Malayalam"))
+        assertTrue(prompt.contains("Hindi"))
+        assertTrue(prompt.contains("Spanish"))
+    }
 }

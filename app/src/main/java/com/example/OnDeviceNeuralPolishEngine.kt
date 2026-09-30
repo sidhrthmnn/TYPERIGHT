@@ -32,13 +32,19 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
 
     /**
      * Performs instantaneous on-device proofreading utilizing Google on-device spell check
-     * and local grammar heuristics.
+     * and local grammar heuristics across ALL sentences and paragraphs in the input.
      */
     fun quickProofread(input: String): String {
         if (input.isBlank()) return input
-        val spellChecked = GoogleDeviceSpellChecker.getInstance(context).proofreadSentenceFast(input)
-        val neuralFixed = neuralEngine.correctText(spellChecked)
-        return grammarPredictor.polishSentenceLocally(neuralFixed)
+        return input.lines().joinToString("\n") { line ->
+            if (line.isBlank()) {
+                line
+            } else {
+                val spellChecked = GoogleDeviceSpellChecker.getInstance(context).proofreadSentenceFast(line)
+                val neuralFixed = neuralEngine.correctText(spellChecked)
+                grammarPredictor.polishSentenceLocally(neuralFixed)
+            }
+        }
     }
 
     /**
@@ -102,6 +108,17 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
             .replace(Regex("(?i)\\bdeal with\\b"), "manage")
             .replace(Regex("(?i)\\babout to\\b"), "intending to")
             .replace(Regex("(?i)\\blook into\\b"), "examine")
+            .replace(Regex("(?i)\\bfind out\\b"), "determine")
+            .replace(Regex("(?i)\\bgive up\\b"), "relinquish")
+            .replace(Regex("(?i)\\bput off\\b"), "postpone")
+            .replace(Regex("(?i)\\bcome up with\\b"), "develop")
+            .replace(Regex("(?i)\\bcall off\\b"), "cancel")
+            .replace(Regex("(?i)\\bshow up\\b"), "arrive")
+            .replace(Regex("(?i)\\btell\\b"), "inform")
+            .replace(Regex("(?i)\\bbuy\\b"), "purchase")
+            .replace(Regex("(?i)\\bneed to\\b"), "must")
+            .replace(Regex("(?i)\\bI want\\b"), "I would like")
+            .replace(Regex("(?i)\\bthanks\\b"), "thank you")
         if (result.isNotEmpty() && result[0].isLowerCase()) {
             result = result.replaceFirstChar { it.uppercase() }
         }
@@ -127,6 +144,12 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
             .replace(Regex("(?i)\\bPlease inform me\\b"), "Let me know")
             .replace(Regex("(?i)\\bAt your earliest convenience\\b"), "Whenever you can")
             .replace(Regex("(?i)\\bGood morning\\b"), "Morning!")
+            .replace(Regex("(?i)\\bGood evening\\b"), "Evening!")
+            .replace(Regex("(?i)\\bI apologize\\b"), "Sorry about that")
+            .replace(Regex("(?i)\\bFurthermore\\b"), "Also")
+            .replace(Regex("(?i)\\bAdditionally\\b"), "Plus")
+            .replace(Regex("(?i)\\bHowever\\b"), "Though")
+            .replace(Regex("(?i)\\bRegarding\\b"), "About")
     }
 
     private fun applyConciseStyle(text: String): String {
@@ -143,6 +166,11 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
             .replace(Regex("(?i)\\bin the event that\\b"), "if")
             .replace(Regex("(?i)\\bwith regard to\\b"), "regarding")
             .replace(Regex("(?i)\\bin reference to\\b"), "regarding")
+            .replace(Regex("(?i)\\bat the present moment\\b"), "currently")
+            .replace(Regex("(?i)\\bdespite the fact that\\b"), "although")
+            .replace(Regex("(?i)\\bin spite of the fact that\\b"), "despite")
+            .replace(Regex("(?i)\\ba large number of\\b"), "many")
+            .replace(Regex("(?i)\\ba majority of\\b"), "most")
             .trim()
         if (result.isNotEmpty() && result[0].isLowerCase()) {
             result = result.replaceFirstChar { it.uppercase() }
@@ -162,6 +190,12 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
             .replace(Regex("(?i)\\bend\\b"), "conclude")
             .replace(Regex("(?i)\\buse\\b"), "utilize")
             .replace(Regex("(?i)\\bthink\\b"), "contemplate")
+            .replace(Regex("(?i)\\bgive\\b"), "provide")
+            .replace(Regex("(?i)\\bask\\b"), "inquire")
+            .replace(Regex("(?i)\\bmake\\b"), "create")
+            .replace(Regex("(?i)\\bchange\\b"), "transform")
+            .replace(Regex("(?i)\\bbright\\b"), "luminous")
+            .replace(Regex("(?i)\\bhard\\b"), "arduous")
         if (result.isNotEmpty() && result[0].isLowerCase()) {
             result = result.replaceFirstChar { it.uppercase() }
         }

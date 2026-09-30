@@ -123,8 +123,9 @@ class PolishCoordinator(
                 var lastStreamedText: String? = null
                 var isFromModel = false
                 val selectedEngine = AiPolishBackend.engine
+                val hasCloud = AiPolishBackend.isCloudActive
 
-                if (!forceBasicOffline && selectedEngine == ActiveAiEngine.OFFLINE && !LocalGgufModel.isReady(context)) {
+                if (!forceBasicOffline && selectedEngine == ActiveAiEngine.OFFLINE && !LocalGgufModel.isReady(context) && !hasCloud) {
                     _uiState.value = PolishUiState.ModelNotDownloaded
                     return@launch
                 }
@@ -142,7 +143,7 @@ class PolishCoordinator(
                         }
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
-                        Log.w(TAG, "Local polish streaming error: ${e.message}")
+                        Log.w(TAG, "Polish streaming error: ${e.message}")
                     }
                 }
 
@@ -218,8 +219,8 @@ class PolishCoordinator(
                 )
                 lastUndoSnapshot = undo
 
-                val activeLabel = if (isFromModel) selectedEngine.title else LABEL_BASIC_OFFLINE
-                val activeBackend = if (isFromModel) selectedEngine.shortLabel else "Local rules"
+                val activeLabel = if (isFromModel) AiPolishBackend.label else LABEL_BASIC_OFFLINE
+                val activeBackend = if (isFromModel) (if (AiPolishBackend.isCloudActive) "Gemini Cloud" else selectedEngine.shortLabel) else "Local rules"
 
                 _uiState.value = PolishUiState.Ready(
                     result = PolishResult(

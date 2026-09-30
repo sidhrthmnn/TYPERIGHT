@@ -93,14 +93,27 @@ fun MainMinimalScreen(modifier: Modifier = Modifier) {
         isMicPermissionGranted = MicrophonePermissionHelper.hasMicrophonePermission(context)
     }
 
-    LaunchedEffect(Unit) {
-        refreshStatus()
-    }
-
     val micLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         isMicPermissionGranted = isGranted
+        if (isGranted) {
+            android.widget.Toast.makeText(context, "Microphone permission granted! Voice typing is ready.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val activity = context as? ComponentActivity
+    val initialTab = remember { activity?.intent?.getIntExtra("target_tab", 0) ?: 0 }
+    var selectedTab by remember { mutableIntStateOf(if (initialTab in 0..3) initialTab else 0) }
+    val tabs = listOf("Sandbox", "Predictive Systems", "AI Polish", "Settings")
+
+    LaunchedEffect(Unit) {
+        refreshStatus()
+        val shouldRequestMic = activity?.intent?.getBooleanExtra("request_mic_permission", false) == true
+        if (shouldRequestMic && !MicrophonePermissionHelper.hasMicrophonePermission(context)) {
+            activity.intent.removeExtra("request_mic_permission")
+            micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -108,16 +121,16 @@ fun MainMinimalScreen(modifier: Modifier = Modifier) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 refreshStatus()
+                val shouldRequestMic = activity?.intent?.getBooleanExtra("request_mic_permission", false) == true
+                if (shouldRequestMic && !MicrophonePermissionHelper.hasMicrophonePermission(context)) {
+                    activity.intent.removeExtra("request_mic_permission")
+                    micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-
-    val activity = context as? ComponentActivity
-    val initialTab = remember { activity?.intent?.getIntExtra("target_tab", 0) ?: 0 }
-    var selectedTab by remember { mutableIntStateOf(if (initialTab in 0..3) initialTab else 0) }
-    val tabs = listOf("Sandbox", "Predictive Systems", "AI Polish", "Settings")
 
     Column(
         modifier = modifier
@@ -301,7 +314,11 @@ fun MainMinimalScreen(modifier: Modifier = Modifier) {
 
         // --- TAB CONTENT ---
         when (selectedTab) {
-            0 -> SandboxTabSection(settings = settings)
+            0 -> SandboxTabSection(
+                settings = settings,
+                isMicPermissionGranted = isMicPermissionGranted,
+                onRequestMicPermission = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) }
+            )
             1 -> PredictiveSystemsTabSection(settings = settings)
             2 -> AiPolishFlashLiteTabSection(settings = settings)
             3 -> PreferencesTabSection(settings = settings)
@@ -339,13 +356,20 @@ private fun SetupRowMinimal(
 }
 
 @Composable
-private fun SandboxTabSection(settings: KeyboardSettings) {
+private fun SandboxTabSection(
+    settings: KeyboardSettings,
+    isMicPermissionGranted: Boolean,
+    onRequestMicPermission: () -> Unit
+) {
     var inputText by remember { mutableStateOf("Type something here to test typing, predictions, and grammar...") }
     var polishFeedback by remember { mutableStateOf<String?>(null) }
     var isPolishing by remember { mutableStateOf(false) }
+    var isVoiceListening by remember { mutableStateOf(false) }
+    var voiceLevel by remember { mutableFloatStateOf(0f) }
     val coroutineScope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+    val voiceService = remember { VoiceRecordingSttService(context) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -368,12 +392,92 @@ private fun SandboxTabSection(settings: KeyboardSettings) {
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                if (inputText.isNotEmpty()) {
-                    TextButton(
-                        onClick = { inputText = ""; polishFeedback = null },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilledTonalIconButton(
+                        onClick = {
+                            if (!isMicPermissionGranted) {
+                                onRequestMicPermission()
+                                return@FilledTonalIconButton
+                            }
+                            if (isVoiceListening) {
+                                isVoiceListening = false
+                                voiceService.stopRecording(coroutineScope, shouldPolish = false) { finalTx ->
+                                    if (finalTx.isNotBlank()) {
+                                        inputText = finalTx
+                                        polishFeedback = "Voice input transcribed: $finalTx"
+                                    }
+                                }
+                            } else {
+                                isVoiceListening = true
+                                polishFeedback = "Listening... Speak into the microphone now."
+                                voiceService.startRecording(
+                                    scope = coroutineScope,
+                                    onPartialText = { partial ->
+                                        if (partial.isNotBlank()) {
+                                            inputText = partial
+                                        }
+                                    },
+                                    onLevelChange = { voiceLevel = it }
+                                )
+                            }
+                        },
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = if (isVoiceListening) Color(0xFFEF4444) else MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = if (isVoiceListening) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        modifier = Modifier.size(34.dp).testTag("sandbox_mic_dictation_button")
                     ) {
-                        Text("Clear", style = MaterialTheme.typography.labelSmall)
+                        Icon(
+                            imageVector = if (isVoiceListening) Icons.Default.Close else Icons.Default.Mic,
+                            contentDescription = if (isVoiceListening) "Stop Dictation" else "Voice Dictation",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    if (inputText.isNotEmpty()) {
+                        TextButton(
+                            onClick = {
+                                inputText = ""
+                                polishFeedback = null
+                                if (isVoiceListening) {
+                                    isVoiceListening = false
+                                    voiceService.cancelRecording()
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("Clear", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+
+            if (isVoiceListening) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFEF4444).copy(alpha = 0.10f),
+                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.25f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        VoiceWaveformVisualizer(
+                            audioLevel = voiceLevel,
+                            accentColor = Color(0xFFEF4444),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = "Listening to voice... Speak now. Tap the mic button to finish.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFDC2626),
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
@@ -1167,125 +1271,198 @@ private fun PreferencesTabSection(settings: KeyboardSettings) {
     var numberRow by remember { mutableStateOf(settings.numberRowEnabled) }
     var theme by remember { mutableStateOf(settings.theme) }
 
-    Card(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+        // --- 1. Typing & Correction ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
         ) {
-            Text(
-                text = "Keyboard Preferences",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            MinimalSwitchRow(
-                title = "Auto-Correction",
-                subtitle = "Automatically replace typos and contractions on space",
-                checked = autocorrect,
-                onCheckedChange = {
-                    autocorrect = it
-                    settings.autocorrectEnabled = it
-                },
-                testTag = "pref_autocorrect_switch"
-            )
-
-            AnimatedVisibility(visible = autocorrect) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "Correction Sensitivity",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        modifier = Modifier.size(36.dp)
                     ) {
-                        listOf(
-                            KeyboardSettings.SENSITIVITY_MILD to "Mild",
-                            KeyboardSettings.SENSITIVITY_BALANCED to "Balanced",
-                            KeyboardSettings.SENSITIVITY_AGGRESSIVE to "Aggressive"
-                        ).forEach { (sensKey, label) ->
-                            FilterChip(
-                                selected = autocorrectSensitivity.equals(sensKey, ignoreCase = true),
-                                onClick = {
-                                    autocorrectSensitivity = sensKey
-                                    settings.autocorrectSensitivity = sensKey
-                                },
-                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                modifier = Modifier.testTag("pref_sensitivity_${sensKey.lowercase()}")
-                            )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Keyboard, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(18.dp))
                         }
                     }
                     Text(
-                        text = when (autocorrectSensitivity) {
-                            KeyboardSettings.SENSITIVITY_MILD -> "Mild: Fixes obvious typos and unpunctuated contractions only."
-                            KeyboardSettings.SENSITIVITY_AGGRESSIVE -> "Aggressive: Proactively corrects near-misses, transpositions, and run-together words."
-                            else -> "Balanced: Gboard-calibrated confidence with context-aware prediction."
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Typing & Correction",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
-            }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            MinimalSwitchRow(
-                title = "Haptic Feedback",
-                subtitle = "Vibration feedback on keypress",
-                checked = haptics,
-                onCheckedChange = {
-                    haptics = it
-                    settings.hapticEnabled = it
-                },
-                testTag = "pref_haptic_switch"
-            )
-
-            MinimalSwitchRow(
-                title = "Keypress Sound",
-                subtitle = "Subtle click audio on tap",
-                checked = sound,
-                onCheckedChange = {
-                    sound = it
-                    settings.soundEnabled = it
-                },
-                testTag = "pref_sound_switch"
-            )
-
-            MinimalSwitchRow(
-                title = "Number Row",
-                subtitle = "Dedicated digit row above QWERTY",
-                checked = numberRow,
-                onCheckedChange = {
-                    numberRow = it
-                    settings.numberRowEnabled = it
-                },
-                testTag = "pref_number_row_switch"
-            )
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-            // Theme selector (Light Arrangement, Dark Mode, Night AMOLED)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = "Theme & Arrangement",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
+                MinimalSwitchRow(
+                    title = "Auto-Correction",
+                    subtitle = "Automatically correct typos and contractions on space",
+                    checked = autocorrect,
+                    onCheckedChange = {
+                        autocorrect = it
+                        settings.autocorrectEnabled = it
+                    },
+                    testTag = "pref_autocorrect_switch"
                 )
+
+                AnimatedVisibility(visible = autocorrect) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(start = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Correction Sensitivity",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(
+                                KeyboardSettings.SENSITIVITY_MILD to "Mild",
+                                KeyboardSettings.SENSITIVITY_BALANCED to "Balanced",
+                                KeyboardSettings.SENSITIVITY_AGGRESSIVE to "Aggressive"
+                            ).forEach { (sensKey, label) ->
+                                FilterChip(
+                                    selected = autocorrectSensitivity.equals(sensKey, ignoreCase = true),
+                                    onClick = {
+                                        autocorrectSensitivity = sensKey
+                                        settings.autocorrectSensitivity = sensKey
+                                    },
+                                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                    modifier = Modifier.testTag("pref_sensitivity_${sensKey.lowercase()}")
+                                )
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                MinimalSwitchRow(
+                    title = "Number Row",
+                    subtitle = "Show dedicated digit row above QWERTY keyboard",
+                    checked = numberRow,
+                    onCheckedChange = {
+                        numberRow = it
+                        settings.numberRowEnabled = it
+                    },
+                    testTag = "pref_number_row_switch"
+                )
+            }
+        }
+
+        // --- 2. Feedback & Haptics ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.TouchApp, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    Text(
+                        text = "Touch & Feedback",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                MinimalSwitchRow(
+                    title = "Haptic Vibration",
+                    subtitle = "Tactile haptic pulse on every keypress",
+                    checked = haptics,
+                    onCheckedChange = {
+                        haptics = it
+                        settings.hapticEnabled = it
+                    },
+                    testTag = "pref_haptic_switch"
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+
+                MinimalSwitchRow(
+                    title = "Keypress Sound",
+                    subtitle = "Subtle auditory click sound on tap",
+                    checked = sound,
+                    onCheckedChange = {
+                        sound = it
+                        settings.soundEnabled = it
+                    },
+                    testTag = "pref_sound_switch"
+                )
+            }
+        }
+
+        // --- 3. Theme & Appearance ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    Text(
+                        text = "Theme & Appearance",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf(
-                        KeyboardSettings.THEME_LIGHT to "Light Arrangement",
+                        KeyboardSettings.THEME_LIGHT to "Light",
                         KeyboardSettings.THEME_DARK to "Dark Mode",
                         KeyboardSettings.THEME_NIGHT to "Night (AMOLED)"
                     ).forEach { (themeKey, label) ->
@@ -1299,6 +1476,43 @@ private fun PreferencesTabSection(settings: KeyboardSettings) {
                             modifier = Modifier.testTag("theme_chip_${themeKey.lowercase()}")
                         )
                     }
+                }
+            }
+        }
+
+        // --- 4. Privacy Guarantee ---
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "100% On-Device Privacy",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Keystrokes, predictive models, voice dictation, and Gemma 3 AI polish run strictly on your device.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

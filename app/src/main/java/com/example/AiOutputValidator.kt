@@ -137,16 +137,21 @@ object AiOutputValidator {
                 }
             }
             PolishMode.SHORTEN -> {
-                // Shorten is expected to reduce length, but not balloon
-                if (origLen >= 30 && candLen > origLen * 1.2) return false
+                // Shorten is expected to reduce length, but not balloon or drop to empty
+                if (candLen == 0 && origLen > 0) return false
+                if (origLen >= 30 && candLen > origLen * 1.35) return false
             }
             PolishMode.EXPAND -> {
                 // Expand is expected to add details, but not drop almost everything
-                if (origLen >= 20 && candLen < (origLen * 0.5)) return false
+                if (origLen >= 20 && candLen < (origLen * 0.40)) return false
+            }
+            PolishMode.PROFESSIONAL, PolishMode.CASUAL, PolishMode.REPHRASE, PolishMode.POLISH, PolishMode.AUTO_FORMAT -> {
+                if (candLen == 0 && origLen > 0) return false
+                if (origLen >= 25 && candLen < (origLen * 0.40)) return false
             }
             else -> {
-                // Other modes: shouldn't arbitrarily drop > 45% of content
-                if (origLen >= 25 && candLen < (origLen * 0.55)) return false
+                if (candLen == 0 && origLen > 0) return false
+                if (origLen >= 25 && candLen < (origLen * 0.40)) return false
             }
         }
 

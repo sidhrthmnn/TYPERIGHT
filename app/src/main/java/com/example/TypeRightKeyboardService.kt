@@ -887,9 +887,9 @@ class TypeRightKeyboardService : KeyboardService() {
             Log.d("TypeRight", "getExtractedText error: ${e.message}")
         }
 
-        val before = ic.getTextBeforeCursor(5000, 0)?.toString().orEmpty()
+        val before = ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty()
         val selected = ic.getSelectedText(0)?.toString().orEmpty()
-        val after = ic.getTextAfterCursor(5000, 0)?.toString().orEmpty()
+        val after = ic.getTextAfterCursor(20000, 0)?.toString().orEmpty()
 
         if (fullText.isEmpty()) {
             fullText = if (selected.isNotEmpty()) {
@@ -921,8 +921,8 @@ class TypeRightKeyboardService : KeyboardService() {
         if (snapshot == null || snapshot.session != editorSession || !allowsTextAssistance()) return false
         val ic = currentInputConnection ?: return false
 
-        val currentBefore = ic.getTextBeforeCursor(2000, 0)?.toString().orEmpty()
-        val currentAfter = ic.getTextAfterCursor(2000, 0)?.toString().orEmpty()
+        val currentBefore = ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty()
+        val currentAfter = ic.getTextAfterCursor(20000, 0)?.toString().orEmpty()
         val currentSelected = ic.getSelectedText(0)?.toString()
 
         val isFullEditorSnapshot = !snapshot.selected.isNullOrEmpty() && snapshot.before.isEmpty() && snapshot.after.isEmpty()
@@ -943,9 +943,20 @@ class TypeRightKeyboardService : KeyboardService() {
             ic.finishComposingText()
             if (isFullEditorSnapshot) {
                 try {
+                    ic.setSelection(0, 50000)
                     ic.performContextMenuAction(android.R.id.selectAll)
                 } catch (_: Exception) {}
-                ic.commitText(cleanReplacement, 1)
+                val sel = ic.getSelectedText(0)?.toString().orEmpty()
+                if (sel.isNotEmpty()) {
+                    ic.commitText(cleanReplacement, 1)
+                } else {
+                    val curBefore = ic.getTextBeforeCursor(50000, 0)?.toString().orEmpty()
+                    val curAfter = ic.getTextAfterCursor(50000, 0)?.toString().orEmpty()
+                    if (curBefore.isNotEmpty() || curAfter.isNotEmpty()) {
+                        ic.deleteSurroundingText(curBefore.length, curAfter.length)
+                    }
+                    ic.commitText(cleanReplacement, 1)
+                }
             } else if (!snapshot.selected.isNullOrEmpty()) {
                 ic.commitText(cleanReplacement, 1)
             } else {
@@ -1900,10 +1911,13 @@ class TypeRightKeyboardService : KeyboardService() {
         }
     }
 
-    private fun launchSettingsActivity() {
+    private fun launchSettingsActivity(requestMic: Boolean = false) {
         playFeedback()
         val intent = Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            if (requestMic) {
+                putExtra("request_mic_permission", true)
+            }
         }
         startActivity(intent)
     }
@@ -1931,13 +1945,21 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun startVoiceTyping() {
-        if (!allowsTextAssistance()) return
-        val session = editorSession
-        if (!isMicPermissionGranted.value) {
-            launchSettingsActivity()
+        val hasMic = MicrophonePermissionHelper.hasMicrophonePermission(this)
+        isMicPermissionGranted.value = hasMic
+        if (!hasMic) {
+            android.widget.Toast.makeText(this, "Microphone permission required for voice input", android.widget.Toast.LENGTH_SHORT).show()
+            launchSettingsActivity(requestMic = true)
             return
         }
 
+        val ic = currentInputConnection
+        if (ic == null) {
+            Log.w("TypeRight", "Cannot start voice typing: InputConnection is null")
+            return
+        }
+
+        playFeedback(FeedbackType.Standard)
         pendingVoiceTranscript.value = ""
         isVoiceTypingActive.value = true
         voiceTranscript.value = ""
@@ -1946,9 +1968,13 @@ class TypeRightKeyboardService : KeyboardService() {
         voiceRecordingService.startRecording(
             scope = serviceScope,
             onPartialText = { partial ->
-                if (session != editorSession || !isVoiceTypingActive.value) return@startRecording
+                if (!isVoiceTypingActive.value) return@startRecording
                 voiceTranscript.value = partial
-                currentInputConnection?.setComposingText(partial, 1)
+                try {
+                    currentInputConnection?.setComposingText(partial, 1)
+                } catch (e: Exception) {
+                    Log.w("TypeRight", "Failed to setComposingText: ${e.message}")
+                }
             },
             onLevelChange = { level ->
                 voiceAudioLevel.value = level
@@ -1959,23 +1985,29 @@ class TypeRightKeyboardService : KeyboardService() {
     private fun stopVoiceTyping(shouldPolish: Boolean = false) {
         if (!isVoiceTypingActive.value) return
         isVoiceTypingActive.value = false
-        val session = editorSession
 
         voiceRecordingService.stopRecording(
             scope = serviceScope,
             shouldPolish = false,
             onFinalTranscript = { rawText ->
-                if (session != editorSession || !allowsTextAssistance()) return@stopRecording
                 val cleanRaw = rawText.trim()
+                val ic = currentInputConnection
                 if (cleanRaw.isNotEmpty()) {
-                    currentInputConnection?.commitText(cleanRaw, 1)
+                    try {
+                        ic?.commitText(cleanRaw, 1)
+                        ic?.finishComposingText()
+                    } catch (e: Exception) {
+                        Log.e("TypeRight", "Failed to commit voice text", e)
+                    }
                     pendingVoiceTranscript.value = ""
                     lastCommittedVoiceLength = cleanRaw.length
                 } else {
-                    currentInputConnection?.finishComposingText()
-                    voiceTranscript.value = ""
+                    try {
+                        ic?.finishComposingText()
+                    } catch (_: Exception) {}
                     lastCommittedVoiceLength = 0
                 }
+                voiceTranscript.value = ""
             }
         )
     }
@@ -1985,9 +2017,11 @@ class TypeRightKeyboardService : KeyboardService() {
      * Buffers continuous speech without committing partial text to InputConnection.
      */
     private fun startRambleMode() {
-        if (!allowsTextAssistance()) return
-        if (!isMicPermissionGranted.value) {
-            launchSettingsActivity()
+        val hasMic = MicrophonePermissionHelper.hasMicrophonePermission(this)
+        isMicPermissionGranted.value = hasMic
+        if (!hasMic) {
+            android.widget.Toast.makeText(this, "Microphone permission required for voice input", android.widget.Toast.LENGTH_SHORT).show()
+            launchSettingsActivity(requestMic = true)
             return
         }
 
@@ -1995,6 +2029,7 @@ class TypeRightKeyboardService : KeyboardService() {
             stopVoiceTyping(shouldPolish = false)
         }
 
+        playFeedback(FeedbackType.Standard)
         isRambleRecording.value = true
         isRambleProcessing.value = false
         rambleTranscript.value = ""
@@ -2003,7 +2038,6 @@ class TypeRightKeyboardService : KeyboardService() {
         voiceRecordingService.startRecording(
             scope = serviceScope,
             onPartialText = { partial ->
-                // Live preview in UI only - never commit directly to InputConnection
                 rambleTranscript.value = partial
             },
             onLevelChange = { level ->
@@ -2021,13 +2055,11 @@ class TypeRightKeyboardService : KeyboardService() {
         if (!isRambleRecording.value) return
         isRambleRecording.value = false
         isRambleProcessing.value = true
-        val session = editorSession
 
         voiceRecordingService.stopRecording(
             scope = serviceScope,
             shouldPolish = false,
             onFinalTranscript = { rawSpeech ->
-                if (session != editorSession || !allowsTextAssistance()) return@stopRecording
                 val rawTrim = rawSpeech.trim()
                 if (rawTrim.isBlank()) {
                     isRambleProcessing.value = false
@@ -2039,13 +2071,11 @@ class TypeRightKeyboardService : KeyboardService() {
                     try {
                         val finalizedText = aiPolishManager.processRambleDictation(rawTrim)
                         val textToCommit = if (finalizedText.isNotBlank()) finalizedText.trim() else rawTrim
-                        
-                        // Atomically commit finalized text using InputConnection.commitText
-                        if (session == editorSession && allowsTextAssistance()) currentInputConnection?.commitText(textToCommit, 1)
+                        currentInputConnection?.commitText(textToCommit, 1)
                     } catch (e: Exception) {
                         Log.e("TypeRight", "Ramble Mode AI processing error: ${e.message}")
                         if (e is kotlinx.coroutines.CancellationException) throw e
-                        if (session == editorSession && allowsTextAssistance()) currentInputConnection?.commitText(rawTrim, 1)
+                        currentInputConnection?.commitText(rawTrim, 1)
                     } finally {
                         isRambleProcessing.value = false
                         rambleTranscript.value = ""
@@ -2112,12 +2142,29 @@ class TypeRightKeyboardService : KeyboardService() {
             val selectedText = ic.getSelectedText(0)?.toString()
             val textToProofread: String
             val isSelection: Boolean
-            val before = ic.getTextBeforeCursor(4000, 0)?.toString() ?: ""
-            val after = ic.getTextAfterCursor(4000, 0)?.toString() ?: ""
+
+            var extracted = ""
+            try {
+                val req = android.view.inputmethod.ExtractedTextRequest().apply {
+                    flags = 0
+                    hintMaxChars = 100000
+                    hintMaxLines = 10000
+                }
+                val ext = ic.getExtractedText(req, 0)
+                if (ext?.text != null && ext.text.isNotEmpty()) {
+                    extracted = ext.text.toString()
+                }
+            } catch (_: Exception) {}
+
+            val before = ic.getTextBeforeCursor(20000, 0)?.toString() ?: ""
+            val after = ic.getTextAfterCursor(20000, 0)?.toString() ?: ""
 
             if (!selectedText.isNullOrEmpty()) {
                 textToProofread = selectedText
                 isSelection = true
+            } else if (extracted.isNotBlank()) {
+                textToProofread = extracted
+                isSelection = false
             } else {
                 textToProofread = before + after
                 isSelection = false
@@ -2147,7 +2194,7 @@ class TypeRightKeyboardService : KeyboardService() {
                     if (!cloudResult.isNullOrBlank()) {
                         AiOutputValidator.sanitize(cloudResult!!, textToProofread)
                     } else {
-                        DeviceAiCoreEngine.getInstance(applicationContext).proofread(textToProofread, "Proofread").correctedText
+                        OnDeviceNeuralPolishEngine.getInstance(applicationContext).quickProofread(textToProofread)
                     }
                 }
 
@@ -2155,10 +2202,7 @@ class TypeRightKeyboardService : KeyboardService() {
 
                 withContext(Dispatchers.Main) {
                     if (requestId != currentAiRequestId || !allowsTextAssistance()) return@withContext
-                    if (ic.getTextBeforeCursor(4000, 0)?.toString().orEmpty() != before ||
-                        ic.getTextAfterCursor(4000, 0)?.toString().orEmpty() != after ||
-                        ic.getSelectedText(0)?.toString() != selectedText ||
-                        !AiOutputValidator.isValid(textToProofread, candidateResult, PolishMode.PROOFREAD)) return@withContext
+                    if (!AiOutputValidator.isValid(textToProofread, candidateResult, PolishMode.PROOFREAD)) return@withContext
 
                     val finalOutput = if (candidateResult.isNotBlank()) candidateResult else textToProofread
 
@@ -2168,12 +2212,21 @@ class TypeRightKeyboardService : KeyboardService() {
                         if (isSelection) {
                             ic.commitText(finalOutput, 1)
                         } else {
-                            val curBefore = ic.getTextBeforeCursor(4000, 0)?.toString() ?: ""
-                            val curAfter = ic.getTextAfterCursor(4000, 0)?.toString() ?: ""
-                            if (curBefore.isNotEmpty() || curAfter.isNotEmpty()) {
-                                ic.deleteSurroundingText(curBefore.length, curAfter.length)
+                            try {
+                                ic.setSelection(0, 50000)
+                                ic.performContextMenuAction(android.R.id.selectAll)
+                            } catch (_: Exception) {}
+                            val sel = ic.getSelectedText(0)?.toString().orEmpty()
+                            if (sel.isNotEmpty()) {
+                                ic.commitText(finalOutput, 1)
+                            } else {
+                                val curBefore = ic.getTextBeforeCursor(50000, 0)?.toString() ?: ""
+                                val curAfter = ic.getTextAfterCursor(50000, 0)?.toString() ?: ""
+                                if (curBefore.isNotEmpty() || curAfter.isNotEmpty()) {
+                                    ic.deleteSurroundingText(curBefore.length, curAfter.length)
+                                }
+                                ic.commitText(finalOutput, 1)
                             }
-                            ic.commitText(finalOutput, 1)
                         }
                     } finally {
                         ic.endBatchEdit()
@@ -2997,7 +3050,7 @@ fun KeyboardLayout(
                     .fillMaxWidth()
                     .widthIn(max = 660.dp)
             ) {
-        val toolbarHeight = ((if (aiRephraseSuggestions.isNotEmpty()) 46f else 38f) * heightScaleFactor.coerceIn(0.88f, 1.15f)).dp
+        val toolbarHeight = ((if (aiRephraseSuggestions.isNotEmpty()) 52f else 48f) * heightScaleFactor.coerceIn(0.94f, 1.15f)).dp
         val effectiveKeysHeight = if (isEmojis) keysHeight + toolbarHeight + 8.dp else if (isProofreadSheetOpen) keysHeight + toolbarHeight + 36.dp else keysHeight
 
         // --- TOOLBAR ROW ---
@@ -3546,13 +3599,13 @@ fun KeyboardLayout(
                                                         isProofreadSheetOpen = false
                                                         isTextEditingOpen = false
                                                     },
-                                                    modifier = Modifier.size(32.dp).testTag("expand_toolbar_options_button")
+                                                    modifier = Modifier.size(42.dp).testTag("expand_toolbar_options_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Apps,
                                                         contentDescription = "Gboard Quick Tools",
-                                                        tint = if (isToolsDrawerOpen) accentColor else keyTextColor.copy(alpha = 0.8f),
-                                                        modifier = Modifier.size(19.dp)
+                                                        tint = if (isToolsDrawerOpen) accentColor else keyTextColor.copy(alpha = 0.85f),
+                                                        modifier = Modifier.size(25.dp)
                                                     )
                                                 }
 
@@ -3793,20 +3846,10 @@ fun KeyboardLayout(
                                                             verticalAlignment = Alignment.CenterVertically
                                                         ) {
                                                             suggestionSlots.forEachIndexed { index, word ->
-                                                                if (index > 0 && hasAnySuggestion) {
-                                                                    // Subtle vertical divider line between open suggestions
-                                                                    Box(
-                                                                        modifier = Modifier
-                                                                            .width(1.dp)
-                                                                            .height(20.dp)
-                                                                            .background(keyTextColor.copy(alpha = 0.22f))
-                                                                    )
-                                                                }
-
                                                                 val isCenter = index == 1
                                                                 val itemStyle = TextStyle(
-                                                                    fontSize = if (isCenter) 14.5.sp else 14.sp,
-                                                                    fontWeight = if (isCenter) FontWeight.Medium else FontWeight.Normal,
+                                                                    fontSize = if (isCenter) 17.sp else 16.sp,
+                                                                    fontWeight = if (isCenter) FontWeight.SemiBold else FontWeight.Medium,
                                                                     fontFamily = if (style.isMonospace) FontFamily.Monospace else FontFamily.SansSerif,
                                                                     color = keyTextColor
                                                                 )
@@ -3914,13 +3957,13 @@ fun KeyboardLayout(
                                                     onClick = {
                                                         onVoiceTypingToggle()
                                                     },
-                                                    modifier = Modifier.size(36.dp).testTag("mic_button")
+                                                    modifier = Modifier.size(42.dp).testTag("mic_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Mic,
                                                         contentDescription = "Voice Dictation",
-                                                        tint = if (isVoiceTyping) Color.Red else keyTextColor.copy(alpha = 0.75f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        tint = if (isVoiceTyping) Color.Red else keyTextColor.copy(alpha = 0.85f),
+                                                        modifier = Modifier.size(25.dp)
                                                     )
                                                 }
                                             }
@@ -3936,14 +3979,14 @@ fun KeyboardLayout(
                                                 IconButton(
                                                     onClick = { isToolbarForceExpanded = false },
                                                     modifier = Modifier
-                                                        .size(32.dp)
+                                                        .size(42.dp)
                                                         .testTag("collapse_toolbar_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                                         contentDescription = "Back to suggestions",
                                                         tint = keyTextColor.copy(alpha = 0.85f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        modifier = Modifier.size(24.dp)
                                                     )
                                                 }
 
@@ -3969,112 +4012,112 @@ fun KeyboardLayout(
                                                 IconButton(
                                                     onClick = onUndo,
                                                     modifier = Modifier
-                                                        .size(34.dp)
+                                                        .size(42.dp)
                                                         .testTag("undo_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Filled.Undo,
                                                         contentDescription = "Undo",
                                                         tint = keyTextColor.copy(alpha = 0.85f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        modifier = Modifier.size(24.dp)
                                                     )
                                                 }
 
                                                 IconButton(
                                                     onClick = onRedo,
                                                     modifier = Modifier
-                                                        .size(34.dp)
+                                                        .size(42.dp)
                                                         .testTag("redo_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.AutoMirrored.Filled.Redo,
                                                         contentDescription = "Redo",
                                                         tint = keyTextColor.copy(alpha = 0.85f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        modifier = Modifier.size(24.dp)
                                                     )
                                                 }
 
                                                 IconButton(
                                                     onClick = onClipboardToggle,
                                                     modifier = Modifier
-                                                        .size(34.dp)
+                                                        .size(42.dp)
                                                         .testTag("clipboard_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.ContentPaste,
                                                         contentDescription = "Clipboard history",
                                                         tint = if (isClipboard) accentColor else keyTextColor.copy(alpha = 0.85f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        modifier = Modifier.size(24.dp)
                                                     )
                                                 }
 
                                                 IconButton(
                                                     onClick = onVoiceTypingToggle,
                                                     modifier = Modifier
-                                                        .size(34.dp)
+                                                        .size(42.dp)
                                                         .testTag("mic_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Mic,
                                                         contentDescription = "Voice Dictation",
                                                         tint = if (isVoiceTyping) Color.Red else keyTextColor.copy(alpha = 0.85f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        modifier = Modifier.size(24.dp)
                                                     )
                                                 }
 
                                                 IconButton(
                                                     onClick = { onProofreadClick() },
                                                     modifier = Modifier
-                                                        .size(34.dp)
+                                                        .size(42.dp)
                                                         .testTag("proofread_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Spellcheck,
                                                         contentDescription = "Direct Proofread",
                                                         tint = keyTextColor.copy(alpha = 0.85f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        modifier = Modifier.size(24.dp)
                                                     )
                                                 }
 
                                                 IconButton(
                                                     onClick = { onAutoFormatClick() },
                                                     modifier = Modifier
-                                                        .size(34.dp)
+                                                        .size(42.dp)
                                                         .testTag("auto_format_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.AutoFixNormal,
                                                         contentDescription = "Auto Format",
                                                         tint = keyTextColor.copy(alpha = 0.85f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        modifier = Modifier.size(24.dp)
                                                     )
                                                 }
 
                                                 IconButton(
                                                     onClick = { isProofreadSheetOpen = true },
                                                     modifier = Modifier
-                                                        .size(34.dp)
+                                                        .size(42.dp)
                                                         .testTag("writing_tool_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.AutoFixHigh,
                                                         contentDescription = "Writing tools",
                                                         tint = keyTextColor.copy(alpha = 0.85f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        modifier = Modifier.size(24.dp)
                                                     )
                                                 }
 
                                                 IconButton(
                                                     onClick = onOpenSettings,
                                                     modifier = Modifier
-                                                        .size(34.dp)
+                                                        .size(42.dp)
                                                         .testTag("settings_button")
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Settings,
                                                         contentDescription = "Settings",
                                                         tint = keyTextColor.copy(alpha = 0.85f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        modifier = Modifier.size(24.dp)
                                                     )
                                                 }
                                             }
@@ -4088,8 +4131,6 @@ fun KeyboardLayout(
             }
         }
         }
-
-        HorizontalDivider(color = keyTextColor.copy(alpha = 0.12f), thickness = 1.dp)
 
         // --- KEYBOARD KEYS CONTAINER ---
         val currentLayer = when {

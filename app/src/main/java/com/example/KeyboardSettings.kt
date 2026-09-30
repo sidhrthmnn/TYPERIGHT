@@ -31,6 +31,8 @@ class KeyboardSettings(context: Context) {
         const val KEY_VOICE_INPUT_MODE = "keyboard_voice_input_mode"
         const val KEY_KEYBOARD_LANGUAGE = "keyboard_language"
         const val KEY_AI_LANGUAGE = "keyboard_ai_language"
+        const val KEY_AI_SELECT_ALL_LANGUAGES = "ai_select_all_languages"
+        const val KEY_AI_SELECTED_LANGUAGES = "ai_selected_languages"
         const val KEY_MANGLISH_TRANSLITERATION_ENABLED = "manglish_transliteration_enabled"
         const val KEY_CLIPBOARD_ENABLED = "keyboard_clipboard_enabled"
         const val KEY_NUMBER_ROW_ENABLED = "keyboard_number_row_enabled"
@@ -207,6 +209,113 @@ class KeyboardSettings(context: Context) {
             prefs.edit().putString(KEY_AI_LANGUAGE, value).apply()
             dataStore.updateAsync { it.setAiLanguage(value) }
         }
+
+    var isAllAiLanguagesSelected: Boolean
+        get() = prefs.getBoolean(KEY_AI_SELECT_ALL_LANGUAGES, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_AI_SELECT_ALL_LANGUAGES, value).apply()
+        }
+
+    fun getSelectedAiLanguageCodes(): Set<String> {
+        if (isAllAiLanguagesSelected) {
+            return ModelLanguages.ALL_CODES
+        }
+        val raw = prefs.getString(KEY_AI_SELECTED_LANGUAGES, null) ?: return ModelLanguages.DEFAULT_SELECTED_CODES
+        return raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    }
+
+    fun setSelectedAiLanguageCodes(codes: Set<String>) {
+        prefs.edit().putString(KEY_AI_SELECTED_LANGUAGES, codes.joinToString(",")).apply()
+    }
+
+    fun selectSingleAiLanguage(code: String) {
+        if (code.equals("ALL", ignoreCase = true)) {
+            isAllAiLanguagesSelected = true
+            setSelectedAiLanguageCodes(setOf("ALL"))
+        } else {
+            isAllAiLanguagesSelected = false
+            setSelectedAiLanguageCodes(setOf(code))
+        }
+    }
+
+    fun getSingleSelectedAiLanguageCode(): String {
+        if (isAllAiLanguagesSelected) return "ALL"
+        return getSelectedAiLanguageCodes().firstOrNull() ?: "en"
+    }
+
+    fun getActiveAiLanguageDisplay(): String {
+        if (isAllAiLanguagesSelected) return "All Languages (140+)"
+        val codes = getSelectedAiLanguageCodes()
+        if (codes.isEmpty()) return "English"
+        val names = codes.mapNotNull { ModelLanguages.findByCode(it)?.name }
+        return when {
+            names.size == 1 -> {
+                val lang = ModelLanguages.findByCode(codes.first())
+                if (lang != null && lang.nativeName.isNotBlank() && !lang.nativeName.equals(lang.name, ignoreCase = true)) {
+                    "${lang.name} (${lang.nativeName})"
+                } else {
+                    names.first()
+                }
+            }
+            names.size in 2..3 -> names.joinToString(", ")
+            else -> "${names.take(2).joinToString(", ")}, +${names.size - 2} more (${names.size})"
+        }
+    }
+
+    fun isAiLanguageSelected(code: String): Boolean {
+        if (isAllAiLanguagesSelected) return true
+        return getSelectedAiLanguageCodes().contains(code)
+    }
+
+    fun toggleAiLanguage(code: String, selected: Boolean) {
+        if (code.equals("ALL", ignoreCase = true)) {
+            if (selected) selectAllAiLanguages() else deselectAllAiLanguages()
+            return
+        }
+        val current = getSelectedAiLanguageCodes().toMutableSet()
+        if (selected) {
+            current.add(code)
+        } else {
+            current.remove(code)
+        }
+        isAllAiLanguagesSelected = false
+        setSelectedAiLanguageCodes(current)
+    }
+
+    fun selectAllAiLanguages() {
+        isAllAiLanguagesSelected = true
+        setSelectedAiLanguageCodes(ModelLanguages.ALL_CODES)
+    }
+
+    fun deselectAllAiLanguages() {
+        isAllAiLanguagesSelected = false
+        setSelectedAiLanguageCodes(emptySet())
+    }
+
+    fun resetToDefaultAiLanguages() {
+        isAllAiLanguagesSelected = false
+        setSelectedAiLanguageCodes(ModelLanguages.DEFAULT_SELECTED_CODES)
+    }
+
+    fun getActiveAiLanguagePromptGuidance(): String {
+        if (isAllAiLanguagesSelected) {
+            return "Active language scope: ALL 140+ languages supported by Gemma 3 (including English, European, Indic/South Asian, East/SE Asian, Middle Eastern, African, and Americas/Pacific languages, as well as transliterated or code-mixed text). Accurately detect, preserve, and respect the input's natural language and script without unwanted cross-language translation."
+        }
+        val codes = getSelectedAiLanguageCodes()
+        val languageList = codes.mapNotNull { ModelLanguages.findByCode(it) }
+        return if (languageList.isNotEmpty()) {
+            val names = languageList.joinToString(", ") { lang ->
+                if (lang.nativeName.isNotBlank() && !lang.nativeName.equals(lang.name, ignoreCase = true)) {
+                    "${lang.name} (${lang.nativeName})"
+                } else {
+                    lang.name
+                }
+            }
+            "Target & considered language(s): $names. Edit, spell-check, and polish adhering strictly to the grammar, orthography, vocabulary, and nuances of these selected languages. Preserve the author's intended language and script; never translate away from the input text's original language."
+        } else {
+            "Target language: English. Edit, spell-check, and polish adhering strictly to grammar, orthography, and vocabulary. Preserve the author's intended language and script."
+        }
+    }
 
     var manglishTransliterationEnabled: Boolean
         get() = prefs.getBoolean(KEY_MANGLISH_TRANSLITERATION_ENABLED, true)
