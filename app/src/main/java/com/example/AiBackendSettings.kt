@@ -42,6 +42,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
     val uriHandler = LocalUriHandler.current
 
     var termsAccepted by remember { mutableStateOf(LocalGgufModel.termsAccepted(context)) }
+    var showTermsDialog by remember { mutableStateOf(false) }
     var engine by remember { mutableStateOf(settings.activeAiEngine) }
     val isEngineEnabled = engine == ActiveAiEngine.OFFLINE
 
@@ -133,9 +134,21 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                     Switch(
                         checked = isEngineEnabled,
                         onCheckedChange = { enabled ->
-                            val newEngine = if (enabled) ActiveAiEngine.OFFLINE else ActiveAiEngine.NONE
-                            settings.setActiveAiEngine(newEngine)
-                            engine = newEngine
+                            if (enabled) {
+                                val newEngine = ActiveAiEngine.OFFLINE
+                                settings.setActiveAiEngine(newEngine)
+                                engine = newEngine
+                                if (!LocalGgufModel.termsAccepted(context)) {
+                                    showTermsDialog = true
+                                }
+                            } else {
+                                // User opts out by disabling gemma
+                                val newEngine = ActiveAiEngine.NONE
+                                settings.setActiveAiEngine(newEngine)
+                                engine = newEngine
+                                LocalGgufModel.acceptTerms(context, false)
+                                termsAccepted = false
+                            }
                         },
                         modifier = Modifier.testTag("ai_engine_switch")
                     )
@@ -150,120 +163,203 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall
                         )
-                    } else if (ready) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onPrimary,
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                    }
-                                }
-                                Text(
-                                    text = "Gemma 3 model installed & ready (806 MB)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    } else if (download.busy) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            LinearProgressIndicator(
-                                progress = { download.progress },
-                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Downloading model: ${(download.progress * 100).toInt()}%",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                TextButton(onClick = { downloadJob?.cancel() }) {
-                                    Text("Cancel", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
                     } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        val next = !termsAccepted
-                                        termsAccepted = next
-                                        LocalGgufModel.acceptTerms(context, next)
-                                    }
-                                    .padding(vertical = 4.dp)
+                        // --- SECTION A: GEMMA TERMS OF USE STATUS & PROMPT ---
+                        if (termsAccepted) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth().testTag("gemma_terms_accepted_card")
                             ) {
-                                Checkbox(
-                                    checked = termsAccepted,
-                                    onCheckedChange = {
-                                        termsAccepted = it
-                                        LocalGgufModel.acceptTerms(context, it)
-                                    },
-                                    modifier = Modifier.testTag("gemma_terms_checkbox")
-                                )
-                                Text(
-                                    text = "I accept the Gemma Terms of Use",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                TextButton(
-                                    onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") },
-                                    contentPadding = PaddingValues(0.dp)
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("(Terms)", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-
-                            Button(
-                                enabled = termsAccepted,
-                                onClick = {
-                                    downloadError = null
-                                    downloadJob = scope.launch {
-                                        try {
-                                            LocalGgufModel.download(context)
-                                            ready = LocalGgufModel.isReady(context)
-                                        } catch (e: CancellationException) {
-                                            throw e
-                                        } catch (e: Exception) {
-                                            downloadError = e.message ?: "Download failed"
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                            }
+                                        }
+                                        Column {
+                                            Text(
+                                                text = "Gemma Terms of Use accepted",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = "Always accepted. To opt out, disable On-Device AI above.",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
                                     }
-                                },
-                                modifier = Modifier.fillMaxWidth().height(46.dp).testTag("download_gguf"),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text("Download Gemma 3 Model (806 MB)")
+                                    TextButton(
+                                        onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") },
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("(Terms)", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
                             }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
+                                modifier = Modifier.fillMaxWidth().testTag("gemma_terms_required_card")
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Text(
+                                            text = "Gemma Terms of Use Required",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    Text(
+                                        text = "To use the on-device Gemma 3 1B model, accept Google's terms once. It will stay accepted unless you disable Gemma.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                LocalGgufModel.acceptTerms(context, true)
+                                                termsAccepted = true
+                                            },
+                                            modifier = Modifier.weight(1f).height(40.dp).testTag("accept_gemma_terms_button"),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Text("Accept Gemma Terms", style = MaterialTheme.typography.labelMedium)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") },
+                                            modifier = Modifier.height(40.dp),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Text("View Terms", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
-                            downloadError?.let {
-                                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        // --- SECTION B: MODEL STATUS & DOWNLOAD ---
+                        if (ready) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "Gemma 3 model installed & ready (806 MB)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        } else if (download.busy) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                LinearProgressIndicator(
+                                    progress = { download.progress },
+                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Downloading model: ${(download.progress * 100).toInt()}%",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    TextButton(onClick = { downloadJob?.cancel() }) {
+                                        Text("Cancel", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    enabled = termsAccepted,
+                                    onClick = {
+                                        downloadError = null
+                                        downloadJob = scope.launch {
+                                            try {
+                                                LocalGgufModel.download(context)
+                                                ready = LocalGgufModel.isReady(context)
+                                            } catch (e: CancellationException) {
+                                                throw e
+                                            } catch (e: Exception) {
+                                                downloadError = e.message ?: "Download failed"
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(46.dp).testTag("download_gguf"),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text("Download Gemma 3 Model (806 MB)")
+                                }
+
+                                downloadError?.let {
+                                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                                }
                             }
                         }
                     }
@@ -531,6 +627,62 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                 }
             }
         }
+    }
+
+    // --- Gemma Terms of Use Prompt Dialog ---
+    if (showTermsDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showTermsDialog = false
+                settings.setActiveAiEngine(ActiveAiEngine.NONE)
+                engine = ActiveAiEngine.NONE
+            },
+            title = {
+                Text("Accept Gemma Terms of Use", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Google Gemma 3 runs 100% locally and privately on your phone without cloud dependence.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        "By tapping Accept, you agree to the Google Gemma Terms of Use. Once accepted, it is saved as always accepted unless you opt out by disabling Gemma in settings.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") },
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text("View Terms of Use Online", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        LocalGgufModel.acceptTerms(context, true)
+                        termsAccepted = true
+                        showTermsDialog = false
+                    },
+                    modifier = Modifier.testTag("dialog_accept_terms_button")
+                ) {
+                    Text("Accept & Enable")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        settings.setActiveAiEngine(ActiveAiEngine.NONE)
+                        engine = ActiveAiEngine.NONE
+                        showTermsDialog = false
+                    }
+                ) {
+                    Text("Decline")
+                }
+            }
+        )
     }
 
     // --- Multi-Language Selection Dialog ---

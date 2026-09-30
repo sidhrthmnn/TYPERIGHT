@@ -28,10 +28,18 @@ object LocalGgufModel {
         .readTimeout(60, TimeUnit.SECONDS).build()
 
     private fun spec(context: Context) = JSONObject(context.assets.open("gemma-polish.json").bufferedReader().use { it.readText() })
-    fun termsAccepted(context: Context): Boolean = context.getSharedPreferences(KeyboardSettings.PREFS_NAME, Context.MODE_PRIVATE)
-        .getBoolean("gemma_terms_2026_04_01", false)
-    fun acceptTerms(context: Context, accepted: Boolean) { context.getSharedPreferences(KeyboardSettings.PREFS_NAME, Context.MODE_PRIVATE)
-        .edit().putBoolean("gemma_terms_2026_04_01", accepted).apply() }
+    fun termsAccepted(context: Context): Boolean {
+        val sp = context.getSharedPreferences(KeyboardSettings.PREFS_NAME, Context.MODE_PRIVATE)
+        return sp.getBoolean("gemma_terms_accepted", false) || sp.getBoolean("gemma_terms_2026_04_01", false)
+    }
+
+    fun acceptTerms(context: Context, accepted: Boolean) {
+        val sp = context.getSharedPreferences(KeyboardSettings.PREFS_NAME, Context.MODE_PRIVATE)
+        sp.edit()
+            .putBoolean("gemma_terms_accepted", accepted)
+            .putBoolean("gemma_terms_2026_04_01", accepted)
+            .commit()
+    }
     fun file(context: Context): File = File(context.noBackupFilesDir, "gguf/${spec(context).getString("filename")}")
     fun isReady(context: Context): Boolean = file(context).let {
         it.isFile && it.length() == spec(context).getLong("bytes")

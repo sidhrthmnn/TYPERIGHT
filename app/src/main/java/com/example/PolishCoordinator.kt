@@ -45,6 +45,7 @@ data class PolishResult(
 
 sealed interface PolishUiState {
     object Idle : PolishUiState
+    object TermsRequired : PolishUiState
     object ModelNotDownloaded : PolishUiState
     data class PreparingModel(val backend: String) : PolishUiState
     data class Generating(val mode: PolishMode) : PolishUiState
@@ -125,9 +126,15 @@ class PolishCoordinator(
                 val selectedEngine = AiPolishBackend.engine
                 val hasCloud = AiPolishBackend.isCloudActive
 
-                if (!forceBasicOffline && selectedEngine == ActiveAiEngine.OFFLINE && !LocalGgufModel.isReady(context) && !hasCloud) {
-                    _uiState.value = PolishUiState.ModelNotDownloaded
-                    return@launch
+                if (!forceBasicOffline && selectedEngine == ActiveAiEngine.OFFLINE) {
+                    if (!LocalGgufModel.termsAccepted(context)) {
+                        _uiState.value = PolishUiState.TermsRequired
+                        return@launch
+                    }
+                    if (!LocalGgufModel.isReady(context) && !hasCloud) {
+                        _uiState.value = PolishUiState.ModelNotDownloaded
+                        return@launch
+                    }
                 }
 
                 if (!forceBasicOffline) {
@@ -150,7 +157,8 @@ class PolishCoordinator(
                 if (currentSessionId != thisSessionId) return@launch
 
                 val candidateText = if (isFromModel && !lastStreamedText.isNullOrBlank()) {
-                    AiOutputValidator.sanitize(lastStreamedText!!, originalText)
+                    val sanitized = AiOutputValidator.sanitize(lastStreamedText!!, originalText)
+                    OnDeviceNeuralPolishEngine.getInstance(context).quickProofread(sanitized)
                 } else {
                     withContext(Dispatchers.Default) {
                         try {
@@ -188,7 +196,7 @@ class PolishCoordinator(
                     candidateText
                 } else {
                     withContext(Dispatchers.Default) {
-                        basicPredictor.polishSentenceLocally(originalText)
+                        OnDeviceNeuralPolishEngine.getInstance(context).quickProofread(originalText)
                     }
                 }
 

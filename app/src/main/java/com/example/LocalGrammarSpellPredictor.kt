@@ -646,6 +646,75 @@ class LocalGrammarSpellPredictor(private val context: Context) {
         return polishSingleSentenceLocally(sentence)
     }
 
+    /**
+     * Resolves and corrects spelling errors, typos, contractions, and missed-space splits for a word.
+     */
+    fun correctWordSpelling(token: String, prevWord: String? = null): String {
+        val trimmed = token.trim()
+        if (trimmed.isEmpty()) return token
+
+        // Extract leading and trailing punctuation (e.g. "\"speling,\"" -> prefix="\"", core="speling", suffix=",\"")
+        val leadingPunct = token.takeWhile { !it.isLetterOrDigit() && it != '\'' }
+        val trailingPunct = token.takeLastWhile { !it.isLetterOrDigit() && it != '\'' }
+        val core = if (leadingPunct.length + trailingPunct.length <= token.length) {
+            token.substring(leadingPunct.length, token.length - trailingPunct.length)
+        } else {
+            token
+        }
+        if (core.isEmpty()) return token
+
+        val lower = core.lowercase(java.util.Locale.ROOT)
+
+        // 1. Personal pronoun 'i' -> 'I'
+        if (lower == "i") {
+            return "${leadingPunct}I${trailingPunct}"
+        }
+
+        // 2. Exact typo mapping (high-precision curated typos)
+        val typoMatch = dictionaryManager.gboardEngine.commonTypoLookup[lower]
+            ?: NeuralCorrectionEngine.NEURAL_CORRECTION_MAP[lower]
+            ?: TypingPolicy.correction(core)
+        if (typoMatch != null && typoMatch.lowercase(java.util.Locale.ROOT) != lower) {
+            return "${leadingPunct}${TypingPolicy.restoreCase(core, typoMatch)}${trailingPunct}"
+        }
+
+        // 3. Contraction restoration (dont -> don't, cant -> can't, im -> I'm, ive -> I've, etc.)
+        val contraction = dictionaryManager.gboardEngine.contractionLookup[lower]
+        if (contraction != null && contraction.lowercase(java.util.Locale.ROOT) != lower) {
+            return "${leadingPunct}${TypingPolicy.restoreCase(core, contraction)}${trailingPunct}"
+        }
+
+        // 4. Missed-space splits (goodmorning -> good morning, thankyou -> thank you, alot -> a lot)
+        val splits = dictionaryManager.findMissedSpaceSplits(lower)
+        if (splits.isNotEmpty()) {
+            return "${leadingPunct}${TypingPolicy.restoreCase(core, splits.first())}${trailingPunct}"
+        }
+
+        // 5. If word is already a valid dictionary word and NOT a known corpus typo, keep it
+        val isKnownTypo = dictionaryManager.gboardEngine.isKnownTypo(lower)
+        if (!isKnownTypo && (
+            dictionaryManager.isWordInDictionary(lower) ||
+            core.all { it.isDigit() } ||
+            core.contains("@") ||
+            core.startsWith("http") ||
+            (core.length > 1 && core.all { it.isUpperCase() })
+        )) {
+            return token
+        }
+
+        // 6. Look up bounded edit-distance corrections (SymSpell + Trie Levenshtein + Frequency Corpus)
+        val corrections = dictionaryManager.findDictionaryCorrections(lower, maxDistance = 2f, maxResults = 8)
+        val best = corrections.firstOrNull()?.term
+            ?: dictionaryManager.gboardEngine.symSpellEngine.lookup(lower, maxDistance = 2f, maxResults = 8).firstOrNull()?.term
+            ?: dictionaryManager.getSpellingCorrections(lower, prevWord = prevWord).firstOrNull()
+
+        if (best != null && best.lowercase(java.util.Locale.ROOT) != lower) {
+            return "${leadingPunct}${TypingPolicy.restoreCase(core, best)}${trailingPunct}"
+        }
+
+        return token
+    }
+
     private fun polishSingleSentenceLocally(sentence: String): String {
         if (sentence.isBlank()) return sentence
         val words = sentence.split(Regex("\\s+"))
@@ -659,8 +728,8 @@ class LocalGrammarSpellPredictor(private val context: Context) {
             val correction = checkGrammarDetailed(clean, prevList, sentence)
             if (correction != null) {
                 val fix = correction.correctedWord
-                val leadingPunct = w.takeWhile { !it.isLetterOrDigit() }
-                val trailingPunct = w.takeLastWhile { !it.isLetterOrDigit() }
+                val leadingPunct = w.takeWhile { !it.isLetterOrDigit() && it != '\'' }
+                val trailingPunct = w.takeLastWhile { !it.isLetterOrDigit() && it != '\'' }
 
                 if (correction.tokensToReplaceCount == 2 && resultWords.isNotEmpty()) {
                     // Retroactively replace previous word as well (e.g. "a apple" -> "an apple", "could of" -> "could have")
@@ -669,20 +738,8 @@ class LocalGrammarSpellPredictor(private val context: Context) {
 
                 resultWords.add("$leadingPunct$fix$trailingPunct")
             } else {
-                // Check if the word is a known typo
-                val lower = clean.lowercase()
-                val typoFix = if (dictionaryManager.isWordInDictionary(lower)) {
-                    null
-                } else {
-                    dictionaryManager.getSpellingCorrections(lower).firstOrNull()
-                }
-                if (typoFix != null && typoFix.lowercase() != lower) {
-                    val leadingPunct = w.takeWhile { !it.isLetterOrDigit() }
-                    val trailingPunct = w.takeLastWhile { !it.isLetterOrDigit() }
-                    resultWords.add("$leadingPunct$typoFix$trailingPunct")
-                } else {
-                    resultWords.add(w)
-                }
+                val spellChecked = correctWordSpelling(w, prevWord = prevList.lastOrNull())
+                resultWords.add(spellChecked)
             }
         }
 

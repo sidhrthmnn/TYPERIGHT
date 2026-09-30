@@ -40,8 +40,7 @@ class OnDeviceNeuralPolishEngine private constructor(private val context: Contex
             if (line.isBlank()) {
                 line
             } else {
-                val spellChecked = GoogleDeviceSpellChecker.getInstance(context).proofreadSentenceFast(line)
-                val neuralFixed = neuralEngine.correctText(spellChecked)
+                val neuralFixed = neuralEngine.correctText(line)
                 grammarPredictor.polishSentenceLocally(neuralFixed)
             }
         }

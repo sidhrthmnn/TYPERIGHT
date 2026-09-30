@@ -2181,18 +2181,19 @@ class TypeRightKeyboardService : KeyboardService() {
 
             try {
                 val candidateResult = withContext(Dispatchers.Default) {
-                    var cloudResult: String? = null
+                    var modelResult: String? = null
                     try {
                         kotlinx.coroutines.withTimeoutOrNull(AiPolishBackend.timeoutMillis) {
                             AiPolishBackend.generatePolish(textToProofread, PolishMode.PROOFREAD)
-                        }?.let { cloudResult = it }
+                        }?.let { modelResult = it }
                     } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException || AiPolishBackend.engine == ActiveAiEngine.OFFLINE) throw e
-                        Log.w("TypeRight", "Cloud polish unavailable")
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        Log.w("TypeRight", "Model polish fallback: ${e.message}")
                     }
 
-                    if (!cloudResult.isNullOrBlank()) {
-                        AiOutputValidator.sanitize(cloudResult!!, textToProofread)
+                    if (!modelResult.isNullOrBlank()) {
+                        val sanitized = AiOutputValidator.sanitize(modelResult!!, textToProofread)
+                        OnDeviceNeuralPolishEngine.getInstance(applicationContext).quickProofread(sanitized)
                     } else {
                         OnDeviceNeuralPolishEngine.getInstance(applicationContext).quickProofread(textToProofread)
                     }
@@ -6546,7 +6547,73 @@ fun GboardProofreadPanel(
                                     color = titleAndIconColor.copy(alpha = 0.8f),
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Normal
+                                 )
+                            }
+                        }
+                    }
+                    is PolishUiState.TermsRequired -> {
+                        Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = activePillBg,
+                                    modifier = Modifier.size(32.dp)
                                 )
+                                Text(
+                                    text = "Accept Gemma Terms of Use",
+                                    color = titleAndIconColor,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "To use the on-device Gemma 3 AI model, accept Google's terms once. It will stay accepted unless you disable On-Device AI in Settings.",
+                                    color = titleAndIconColor.copy(alpha = 0.75f),
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            LocalGgufModel.acceptTerms(context, true)
+                                            runPolish(selectedTone)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.testTag("sheet_accept_gemma_terms_button")
+                                    ) {
+                                        Text("Accept Terms", color = activePillContent, fontSize = 12.sp)
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://ai.google.dev/gemma/terms")).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {}
+                                        },
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Text("View Terms", color = titleAndIconColor, fontSize = 12.sp)
+                                    }
+                                }
+                                TextButton(
+                                    onClick = {
+                                        val snap = editorSnapshot
+                                        if (snap != null) {
+                                            coordinator.triggerPolish(snap, selectedTone, forceBasicOffline = true)
+                                        }
+                                    }
+                                ) {
+                                    Text("Use Quick Offline Polish instead", color = activePillBg, fontSize = 11.sp)
+                                }
                             }
                         }
                     }
@@ -6574,20 +6641,36 @@ fun GboardProofreadPanel(
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center
                                 )
-                                Button(
-                                    onClick = {
-                                        try {
-                                            val intent = Intent(context, MainActivity::class.java).apply {
-                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                                                putExtra("target_tab", 2)
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {}
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
-                                    shape = RoundedCornerShape(16.dp)
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Download in Settings", color = activePillContent, fontSize = 12.sp)
+                                    Button(
+                                        onClick = {
+                                            try {
+                                                val intent = Intent(context, MainActivity::class.java).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                                    putExtra("target_tab", 2)
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {}
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = activePillBg),
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Text("Download in Settings", color = activePillContent, fontSize = 12.sp)
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            val snap = editorSnapshot
+                                            if (snap != null) {
+                                                coordinator.triggerPolish(snap, selectedTone, forceBasicOffline = true)
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Text("Quick Polish", color = titleAndIconColor, fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }

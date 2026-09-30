@@ -32,7 +32,7 @@ class NeuralCorrectionEngine private constructor(private val context: Context) {
         }
 
         // Comprehensive Neural Typo & Spell Correction Weights Map
-        private val NEURAL_CORRECTION_MAP: Map<String, String> = mapOf(
+        internal val NEURAL_CORRECTION_MAP: Map<String, String> = mapOf(
             "teh" to "the", "recieve" to "receive", "seperate" to "separate",
             "definately" to "definitely", "tommorrow" to "tomorrow", "beleive" to "believe",
             "occured" to "occurred", "untill" to "until", "truely" to "truly",
