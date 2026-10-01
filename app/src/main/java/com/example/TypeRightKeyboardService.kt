@@ -216,6 +216,7 @@ class TypeRightKeyboardService : KeyboardService() {
     // Voice Typing and AI Polish states
     private val isVoiceTypingActive = mutableStateOf(false)
     private val voiceTranscript = mutableStateOf("")
+    private var voiceInsertionPrefix = ""
     private val voiceAudioLevel = mutableStateOf(0f)
     val isAiPolishing = mutableStateOf(false)
     val isProofreadSheetOpen = mutableStateOf(false)
@@ -232,6 +233,8 @@ class TypeRightKeyboardService : KeyboardService() {
     private val isRambleRecording = mutableStateOf(false)
     private val isRambleProcessing = mutableStateOf(false)
     private val rambleTranscript = mutableStateOf("")
+    private var rambleRequestId = 0L
+    private var ramblePolishJob: kotlinx.coroutines.Job? = null
     private val rambleAudioLevel = mutableStateOf(0f)
 
     // Touch and machine-learning pattern tracking states
@@ -369,6 +372,8 @@ class TypeRightKeyboardService : KeyboardService() {
 
     private fun resetEditorState() {
         editorSession++
+        rambleRequestId++
+        ramblePolishJob?.cancel()
         if (::voiceRecordingService.isInitialized) voiceRecordingService.cancelRecording()
         isVoiceTypingActive.value = false
         isRambleRecording.value = false
@@ -657,11 +662,7 @@ class TypeRightKeyboardService : KeyboardService() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (isVoiceTypingActive.value) {
-            try {
-                voiceRecordingService.stopRecording(serviceScope, shouldPolish = false) {}
-            } catch (_: Exception) {}
-        }
+        if (::voiceRecordingService.isInitialized) voiceRecordingService.cancelRecording()
         try {
             mediaRecorder?.release()
         } catch (_: Exception) {}
@@ -739,6 +740,7 @@ class TypeRightKeyboardService : KeyboardService() {
         )
 
         composeView.setContent {
+            val voiceFinishing by voiceRecordingService.isFinishing.collectAsState()
             val userPrefs by settings.dataStore.userPreferencesFlow.collectAsState(initial = settings.dataStore.currentSnapshot())
             val isDark = userPrefs.isDarkMode
             val isDynamic = userPrefs.dynamicThemeEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -758,7 +760,7 @@ class TypeRightKeyboardService : KeyboardService() {
                     isEmojis = isEmojiLayerActive.value,
                     isClipboard = isClipboardLayerActive.value,
                     isVoiceTyping = isVoiceTypingActive.value,
-                    voiceText = voiceTranscript.value,
+                    isVoiceFinishing = voiceFinishing,
                     audioLevel = voiceAudioLevel.value,
                     isRambleRecording = isRambleRecording.value,
                     isRambleProcessing = isRambleProcessing.value,
@@ -784,6 +786,7 @@ class TypeRightKeyboardService : KeyboardService() {
                     onEmojiToggle = { toggleEmojis() },
                     onClipboardToggle = { toggleClipboard() },
                     onVoiceTypingToggle = { toggleVoiceTyping() },
+                    onVoiceCancel = { cancelVoiceTyping() },
                     onAiPolishClick = { performDirectAiPolish() },
                     onProofreadClick = { performDirectLocalProofread() },
                     onSuggestionClick = { commitSuggestion(it) },
@@ -1951,10 +1954,14 @@ class TypeRightKeyboardService : KeyboardService() {
             return
         }
 
+        if (isRambleRecording.value || isRambleProcessing.value) cancelRambleMode()
         playFeedback(FeedbackType.Standard)
         pendingVoiceTranscript.value = ""
         isVoiceTypingActive.value = true
         voiceTranscript.value = ""
+        ic.finishComposingText()
+        voiceInsertionPrefix = if (ic.getSelectedText(0).isNullOrEmpty() &&
+            ic.getTextBeforeCursor(1, 0)?.lastOrNull()?.isLetterOrDigit() == true) " " else ""
         voiceAudioLevel.value = 0.0f
 
         voiceRecordingService.startRecording(
@@ -1963,36 +1970,43 @@ class TypeRightKeyboardService : KeyboardService() {
                 if (!isVoiceTypingActive.value) return@startRecording
                 voiceTranscript.value = partial
                 try {
-                    currentInputConnection?.setComposingText(partial, 1)
+                    ic.setComposingText(voiceInsertionPrefix + partial, 1)
                 } catch (e: Exception) {
                     Log.w("TypeRight", "Failed to setComposingText: ${e.message}")
                 }
             },
-            onLevelChange = { level ->
-                voiceAudioLevel.value = level
+            onLevelChange = { level -> voiceAudioLevel.value = level },
+            onError = { message ->
+                isVoiceTypingActive.value = false
+                ic.finishComposingText()
+                voiceAudioLevel.value = 0f
+                android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
             }
         )
     }
 
-    private fun stopVoiceTyping(shouldPolish: Boolean = false) {
+    private fun stopVoiceTyping(shouldPolish: Boolean = false, onFinished: (() -> Unit)? = null) {
         if (!isVoiceTypingActive.value) return
-        isVoiceTypingActive.value = false
+        val editor = currentInputConnection
+        val session = editorSession
 
         voiceRecordingService.stopRecording(
             scope = serviceScope,
             shouldPolish = false,
             onFinalTranscript = { rawText ->
+                if (session != editorSession) return@stopRecording
+                isVoiceTypingActive.value = false
                 val cleanRaw = rawText.trim()
-                val ic = currentInputConnection
+                val ic = editor
                 if (cleanRaw.isNotEmpty()) {
                     try {
-                        ic?.commitText(cleanRaw, 1)
+                        ic?.commitText(voiceInsertionPrefix + cleanRaw, 1)
                         ic?.finishComposingText()
                     } catch (e: Exception) {
                         Log.e("TypeRight", "Failed to commit voice text", e)
                     }
                     pendingVoiceTranscript.value = ""
-                    lastCommittedVoiceLength = cleanRaw.length
+                    lastCommittedVoiceLength = voiceInsertionPrefix.length + cleanRaw.length
                 } else {
                     try {
                         ic?.finishComposingText()
@@ -2000,8 +2014,19 @@ class TypeRightKeyboardService : KeyboardService() {
                     lastCommittedVoiceLength = 0
                 }
                 voiceTranscript.value = ""
+                onFinished?.invoke()
             }
         )
+    }
+
+    private fun cancelVoiceTyping() {
+        voiceRecordingService.cancelRecording()
+        if (voiceTranscript.value.isNotBlank()) currentInputConnection?.setComposingText("", 1)
+        currentInputConnection?.finishComposingText()
+        isVoiceTypingActive.value = false
+        voiceTranscript.value = ""
+        voiceAudioLevel.value = 0f
+        voiceInsertionPrefix = ""
     }
 
     /**
@@ -2018,9 +2043,13 @@ class TypeRightKeyboardService : KeyboardService() {
         }
 
         if (isVoiceTypingActive.value) {
-            stopVoiceTyping(shouldPolish = false)
+            // Keep the recognizer alive for the final correction before switching modes.
+            stopVoiceTyping(onFinished = { startRambleMode() })
+            return
         }
 
+        rambleRequestId++
+        ramblePolishJob?.cancel()
         playFeedback(FeedbackType.Standard)
         isRambleRecording.value = true
         isRambleProcessing.value = false
@@ -2029,29 +2058,34 @@ class TypeRightKeyboardService : KeyboardService() {
 
         voiceRecordingService.startRecording(
             scope = serviceScope,
-            onPartialText = { partial ->
-                rambleTranscript.value = partial
-            },
-            onLevelChange = { level ->
-                rambleAudioLevel.value = level
+            onPartialText = { partial -> rambleTranscript.value = partial },
+            onLevelChange = { level -> rambleAudioLevel.value = level },
+            onError = { message ->
+                isRambleRecording.value = false
+                rambleAudioLevel.value = 0f
+                android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
             }
         )
     }
 
     /**
      * Confirms and finishes Ramble Mode dictation.
-     * Triggers Stage 2 AI Intent Polishing (Gemini / Offline SLM) to strip disfluencies,
+     * Triggers Stage 2 AI Intent Polishing (local model) to strip disfluencies,
      * resolve self-corrections, process trailing directives, and atomically commits the finalized text.
      */
     private fun confirmRambleMode() {
         if (!isRambleRecording.value) return
         isRambleRecording.value = false
         isRambleProcessing.value = true
+        val request = rambleRequestId
+        val session = editorSession
+        val editor = currentInputConnection
 
         voiceRecordingService.stopRecording(
             scope = serviceScope,
             shouldPolish = false,
             onFinalTranscript = { rawSpeech ->
+                if (request != rambleRequestId || session != editorSession) return@stopRecording
                 val rawTrim = rawSpeech.trim()
                 if (rawTrim.isBlank()) {
                     isRambleProcessing.value = false
@@ -2059,19 +2093,22 @@ class TypeRightKeyboardService : KeyboardService() {
                     return@stopRecording
                 }
 
-                serviceScope.launch {
+                ramblePolishJob = serviceScope.launch {
                     try {
                         val finalizedText = aiPolishManager.processRambleDictation(rawTrim)
+                        if (request != rambleRequestId || session != editorSession) return@launch
                         val textToCommit = if (finalizedText.isNotBlank()) finalizedText.trim() else rawTrim
-                        currentInputConnection?.commitText(textToCommit, 1)
+                        editor?.commitText(textToCommit, 1)
                     } catch (e: Exception) {
                         Log.e("TypeRight", "Ramble Mode AI processing error: ${e.message}")
                         if (e is kotlinx.coroutines.CancellationException) throw e
-                        currentInputConnection?.commitText(rawTrim, 1)
+                        if (request == rambleRequestId && session == editorSession) editor?.commitText(rawTrim, 1)
                     } finally {
-                        isRambleProcessing.value = false
-                        rambleTranscript.value = ""
-                        rambleAudioLevel.value = 0f
+                        if (request == rambleRequestId) {
+                            isRambleProcessing.value = false
+                            rambleTranscript.value = ""
+                            rambleAudioLevel.value = 0f
+                        }
                     }
                 }
             }
@@ -2082,6 +2119,9 @@ class TypeRightKeyboardService : KeyboardService() {
      * Cancels Ramble Mode dictation immediately and discards buffered speech.
      */
     private fun cancelRambleMode() {
+        rambleRequestId++
+        ramblePolishJob?.cancel()
+        ramblePolishJob = null
         isRambleRecording.value = false
         isRambleProcessing.value = false
         rambleTranscript.value = ""
@@ -2554,7 +2594,7 @@ fun VoiceWaveformVisualizer(
         targetValue = audioLevel.coerceIn(0f, 1f),
         animationSpec = androidx.compose.animation.core.spring(
             stiffness = androidx.compose.animation.core.Spring.StiffnessLow,
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy
         ),
         label = "audio_level_spring"
     )
@@ -2699,7 +2739,7 @@ fun KeyboardLayout(
     isEmojis: Boolean,
     isClipboard: Boolean = false,
     isVoiceTyping: Boolean,
-    voiceText: String,
+    isVoiceFinishing: Boolean = false,
     audioLevel: Float,
     isRambleRecording: Boolean = false,
     isRambleProcessing: Boolean = false,
@@ -2725,6 +2765,7 @@ fun KeyboardLayout(
     onEmojiToggle: () -> Unit,
     onClipboardToggle: () -> Unit = {},
     onVoiceTypingToggle: () -> Unit,
+    onVoiceCancel: () -> Unit = onVoiceTypingToggle,
     onAiPolishClick: () -> Unit,
     onProofreadClick: () -> Unit = {},
     onAutoFormatClick: () -> Unit = {},
@@ -3436,128 +3477,19 @@ fun KeyboardLayout(
                                 modifier = Modifier.fillMaxSize()
                             ) { activeVoiceState ->
                                 when (activeVoiceState) {
-                                    "ramble_recording" -> {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(horizontal = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            IconButton(
-                                                onClick = onCancelRamble,
-                                                modifier = Modifier
-                                                    .size(34.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color(0xFFE53935).copy(alpha = 0.12f))
-                                                    .testTag("cancel_ramble_button")
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Close,
-                                                    contentDescription = "Cancel Ramble",
-                                                    tint = Color(0xFFE53935),
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-
-                                            VoiceWaveformVisualizer(
-                                                audioLevel = rambleAudioLevel,
-                                                accentColor = Color(0xFFE53935),
-                                                modifier = Modifier.size(36.dp)
-                                            )
-
-                                            Text(
-                                                text = if (rambleTranscript.isNotBlank()) rambleTranscript else "Speak naturally...",
-                                                color = if (rambleTranscript.isNotBlank()) keyTextColor else keyTextColor.copy(alpha = 0.6f),
-                                                fontSize = 13.sp,
-                                                fontWeight = if (rambleTranscript.isNotBlank()) FontWeight.Medium else FontWeight.Normal,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
-                                            )
-
-                                            IconButton(
-                                                onClick = onConfirmRamble,
-                                                modifier = Modifier
-                                                    .size(34.dp)
-                                                    .clip(CircleShape)
-                                                    .background(accentColor)
-                                                    .testTag("confirm_ramble_button")
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Check,
-                                                    contentDescription = "Confirm Ramble",
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                    "ramble_processing" -> {
-                                        SlmRefiningShimmerStrip(
-                                            accentColor = accentColor,
-                                            keyTextColor = keyTextColor,
-                                            keyColor = normalKeyBg,
-                                            onCancel = onCancelRamble
-                                        )
-                                    }
-                                    "voice_typing" -> {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(horizontal = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            IconButton(
-                                                onClick = onVoiceTypingToggle,
-                                                modifier = Modifier
-                                                    .size(34.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color.Red.copy(alpha = 0.12f))
-                                                    .testTag("stop_recording_button")
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Close,
-                                                    contentDescription = "Cancel Voice Typing",
-                                                    tint = Color.Red,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-
-                                            VoiceWaveformVisualizer(
-                                                audioLevel = audioLevel,
-                                                accentColor = accentColor,
-                                                modifier = Modifier.size(36.dp)
-                                            )
-
-                                            Text(
-                                                text = if (voiceText.isNotBlank()) voiceText else "Speak now...",
-                                                color = if (voiceText.isNotBlank()) keyTextColor else keyTextColor.copy(alpha = 0.6f),
-                                                fontSize = 13.sp,
-                                                fontWeight = if (voiceText.isNotBlank()) FontWeight.Medium else FontWeight.Normal,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
-                                            )
-
-                                            IconButton(
-                                                onClick = onVoiceTypingToggle,
-                                                modifier = Modifier
-                                                    .size(34.dp)
-                                                    .clip(CircleShape)
-                                                    .background(accentColor)
-                                                    .testTag("confirm_voice_button")
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Check,
-                                                    contentDescription = "Done",
-                                                    tint = Color.White,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                        }
-                                    }
+                                    "ramble_recording" -> VoiceInputToolbar(
+                                        audioLevel = rambleAudioLevel, accentColor = accentColor, keyTextColor = keyTextColor,
+                                        onCancel = onCancelRamble, onDone = onConfirmRamble
+                                    )
+                                    "ramble_processing" -> VoiceInputToolbar(
+                                        audioLevel = 0f, accentColor = accentColor, keyTextColor = keyTextColor,
+                                        onCancel = onCancelRamble, onDone = {}, processing = true
+                                    )
+                                    "voice_typing" -> VoiceInputToolbar(
+                                        audioLevel = audioLevel, accentColor = accentColor, keyTextColor = keyTextColor,
+                                        onCancel = onVoiceCancel, onDone = onVoiceTypingToggle,
+                                        processing = isVoiceFinishing, processingDescription = "Finishing dictation"
+                                    )
                                     else -> {
                                     val showSuggestionsInToolbar = !isToolbarForceExpanded
 
@@ -6432,7 +6364,7 @@ fun GboardProofreadPanel(
                         onDismissRequest = { showOverflowMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("On-Device AI (Gemma 3 1B)") },
+                            text = { Text("On-Device AI (Gemma 4 E2B)") },
                             leadingIcon = { Icon(Icons.Default.PhoneAndroid, contentDescription = null) },
                             onClick = {
                                 showOverflowMenu = false
@@ -6562,7 +6494,7 @@ fun GboardProofreadPanel(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "To use the on-device Gemma 3 AI model, accept Google's terms once. It will stay accepted unless you disable On-Device AI in Settings.",
+                                    text = "To use the on-device Gemma 4 AI model, accept Google's terms once. It will stay accepted unless you disable On-Device AI in Settings.",
                                     color = titleAndIconColor.copy(alpha = 0.75f),
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center
@@ -6628,7 +6560,7 @@ fun GboardProofreadPanel(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "The on-device Gemma 3 1B (806 MB) model is not downloaded. Open Settings to download it once for full offline polish.",
+                                    text = "The on-device Gemma 4 E2B (3.35 GB) model is not downloaded. Open Settings to download it once for full offline polish.",
                                     color = titleAndIconColor.copy(alpha = 0.75f),
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center
@@ -7080,170 +7012,6 @@ fun TextEditingPanel(
                     Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Down", tint = keyTextColor)
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun SlmRefiningShimmerStrip(
-    accentColor: Color,
-    keyTextColor: Color,
-    keyColor: Color,
-    onCancel: () -> Unit
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "slm_shimmer_transition")
-
-    // Smooth horizontal sweeping shimmer effect
-    val shimmerTranslate by infiniteTransition.animateFloat(
-        initialValue = -200f,
-        targetValue = 1200f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1150, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmer_sweep"
-    )
-
-    // Pulsing sparkle icon scale
-    val sparkleScale by infiniteTransition.animateFloat(
-        initialValue = 0.88f,
-        targetValue = 1.14f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "sparkle_scale"
-    )
-
-    // Gentle alpha breathing for placeholder pills
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.65f,
-        targetValue = 0.95f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_alpha"
-    )
-
-    val shimmerBrush = Brush.linearGradient(
-        colors = listOf(
-            accentColor.copy(alpha = 0.12f * pulseAlpha),
-            accentColor.copy(alpha = 0.45f * pulseAlpha),
-            Color.White.copy(alpha = 0.35f * pulseAlpha),
-            accentColor.copy(alpha = 0.12f * pulseAlpha)
-        ),
-        start = Offset(shimmerTranslate - 260f, 0f),
-        end = Offset(shimmerTranslate, 0f)
-    )
-
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-            .testTag("slm_refining_shimmer_strip"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        // Leading Animated Sparkle & Local SLM Chip
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = accentColor.copy(alpha = 0.12f),
-            border = BorderStroke(0.75.dp, accentColor.copy(alpha = 0.35f)),
-            modifier = Modifier.height(30.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = "SLM refining",
-                    tint = accentColor,
-                    modifier = Modifier
-                        .size(13.dp)
-                        .graphicsLayer {
-                            scaleX = sparkleScale
-                            scaleY = sparkleScale
-                        }
-                )
-                Text(
-                    text = "SLM",
-                    color = accentColor,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // Shimmering Token 1 (Left Placeholder Chip)
-        Box(
-            modifier = Modifier
-                .width(48.dp)
-                .height(28.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(keyColor.copy(alpha = 0.7f))
-                .background(shimmerBrush)
-                .border(0.5.dp, keyTextColor.copy(alpha = 0.10f), RoundedCornerShape(14.dp))
-        )
-
-        // Shimmering Central Intent & Refine Label (Center Main Chip)
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .height(28.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(keyColor.copy(alpha = 0.7f))
-                .background(shimmerBrush)
-                .border(0.75.dp, accentColor.copy(alpha = 0.30f), RoundedCornerShape(14.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                modifier = Modifier.padding(horizontal = 8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF10B981))
-                )
-                Text(
-                    text = "Refining transcript...",
-                    color = keyTextColor.copy(alpha = 0.88f),
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
-                )
-            }
-        }
-
-        // Shimmering Token 3 (Right Placeholder Chip)
-        Box(
-            modifier = Modifier
-                .width(52.dp)
-                .height(28.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(keyColor.copy(alpha = 0.7f))
-                .background(shimmerBrush)
-                .border(0.5.dp, keyTextColor.copy(alpha = 0.10f), RoundedCornerShape(14.dp))
-        )
-
-        // Cancel / Dismiss button
-        IconButton(
-            onClick = onCancel,
-            modifier = Modifier
-                .size(28.dp)
-                .testTag("cancel_slm_refining_button")
-        ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Cancel refinement",
-                tint = keyTextColor.copy(alpha = 0.55f),
-                modifier = Modifier.size(15.dp)
-            )
         }
     }
 }

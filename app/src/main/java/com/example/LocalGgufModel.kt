@@ -20,7 +20,9 @@ data class ModelDownloadState(val busy: Boolean = false, val progress: Float = 0
 
 /** Only this explicit download operation uses the network. Inference never downloads. */
 object LocalGgufModel {
-    const val LABEL = "Local GGUF · Gemma 3 1B"
+    const val MODEL_NAME = "Gemma 4 E2B"
+    const val DOWNLOAD_SIZE = "3.35 GB"
+    const val LABEL = "Local GGUF · Gemma 4 E2B"
     private val mutex = Mutex()
     private val _state = MutableStateFlow(ModelDownloadState())
     val state = _state.asStateFlow()
@@ -29,6 +31,8 @@ object LocalGgufModel {
 
     private fun spec(context: Context) = JSONObject(context.assets.open("gemma-polish.json").bufferedReader().use { it.readText() })
     fun termsAccepted(context: Context): Boolean {
+        // Apache-licensed Gemma 4 does not require the legacy Gemma 3 consent gate.
+        if (spec(context).getString("license") == "Apache-2.0") return true
         val sp = context.getSharedPreferences(KeyboardSettings.PREFS_NAME, Context.MODE_PRIVATE)
         return sp.getBoolean("gemma_terms_accepted", false) || sp.getBoolean("gemma_terms_2026_04_01", false)
     }
@@ -53,7 +57,7 @@ object LocalGgufModel {
             val target = file(context)
             check(target.parentFile!!.isDirectory || target.parentFile!!.mkdirs()) { "Cannot create model directory" }
             check(target.parentFile!!.usableSpace > spec.getLong("bytes") + 64L * 1024 * 1024) {
-                "Free at least 900 MB of storage before downloading"
+                "Free at least 3.5 GB of storage before downloading"
             }
             val partial = File(target.path + ".part")
             _state.value = ModelDownloadState(busy = true, message = "Downloading model…")
@@ -87,7 +91,9 @@ object LocalGgufModel {
                     currentCoroutineContext().ensureActive()
                     check(partial.renameTo(target)) { "Cannot install downloaded model" }
                 }
-                File(target.parentFile, "qwen2.5-0.5b-instruct-q4_k_m.gguf").delete()
+                listOf("qwen2.5-0.5b-instruct-q4_k_m.gguf", "gemma-3-1b-it-Q4_K_M.gguf").forEach {
+                    File(target.parentFile, it).delete()
+                }
                 _state.value = ModelDownloadState(message = "Ready for offline polish")
             } finally {
                 partial.delete()

@@ -19,3 +19,6 @@ debug.keystore
 
 **/build/
 *.gguf.part
+
+# Official full Gemma 4 download is stored in Git LFS as tensor shards.
+/models/gemma-4-E2B_q4_0-it.gguf

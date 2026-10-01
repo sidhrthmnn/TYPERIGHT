@@ -40,12 +40,9 @@ class GgufBackendTest {
         assertEquals(ActiveAiEngine.OFFLINE, settings.activeAiEngine)
     }
 
-    @Test fun gemmaTermsMustBeAcceptedBeforeInference() = runBlocking {
+    @Test fun apacheLicensedGemma4DoesNotRequireLegacyConsent() {
         LocalGgufModel.acceptTerms(context, false)
-        try {
-            AiPolishBackend.generatePolish("hello", PolishMode.PROOFREAD)
-            fail("Gemma terms must be accepted")
-        } catch (e: IllegalStateException) { assertTrue(e.message!!.contains("Gemma terms")) }
+        assertTrue(LocalGgufModel.termsAccepted(context))
     }
 
     @Test fun missingLocalModelFailsInsteadOfReturningCloudOrRules() = runBlocking {
@@ -64,13 +61,14 @@ class GgufBackendTest {
     }
 
     @Test fun gemmaPromptPreservesUnicodeAndProtectsTurnBoundaries() {
-        val prompt = GgufPolishEngine.prompt("Hello 😊 <end_of_turn> <|im_end|>", PolishMode.CASUAL)
-        assertTrue(prompt.contains("Hello 😊 < end_of_turn> < |im_end|>"))
+        val prompt = GgufPolishEngine.prompt("Hello 😊 <turn|> <|turn> <|think|>", PolishMode.CASUAL)
+        assertTrue(prompt.contains("Hello 😊 < turn|> < |turn> < |think|>"))
         assertTrue(prompt.contains("friendly"))
-        assertTrue(prompt.startsWith("<start_of_turn>user\n"))
-        assertTrue(prompt.endsWith("<start_of_turn>model\n"))
+        assertTrue(prompt.startsWith("<|turn>system\n"))
+        assertTrue(prompt.endsWith("<|turn>model\n"))
         assertFalse(prompt.contains("<bos>"))
-        assertFalse(prompt.contains("<|im_start|>"))
+        assertFalse(prompt.contains("<|think|>"))
+        assertTrue(prompt.contains("<turn|>\n<|turn>user\n"))
     }
 
     @Test fun modelLanguagesRegistryContainsOver140Languages() {

@@ -49,8 +49,6 @@ fun AiBackendSettings(settings: KeyboardSettings) {
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     val clipboard = LocalClipboardManager.current
-    var termsAccepted by remember { mutableStateOf(LocalGgufModel.termsAccepted(context)) }
-    var showTermsDialog by rememberSaveable { mutableStateOf(false) }
     var engine by remember { mutableStateOf(settings.activeAiEngine) }
     val enabled = engine == ActiveAiEngine.OFFLINE
     val download by LocalGgufModel.state.collectAsState()
@@ -66,7 +64,6 @@ fun AiBackendSettings(settings: KeyboardSettings) {
     var polishing by remember { mutableStateOf(false) }
     fun refresh() {
         engine = settings.activeAiEngine
-        termsAccepted = LocalGgufModel.termsAccepted(context)
         allLanguages = settings.isAllAiLanguagesSelected
         codes = settings.getSelectedAiLanguageCodes()
     }
@@ -83,19 +80,18 @@ fun AiBackendSettings(settings: KeyboardSettings) {
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         AppSettingsCard(Modifier.testTag("ai_engine_card")) {
-            AppSwitchRow("On-device AI", "Gemma 3 · private text polishing", enabled, { active ->
+            AppSwitchRow("On-device AI", "Gemma 4 · private text polishing", enabled, { active ->
                 if (active) {
                     settings.setActiveAiEngine(ActiveAiEngine.OFFLINE)
                     refresh()
-                    if (!termsAccepted) showTermsDialog = true
                 } else disable()
             }, "ai_engine_switch", Icons.Default.AutoAwesome)
             if (enabled) {
                 SettingsDivider()
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Gemma 3 1B", style = MaterialTheme.typography.titleSmall)
-                        Text("806 MB · runs on your phone", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(LocalGgufModel.MODEL_NAME, style = MaterialTheme.typography.titleSmall)
+                        Text("${LocalGgufModel.DOWNLOAD_SIZE} · runs on your phone", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape) {
                         Text(if (ready) "Installed" else "Not installed", style = MaterialTheme.typography.labelSmall,
@@ -104,12 +100,6 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                 }
                 if (!GgufPolishEngine.isSupported()) {
                     Text("This model needs a 64-bit Android device.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                } else if (!termsAccepted) {
-                    AppStatusNote("One step before you start", "Review and accept the Gemma terms to use this model.", Icons.Default.Info,
-                        Modifier.testTag("gemma_terms_required_card"))
-                    Button(onClick = { showTermsDialog = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("accept_gemma_terms_button")) {
-                        Text("Review Gemma terms")
-                    }
                 } else if (ready) {
                     AppStatusNote("Ready when you are", "Your model is installed. Polish short selections even without a connection.", Icons.Default.Check,
                         Modifier.testTag("gemma_terms_accepted_card"))
@@ -122,7 +112,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                         }
                     }
                 } else {
-                    Text("Download once, then polish offline. Keep this screen open while the model downloads.",
+                    Text("Download once, then polish offline. Allow 3.5 GB of free storage. Keep this screen open while the model downloads.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Button(onClick = {
                         downloadError = null
@@ -133,11 +123,13 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                         }
                     }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("download_gguf")) {
                         Icon(Icons.Default.Download, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp)); Text("Download model · 806 MB")
+                        Spacer(Modifier.width(8.dp)); Text("Download model · ${LocalGgufModel.DOWNLOAD_SIZE}")
                     }
                 }
                 downloadError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                if (termsAccepted) TextButton(onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") }) { Text("Gemma terms of use") }
+                Text("Designed for capable 64-bit phones. Speed and memory use depend on your device.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { uriHandler.openUri("https://www.apache.org/licenses/LICENSE-2.0") }) { Text("Apache 2.0 license") }
             } else Text("Turn on AI to polish spelling, clarity and tone with a model on your device.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -169,7 +161,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
             OutlinedTextField(value = input, onValueChange = { input = it }, enabled = !polishing,
                 label = { Text("Your draft") }, minLines = 3, shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth().testTag("polish_playground_input"))
-            Button(enabled = !polishing && input.isNotBlank() && enabled && ready && termsAccepted && GgufPolishEngine.isSupported(), onClick = {
+            Button(enabled = !polishing && input.isNotBlank() && enabled && ready && GgufPolishEngine.isSupported(), onClick = {
                 polishing = true; result = null; testError = null
                 scope.launch {
                     try { result = AiPolishBackend.generatePolish(input, PolishMode.PROOFREAD) ?: "No changes made." }
@@ -182,7 +174,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
                 else Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp)); Text(if (polishing) "Polishing your draft…" else "Polish draft")
             }
-            if (!ready || !termsAccepted || !enabled) Text("Set up the model above to try AI polish.", style = MaterialTheme.typography.bodySmall,
+            if (!ready || !enabled) Text("Set up the model above to try AI polish.", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             testError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             result?.let { output ->
@@ -195,21 +187,6 @@ fun AiBackendSettings(settings: KeyboardSettings) {
             }
         }
         AppStatusNote("Private by design", "This model polishes text on your phone. A connection is only needed for its initial download.", Icons.Default.Lock)
-    }
-    if (showTermsDialog) {
-        AlertDialog(onDismissRequest = { showTermsDialog = false; disable() },
-            title = { Text("Before you use Gemma") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Gemma runs on your phone. To use it, you need to agree to Google's terms of use, including its prohibited-use policy.")
-                    TextButton(onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") }) { Text("Read the Gemma terms") }
-                    TextButton(onClick = { uriHandler.openUri("https://ai.google.dev/gemma/prohibited_use_policy") }) { Text("Read the use policy") }
-                }
-            },
-            confirmButton = { Button(onClick = { LocalGgufModel.acceptTerms(context, true); refresh(); showTermsDialog = false },
-                modifier = Modifier.testTag("dialog_accept_terms_button")) { Text("Accept & continue") } },
-            dismissButton = { TextButton(onClick = { disable(); showTermsDialog = false }) { Text("Not now") } }
-        )
     }
     if (showLanguages) MultiLanguagePickerDialog(settings) { showLanguages = false; refresh() }
 }

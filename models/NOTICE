@@ -1,5 +1,6 @@
-Gemma is provided under and subject to the Gemma Terms of Use found at ai.google.dev/gemma/terms
-
-Base model: Google DeepMind Gemma 3 1B Instruct.
-GGUF conversion/quantization: ggml-org. Quantized model derivative; Q4_K_M weights are unmodified from the pinned upstream file.
-See LICENSE-Gemma.txt and GEMMA-PROHIBITED-USES.txt.
+Gemma 4 E2B Instruct QAT Q4_0
+Copyright Google LLC / Google DeepMind. Licensed under Apache-2.0.
+Official publisher: https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf
+The project GGUF tensor shards contain the official quantized text model weights.
+Model revision, checksums, and original download are recorded in gemma-polish.json.
+llama.cpp is copyright its contributors, under the MIT license (LICENSE-llama.cpp.txt).

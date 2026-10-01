@@ -296,6 +296,7 @@ private fun SandboxTabSection(
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     val voiceService = remember { VoiceRecordingSttService(context) }
+    DisposableEffect(voiceService) { onDispose { voiceService.cancelRecording() } }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -329,8 +330,8 @@ private fun SandboxTabSection(
                                 return@FilledTonalIconButton
                             }
                             if (isVoiceListening) {
-                                isVoiceListening = false
                                 voiceService.stopRecording(coroutineScope, shouldPolish = false) { finalTx ->
+                                    isVoiceListening = false
                                     if (finalTx.isNotBlank()) {
                                         inputText = finalTx
                                         polishFeedback = "Voice input transcribed: $finalTx"
@@ -346,7 +347,8 @@ private fun SandboxTabSection(
                                             inputText = partial
                                         }
                                     },
-                                    onLevelChange = { voiceLevel = it }
+                                    onLevelChange = { voiceLevel = it },
+                                    onError = { message -> isVoiceListening = false; voiceLevel = 0f; polishFeedback = message }
                                 )
                             }
                         },
@@ -562,9 +564,9 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
     val topBigrams by remember { userDictRepo.getTopNGramsFlow(2, 8) }.collectAsState(initial = emptyList())
     val topTrigrams by remember { userDictRepo.getTopNGramsFlow(3, 8) }.collectAsState(initial = emptyList())
 
-    var testInput by remember { mutableStateOf("how are") }
-    var newWordInput by remember { mutableStateOf("") }
-    var newShortcutInput by remember { mutableStateOf("") }
+    var testInput by rememberSaveable { mutableStateOf("how are") }
+    var newWordInput by rememberSaveable { mutableStateOf("") }
+    var newShortcutInput by rememberSaveable { mutableStateOf("") }
 
     Card(
         modifier = Modifier.fillMaxWidth(),

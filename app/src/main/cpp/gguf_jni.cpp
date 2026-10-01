@@ -41,7 +41,9 @@ Java_com_example_GgufNative_generate(JNIEnv *env, jobject, jbyteArray modelPath,
         const auto prompt = bytes(env, promptBytes);
         auto modelParams = llama_model_default_params();
         modelParams.n_gpu_layers = 0;
-        modelParams.use_mmap = true;
+        modelParams.load_mode = LLAMA_LOAD_MODE_MMAP;
+        // Gemma 4's large per-layer embeddings are lookup tables; read their rows on demand.
+        modelParams.lazy_mode = LLAMA_LAZY_MODE_ON;
         using Model = std::unique_ptr<llama_model, decltype(&llama_model_free)>;
         Model model(llama_model_load_from_file(path.c_str(), modelParams), llama_model_free);
         if (!model) throw std::runtime_error("Cannot load local model; check available memory");

@@ -56,7 +56,7 @@ sealed interface PolishUiState {
 
 /**
  * Orchestrates on-device AI Polish requests, coordinates with the keyboard editor,
- * ensures truthful labeling ("Local GGUF · Gemma 3 1B" vs "Basic offline correction"),
+ * ensures truthful labeling ("Local GGUF · Gemma 4 E2B" vs "Basic offline correction"),
  * performs output validation, and manages atomic Apply/Undo.
  */
 class PolishCoordinator(

@@ -8,6 +8,8 @@ See [the keyboard review](docs/KEYBOARD_REVIEW.md) for verified improvements,
 regression coverage, and remaining device-testing and release limitations.
 See [companion app settings](docs/APP_SETTINGS_UI.md) for the app redesign,
 screenshots, and UI verification.
+See [voice input](docs/VOICE_INPUT.md) for live editor updates, the icon-only
+toolbar, final-result handling, and speech-service requirements.
 
 Type Right is an intelligent, modern Android keyboard designed to make typing faster, smarter, and effortless. Combining smart text predictions, an AI-powered writing assistant, extensive visual customization, and dynamic vocabulary updates, Type Right helps you write with speed, confidence, and style in any app.
 
@@ -37,10 +39,10 @@ Type Right is an intelligent, modern Android keyboard designed to make typing fa
 ---
 
 ### 3. Voice Dictation & Audio Input
-* **Voice-to-Text Input**: Speak naturally and watch your words appear instantly with automatic punctuation.
+* **Voice-to-Text Input**: Speak naturally and see partial results update directly in the current text field. Done waits for the final correction; Cancel discards the voice composition.
 * **Real-Time Audio Waveform**: Visual feedback showing live voice capture as you speak.
-* **Multi-Language Voice Support**: Seamless voice typing across multiple languages and regional accents.
-* **Post-Dictation Polish**: Automatically cleans up filler words (*"um"*, *"like"*, *"uh"*) from your voice recordings.
+* **Multi-Language Voice Support**: Uses the installed Android speech service and its available language packs, preferring on-device recognition.
+* **Post-Dictation Polish**: Ramble mode applies on-device AI cleanup after confirmation. Ordinary dictation preserves your words.
 
 ---
 
@@ -89,4 +91,4 @@ Type Right is an intelligent, modern Android keyboard designed to make typing fa
 
 ## Local GGUF AI polish
 
-AI Polish settings offer Local GGUF and Off. Local mode runs Gemma 3 1B Instruct on the Android device after accepting the Gemma terms and completing a verified one-time 806 MB download. The keyboard includes 46,693 frequency-ranked English words for predictions and corrections. See [setup, model provenance, and verification](docs/LOCAL_GGUF.md).
+AI Polish settings offer Local GGUF and Off. Local mode runs Gemma 4 E2B Instruct QAT Q4_0 on the Android device after a verified one-time 3.35 GB download. The actual weights are committed as three GGUF shards through Git LFS. The keyboard includes 46,693 frequency-ranked English words for predictions and corrections. See [setup, model provenance, and verification](docs/LOCAL_GGUF.md).

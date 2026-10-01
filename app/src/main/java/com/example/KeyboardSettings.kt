@@ -166,7 +166,7 @@ class KeyboardSettings(context: Context) {
         }
 
     var aiModel: String
-        get() = prefs.getString(KEY_AI_MODEL, "local-gemma-3-1b") ?: "local-gemma-3-1b"
+        get() = prefs.getString(KEY_AI_MODEL, "local-gemma-4-e2b") ?: "local-gemma-4-e2b"
         set(value) {
             prefs.edit().putString(KEY_AI_MODEL, value).apply()
             dataStore.updateAsync { it.setAiModel(value) }
@@ -297,7 +297,7 @@ class KeyboardSettings(context: Context) {
 
     fun getActiveAiLanguagePromptGuidance(): String {
         if (isAllAiLanguagesSelected) {
-            return "Active language scope: ALL 140+ languages supported by Gemma 3 (including English, European, Indic/South Asian, East/SE Asian, Middle Eastern, African, and Americas/Pacific languages, as well as transliterated or code-mixed text). Accurately detect, preserve, and respect the input's natural language and script without unwanted cross-language translation."
+            return "Active language scope: ALL 140+ languages supported by Gemma 4 (including English, European, Indic/South Asian, East/SE Asian, Middle Eastern, African, and Americas/Pacific languages, as well as transliterated or code-mixed text). Accurately detect, preserve, and respect the input's natural language and script without unwanted cross-language translation."
         }
         val codes = getSelectedAiLanguageCodes()
         val languageList = codes.mapNotNull { ModelLanguages.findByCode(it) }
@@ -558,7 +558,7 @@ enum class ActiveAiEngine(
     val description: String
 ) {
     BOTH("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
-    OFFLINE("Local On-Device AI (Gemma 3 1B)", "Local", "📱", "Runs 100% on this phone offline without cloud dependency"),
+    OFFLINE("Local On-Device AI (Gemma 4 E2B)", "Local", "📱", "Runs 100% on this phone offline without cloud dependency"),
     ONLINE("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
     NEMOTRON("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
     NONE("AI Off", "Off", "⚪", "AI assistants disabled")

@@ -1,7 +1,7 @@
 package com.example
 
 /**
- * Registry of all 140+ natural languages officially supported by Google's Gemma 3 model.
+ * Registry of all 140+ natural languages officially supported by Google's Gemma 4 model.
  * Enables the user to select specific languages or all supported languages to be considered
  * during AI polish, grammar correction, and tone rewriting.
  */

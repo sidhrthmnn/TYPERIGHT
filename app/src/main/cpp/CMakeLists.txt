@@ -17,8 +17,8 @@ set(GGML_CPU_ARM_ARCH "armv8-a" CACHE STRING "" FORCE)
 add_compile_options(-O3)
 include(FetchContent)
 FetchContent_Declare(llama
-    URL https://codeload.github.com/ggml-org/llama.cpp/tar.gz/1d735c0b4fa0551c51c2f4ac888dd9a01f447985
-    URL_HASH SHA256=fcc93993fdec215118d27d5c8d41e292f9de8c05a33fa86a91f028ad749d868e
+    URL https://codeload.github.com/ggml-org/llama.cpp/tar.gz/d2e54583c7452353eb35d40431281f6ee984332f
+    URL_HASH SHA256=8aeb94872f97ddc9c80bca3824d95aba00bdb17d1d28813db22150fb6caf6d15
 )
 FetchContent_MakeAvailable(llama)
 add_library(typeright_gguf SHARED gguf_jni.cpp)
