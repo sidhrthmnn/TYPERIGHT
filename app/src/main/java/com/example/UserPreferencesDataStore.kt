@@ -65,9 +65,9 @@ data class UserPreferences(
     val wisprFlowMode: WisprFlowMode = WisprFlowMode.AUTO,
 
     // AI and Language settings
-    val aiModel: String = "gemini-3.1-flash-lite-preview",
+    val aiModel: String = "local-slm",
     val offlineAiEnabled: Boolean = true,
-    val geminiAiEnabled: Boolean = true,
+    val geminiAiEnabled: Boolean = false,
     val nemotronAiEnabled: Boolean = false,
     val keyboardLanguage: String = "English",
     val aiLanguage: String = "English",

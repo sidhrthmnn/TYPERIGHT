@@ -250,7 +250,7 @@ class TypeRightKeyboardService : KeyboardService() {
     // Voice Typing and STT Service
     private lateinit var voiceRecordingService: VoiceRecordingSttService
 
-    // Smart Select & Gemini Auto-Polish states
+    // Smart Select & On-Device Auto-Polish states
     val isSmartSelectOpen = mutableStateOf(false)
     val currentSmartSelectLevel = mutableStateOf(SmartSelectLevel.SENTENCE)
     val smartSelectFeedback = mutableStateOf<String?>(null)
@@ -989,7 +989,7 @@ class TypeRightKeyboardService : KeyboardService() {
         return true
     }
 
-    // --- SMART SELECT & GEMINI AUTO-POLISH ENGINE ---
+    // --- SMART SELECT & ON-DEVICE AUTO-POLISH ENGINE ---
 
     fun computeSmartSelection(level: SmartSelectLevel): SmartSelectionBounds? {
         val ic = currentInputConnection ?: return null
@@ -1143,26 +1143,18 @@ class TypeRightKeyboardService : KeyboardService() {
         currentAiJob = serviceScope.launch {
             val startTime = System.currentTimeMillis()
             var polishedResult: String? = null
-            val preferredModel = settings.aiModel.takeIf { 
-                it.isNotBlank() && !it.contains("2.5-flash-lite") && !it.contains("2.0-flash") && !it.contains("3.5-flash-lite")
-            } ?: "gemini-3.1-flash-lite-preview"
-
             try {
                 kotlinx.coroutines.withTimeoutOrNull(AiPolishBackend.timeoutMillis) {
                     AiPolishBackend.generatePolish(
                         input = textToPolish,
-                        mode = PolishMode.PROOFREAD,
-                        preferredModel = preferredModel
+                        mode = PolishMode.PROOFREAD
                     )
                 }?.let { polishedResult = it }
             } catch (e: Exception) {
                 isAiPolishing.value = false
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                if (AiPolishBackend.engine == ActiveAiEngine.OFFLINE) {
-                    smartSelectFeedback.value = e.message ?: "Local polish failed"
-                    return@launch
-                }
-                Log.w("TypeRight", "Cloud auto-polish unavailable")
+                smartSelectFeedback.value = e.message ?: "Local polish failed"
+                return@launch
             }
 
             val finalPolished = if (!polishedResult.isNullOrBlank()) {

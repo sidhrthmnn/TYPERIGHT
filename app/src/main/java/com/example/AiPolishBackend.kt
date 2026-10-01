@@ -35,22 +35,11 @@ object AiPolishBackend {
         return KeyboardSettings(ctx).activeAiEngine
     }
 
-    val label: String get() {
-        return if (isCloudActive) "Gemini Flash AI" else engine.title
-    }
+    val label: String get() = engine.title
 
-    fun isGeminiConfigured(): Boolean {
-        return try {
-            val key = BuildConfig::class.java.getField("GEMINI_API_KEY").get(null) as? String
-            key != null && key.isNotBlank() && key != "MY_GEMINI_API_KEY"
-        } catch (_: Exception) {
-            false
-        }
-    }
+    val isCloudActive: Boolean get() = false
 
-    val isCloudActive: Boolean get() {
-        return isGeminiConfigured() && engine != ActiveAiEngine.OFFLINE
-    }
+    fun isGeminiConfigured(): Boolean = false
 
     val timeoutMillis: Long get() = 185_000L
 
@@ -66,24 +55,7 @@ object AiPolishBackend {
         if (engine == ActiveAiEngine.NONE) return null
         val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
 
-        // If offline is selected, strictly require local GGUF model per app architecture
-        if (engine == ActiveAiEngine.OFFLINE) {
-            return GgufPolishEngine.polish(ctx, input, mode)
-        }
-
-        // Try Gemini Cloud AI if configured
-        if (isGeminiConfigured()) {
-            try {
-                val cloudResult = GeminiApiClient.generatePolish(input, mode, context, preferredModel)
-                if (!cloudResult.isNullOrBlank()) {
-                    return cloudResult
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("AiPolishBackend", "Gemini cloud generate error: ${e.message}")
-            }
-        }
-
-        // Fallback to local GGUF if ready
+        // Local on-device GGUF model
         if (LocalGgufModel.isReady(ctx) && GgufPolishEngine.isSupported()) {
             return GgufPolishEngine.polish(ctx, input, mode)
         }
@@ -110,28 +82,7 @@ object AiPolishBackend {
         if (engine == ActiveAiEngine.NONE) return@flow
         val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
 
-        // If offline is selected, strictly require local GGUF model per app architecture
-        if (engine == ActiveAiEngine.OFFLINE) {
-            emit(GgufPolishEngine.polish(ctx, input, mode))
-            return@flow
-        }
-
-        // Try Gemini Cloud AI if configured
-        if (isGeminiConfigured()) {
-            var emittedAny = false
-            try {
-                GeminiApiClient.streamPolish(input, mode, context, preferredModel).collect { chunk ->
-                    if (chunk.isNotBlank()) {
-                        emittedAny = true
-                        emit(chunk)
-                    }
-                }
-                if (emittedAny) return@flow
-            } catch (e: Exception) {
-                android.util.Log.w("AiPolishBackend", "Gemini cloud stream error: ${e.message}")
-            }
-        }
-
+        // Local on-device GGUF model
         if (LocalGgufModel.isReady(ctx) && GgufPolishEngine.isSupported()) {
             emit(GgufPolishEngine.polish(ctx, input, mode))
             return@flow

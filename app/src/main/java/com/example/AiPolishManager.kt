@@ -22,7 +22,7 @@ class AiPolishManager(private val context: Context) {
     private val localRambleFormatter = LocalRambleFormatter(context)
 
     /**
-     * Executes proofreading using Google Gemini Free API with local heuristic fallback.
+     * Executes proofreading using on-device AI with local heuristic fallback.
      */
     suspend fun proofreadText(
         text: String,
@@ -69,7 +69,7 @@ class AiPolishManager(private val context: Context) {
         val resultText = localRambleFormatter.formatRambleText(text)
         val duration = System.currentTimeMillis() - startTime
 
-        AiExecutionLogger.logAiAction(context, "Ramble Mode (Gemini)", AiPolishBackend.label, text, resultText, duration)
+        AiExecutionLogger.logAiAction(context, "Ramble Mode", AiPolishBackend.label, text, resultText, duration)
         return@withContext resultText
     }
 
@@ -163,9 +163,9 @@ class AiPolishManager(private val context: Context) {
         }
 
         val settings = KeyboardSettings(context)
-        val geminiEnabled = settings.activeAiEngine != ActiveAiEngine.NONE && settings.supportTier != KeyboardSettings.TIER_3
+        val aiEnabled = settings.activeAiEngine != ActiveAiEngine.NONE && settings.supportTier != KeyboardSettings.TIER_3
 
-        if (!geminiEnabled) {
+        if (!aiEnabled) {
             emit(emptyList())
             return@flow
         }
@@ -180,9 +180,9 @@ class AiPolishManager(private val context: Context) {
             Triple(null, null, null)
         }
 
-        val validCloudList = listOfNotNull(formalOpt, casualOpt, rephraseOpt).filter { it.isNotBlank() }.distinct()
-        if (validCloudList.isNotEmpty()) {
-            emit(validCloudList)
+        val validImprovements = listOfNotNull(formalOpt, casualOpt, rephraseOpt).filter { it.isNotBlank() }.distinct()
+        if (validImprovements.isNotEmpty()) {
+            emit(validImprovements)
         } else {
             emit(generateLocalStyleAlternatives(text))
         }

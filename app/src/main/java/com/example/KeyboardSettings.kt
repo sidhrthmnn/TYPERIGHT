@@ -166,9 +166,7 @@ class KeyboardSettings(context: Context) {
         }
 
     var aiModel: String
-        get() = (prefs.getString(KEY_AI_MODEL, "gemini-3.1-flash-lite-preview") ?: "gemini-3.1-flash-lite-preview").let {
-            if (it.contains("3.5-flash-lite") || it.contains("2.5-flash-lite")) "gemini-3.1-flash-lite-preview" else it
-        }
+        get() = prefs.getString(KEY_AI_MODEL, "local-gemma-3-1b") ?: "local-gemma-3-1b"
         set(value) {
             prefs.edit().putString(KEY_AI_MODEL, value).apply()
             dataStore.updateAsync { it.setAiModel(value) }
@@ -183,7 +181,7 @@ class KeyboardSettings(context: Context) {
     }
 
     var whisperModel: String
-        get() = prefs.getString(KEY_WHISPER_MODEL, "gemini-nano") ?: "gemini-nano"
+        get() = prefs.getString(KEY_WHISPER_MODEL, "whisper-base") ?: "whisper-base"
         set(value) {
             prefs.edit().putString(KEY_WHISPER_MODEL, value).apply()
             dataStore.updateAsync { it.setWhisperModel(value) }

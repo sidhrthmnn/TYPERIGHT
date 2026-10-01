@@ -90,7 +90,7 @@ class VoiceRecordingSttService(private val context: Context) {
         if (isSysRecognizerAvailable) {
             startSpeechRecognizerEngine(scope, onPartialText, onLevelChange)
         } else {
-            Log.i(tag, "System SpeechRecognizer not available. Starting AudioRecord + Gemini Cloud STT fallback pipeline.")
+            Log.i(tag, "System SpeechRecognizer not available. Starting AudioRecord pipeline.")
             startPcmAudioPipeline(scope, onPartialText, onLevelChange)
         }
     }
@@ -147,36 +147,7 @@ class VoiceRecordingSttService(private val context: Context) {
             return
         }
 
-        // If recognizer had no text, but we captured microphone audio (PCM fallback)
-        if (capturedPcm.size > 3200 && maxObservedAudioRms > 500.0) {
-            scope.launch(Dispatchers.IO) {
-                try {
-                    val wavData = GeminiApiClient.pcmToWav(capturedPcm, sampleRate = 16000, channels = 1)
-                    val cloudTranscript = GeminiApiClient.transcribeAudio(wavData)
-                    if (!cloudTranscript.isNullOrBlank()) {
-                        val cleaned = formatWhisperFlowText(cloudTranscript)
-                        withContext(Dispatchers.Main) {
-                            _currentTranscript.value = cleaned
-                            if (shouldPolish) {
-                                onFinalTranscript(WhisperCppBrain.whisperCleanAndPolish(cleaned))
-                            } else {
-                                onFinalTranscript(cleaned)
-                            }
-                        }
-                        return@launch
-                    }
-                } catch (e: Exception) {
-                    Log.w(tag, "Gemini audio transcription fallback failed: ${e.message}")
-                }
-
-                // If cloud STT not available and no speech text
-                withContext(Dispatchers.Main) {
-                    onFinalTranscript("")
-                }
-            }
-        } else {
-            onFinalTranscript("")
-        }
+        onFinalTranscript("")
     }
 
     private fun getFullStreamingText(): String {

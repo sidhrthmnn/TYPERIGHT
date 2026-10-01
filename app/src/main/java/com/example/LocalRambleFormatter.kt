@@ -47,7 +47,7 @@ class LocalRambleFormatter(private val context: Context) {
     }
 
     /**
-     * Formats raw voice dictation into polished text using NVIDIA Nemotron Cloud AI.
+     * Formats raw voice dictation into polished text using on-device AI.
      */
     suspend fun formatRambleText(rawTranscript: String): String = withContext(Dispatchers.IO) {
         val raw = rawTranscript.trim()
@@ -56,11 +56,11 @@ class LocalRambleFormatter(private val context: Context) {
         // 1. Run deterministic cleanup of spoken filler words, stutters and live self-corrections
         val heuristicCleaned = runDeterministicLocalRambleEngine(raw)
 
-        // 2. Pass through Google Gemini Cloud AI for synthesis and grammar refinement
+        // 2. Pass through on-device AI for synthesis and grammar refinement
         try {
-            val geminiResult = AiPolishBackend.generatePolish(heuristicCleaned, PolishMode.VOICE_CLEANUP)
-            if (!geminiResult.isNullOrBlank()) {
-                return@withContext geminiResult
+            val polishedResult = AiPolishBackend.generatePolish(heuristicCleaned, PolishMode.VOICE_CLEANUP)
+            if (!polishedResult.isNullOrBlank()) {
+                return@withContext polishedResult
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
