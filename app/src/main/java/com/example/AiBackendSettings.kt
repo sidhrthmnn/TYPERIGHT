@@ -19,6 +19,13 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,666 +42,176 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AiBackendSettings(settings: KeyboardSettings) {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
-
+    val clipboard = LocalClipboardManager.current
     var termsAccepted by remember { mutableStateOf(LocalGgufModel.termsAccepted(context)) }
-    var showTermsDialog by remember { mutableStateOf(false) }
+    var showTermsDialog by rememberSaveable { mutableStateOf(false) }
     var engine by remember { mutableStateOf(settings.activeAiEngine) }
-    val isEngineEnabled = engine == ActiveAiEngine.OFFLINE
-
+    val enabled = engine == ActiveAiEngine.OFFLINE
     val download by LocalGgufModel.state.collectAsState()
     var ready by remember { mutableStateOf(LocalGgufModel.isReady(context)) }
     var downloadJob by remember { mutableStateOf<Job?>(null) }
     var downloadError by remember { mutableStateOf<String?>(null) }
-
-    var isAllLanguagesSelected by remember { mutableStateOf(settings.isAllAiLanguagesSelected) }
-    var selectedCodes by remember { mutableStateOf(settings.getSelectedAiLanguageCodes()) }
-    var showLanguagePicker by remember { mutableStateOf(false) }
-
-    var testInput by remember { mutableStateOf("Helo wrld I is typing this on my phon") }
-    var testResult by remember { mutableStateOf<String?>(null) }
-    var isTestingPolish by remember { mutableStateOf(false) }
-
-    fun refreshLanguages() {
-        isAllLanguagesSelected = settings.isAllAiLanguagesSelected
-        selectedCodes = settings.getSelectedAiLanguageCodes()
+    var allLanguages by remember { mutableStateOf(settings.isAllAiLanguagesSelected) }
+    var codes by remember { mutableStateOf(settings.getSelectedAiLanguageCodes()) }
+    var showLanguages by rememberSaveable { mutableStateOf(false) }
+    var input by rememberSaveable { mutableStateOf("Helo wrld I is typing this on my phon") }
+    var result by rememberSaveable { mutableStateOf<String?>(null) }
+    var testError by remember { mutableStateOf<String?>(null) }
+    var polishing by remember { mutableStateOf(false) }
+    fun refresh() {
+        engine = settings.activeAiEngine
+        termsAccepted = LocalGgufModel.termsAccepted(context)
+        allLanguages = settings.isAllAiLanguagesSelected
+        codes = settings.getSelectedAiLanguageCodes()
     }
-
     DisposableEffect(settings) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-            engine = settings.activeAiEngine
-            refreshLanguages()
-        }
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> refresh() }
         settings.sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
         onDispose { settings.sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-
-    LaunchedEffect(download.busy) {
-        ready = LocalGgufModel.isReady(context)
+    LaunchedEffect(download.busy) { ready = LocalGgufModel.isReady(context) }
+    fun disable() {
+        settings.setActiveAiEngine(ActiveAiEngine.NONE)
+        LocalGgufModel.acceptTerms(context, false)
+        refresh()
     }
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // --- Card 1: On-Device Gemma 3 Engine ---
-        Card(
-            modifier = Modifier.fillMaxWidth().testTag("ai_engine_card"),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                            modifier = Modifier.size(42.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                        Column {
-                            Text(
-                                text = "On-Device AI Polish",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Google Gemma 3 1B · 100% Offline & Private",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        AppSettingsCard(Modifier.testTag("ai_engine_card")) {
+            AppSwitchRow("On-device AI", "Gemma 3 · private text polishing", enabled, { active ->
+                if (active) {
+                    settings.setActiveAiEngine(ActiveAiEngine.OFFLINE)
+                    refresh()
+                    if (!termsAccepted) showTermsDialog = true
+                } else disable()
+            }, "ai_engine_switch", Icons.Default.AutoAwesome)
+            if (enabled) {
+                SettingsDivider()
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Gemma 3 1B", style = MaterialTheme.typography.titleSmall)
+                        Text("806 MB · runs on your phone", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-
-                    Switch(
-                        checked = isEngineEnabled,
-                        onCheckedChange = { enabled ->
-                            if (enabled) {
-                                val newEngine = ActiveAiEngine.OFFLINE
-                                settings.setActiveAiEngine(newEngine)
-                                engine = newEngine
-                                if (!LocalGgufModel.termsAccepted(context)) {
-                                    showTermsDialog = true
-                                }
-                            } else {
-                                // User opts out by disabling gemma
-                                val newEngine = ActiveAiEngine.NONE
-                                settings.setActiveAiEngine(newEngine)
-                                engine = newEngine
-                                LocalGgufModel.acceptTerms(context, false)
-                                termsAccepted = false
-                            }
-                        },
-                        modifier = Modifier.testTag("ai_engine_switch")
-                    )
+                    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape) {
+                        Text(if (ready) "Installed" else "Not installed", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                    }
                 }
-
-                if (isEngineEnabled) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                    if (!GgufPolishEngine.isSupported()) {
-                        Text(
-                            text = "Local GGUF requires a 64-bit Android device.",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    } else {
-                        // --- SECTION A: GEMMA TERMS OF USE STATUS & PROMPT ---
-                        if (termsAccepted) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                                modifier = Modifier.fillMaxWidth().testTag("gemma_terms_accepted_card")
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    Icons.Default.Check,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                            }
-                                        }
-                                        Column {
-                                            Text(
-                                                text = "Gemma Terms of Use accepted",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Text(
-                                                text = "Always accepted. To opt out, disable On-Device AI above.",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                    TextButton(
-                                        onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") },
-                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                                    ) {
-                                        Text("(Terms)", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-                            }
-                        } else {
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
-                                modifier = Modifier.fillMaxWidth().testTag("gemma_terms_required_card")
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.AutoAwesome,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Text(
-                                            text = "Gemma Terms of Use Required",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                    Text(
-                                        text = "To use the on-device Gemma 3 1B model, accept Google's terms once. It will stay accepted unless you disable Gemma.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Button(
-                                            onClick = {
-                                                LocalGgufModel.acceptTerms(context, true)
-                                                termsAccepted = true
-                                            },
-                                            modifier = Modifier.weight(1f).height(40.dp).testTag("accept_gemma_terms_button"),
-                                            shape = RoundedCornerShape(10.dp)
-                                        ) {
-                                            Text("Accept Gemma Terms", style = MaterialTheme.typography.labelMedium)
-                                        }
-                                        OutlinedButton(
-                                            onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") },
-                                            modifier = Modifier.height(40.dp),
-                                            shape = RoundedCornerShape(10.dp)
-                                        ) {
-                                            Text("View Terms", style = MaterialTheme.typography.labelSmall)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // --- SECTION B: MODEL STATUS & DOWNLOAD ---
-                        if (ready) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                Icons.Default.Check,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onPrimary,
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = "Gemma 3 model installed & ready (806 MB)",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                        } else if (download.busy) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                LinearProgressIndicator(
-                                    progress = { download.progress },
-                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Downloading model: ${(download.progress * 100).toInt()}%",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    TextButton(onClick = { downloadJob?.cancel() }) {
-                                        Text("Cancel", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-                            }
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(
-                                    enabled = termsAccepted,
-                                    onClick = {
-                                        downloadError = null
-                                        downloadJob = scope.launch {
-                                            try {
-                                                LocalGgufModel.download(context)
-                                                ready = LocalGgufModel.isReady(context)
-                                            } catch (e: CancellationException) {
-                                                throw e
-                                            } catch (e: Exception) {
-                                                downloadError = e.message ?: "Download failed"
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth().height(46.dp).testTag("download_gguf"),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text("Download Gemma 3 Model (806 MB)")
-                                }
-
-                                downloadError?.let {
-                                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
+                if (!GgufPolishEngine.isSupported()) {
+                    Text("This model needs a 64-bit Android device.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                } else if (!termsAccepted) {
+                    AppStatusNote("One step before you start", "Review and accept the Gemma terms to use this model.", Icons.Default.Info,
+                        Modifier.testTag("gemma_terms_required_card"))
+                    Button(onClick = { showTermsDialog = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("accept_gemma_terms_button")) {
+                        Text("Review Gemma terms")
+                    }
+                } else if (ready) {
+                    AppStatusNote("Ready when you are", "Your model is installed. Polish short selections even without a connection.", Icons.Default.Check,
+                        Modifier.testTag("gemma_terms_accepted_card"))
+                } else if (download.busy) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LinearProgressIndicator(progress = { download.progress }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Downloading · ${(download.progress * 100).toInt()}%", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = { downloadJob?.cancel() }) { Text("Cancel") }
                         }
                     }
+                } else {
+                    Text("Download once, then polish offline. Keep this screen open while the model downloads.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Button(onClick = {
+                        downloadError = null
+                        downloadJob = scope.launch {
+                            try { LocalGgufModel.download(context); ready = LocalGgufModel.isReady(context) }
+                            catch (e: CancellationException) { throw e }
+                            catch (e: Exception) { downloadError = e.message ?: "Download failed. Try again." }
+                        }
+                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("download_gguf")) {
+                        Icon(Icons.Default.Download, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp)); Text("Download model · 806 MB")
+                    }
+                }
+                downloadError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                if (termsAccepted) TextButton(onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") }) { Text("Gemma terms of use") }
+            } else Text("Turn on AI to polish spelling, clarity and tone with a model on your device.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        SettingsSectionLabel("Languages", "Write in the languages you use")
+        AppSettingsCard(Modifier.testTag("languages_card")) {
+            AppSwitchRow("Detect automatically", "Consider all available language options", allLanguages, {
+                if (it) settings.selectAllAiLanguages() else settings.deselectAllAiLanguages()
+                refresh()
+            }, "all_languages_switch", Icons.Default.Language)
+            if (!allLanguages) {
+                SettingsDivider()
+                if (codes.isEmpty()) Text("English is used until you choose a language.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    codes.take(6).forEach { code ->
+                        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                            Text(ModelLanguages.findByCode(code)?.name ?: code, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(8.dp))
+                        }
+                    }
+                    if (codes.size > 6) Text("+${codes.size - 6} more", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(8.dp))
                 }
             }
-        }
-
-        // --- Card 2: Multilingual Polish Languages (Supports Multiple Languages) ---
-        Card(
-            modifier = Modifier.fillMaxWidth().testTag("polish_languages_card"),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                // Section Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Language,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        Column {
-                            Text(
-                                text = "Polish Languages",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Supported by Gemma 3 multilingual engine",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (isAllLanguagesSelected) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                    ) {
-                        Text(
-                            text = if (isAllLanguagesSelected) "All 140+" else "${selectedCodes.size} Selected",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isAllLanguagesSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp).testTag("languages_selected_badge")
-                        )
-                    }
-                }
-
-                // Master Toggle: All 140+ Languages
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isAllLanguagesSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                    else MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-                    border = BorderStroke(
-                        1.dp,
-                        if (isAllLanguagesSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val next = !isAllLanguagesSelected
-                            if (next) settings.selectAllAiLanguages() else settings.deselectAllAiLanguages()
-                            refreshLanguages()
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                            Text(
-                                text = "Enable All 140+ Supported Languages",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Gemma 3 will auto-detect and polish text in any language",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = isAllLanguagesSelected,
-                            onCheckedChange = { checked ->
-                                if (checked) settings.selectAllAiLanguages() else settings.deselectAllAiLanguages()
-                                refreshLanguages()
-                            },
-                            modifier = Modifier.testTag("all_languages_switch")
-                        )
-                    }
-                }
-
-                // If Master Toggle is OFF: Show selected language chips + Add button
-                if (!isAllLanguagesSelected) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "Active Target Languages:",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        // Flowing chips row of selected languages
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (selectedCodes.isEmpty()) {
-                                Text(
-                                    text = "No languages selected (English will be used)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            } else {
-                                selectedCodes.forEach { code ->
-                                    val lang = ModelLanguages.findByCode(code)
-                                    val label = lang?.name ?: code.uppercase()
-                                    InputChip(
-                                        selected = true,
-                                        onClick = {
-                                            settings.toggleAiLanguage(code, false)
-                                            refreshLanguages()
-                                        },
-                                        label = {
-                                            Text(
-                                                text = if (lang?.nativeName != null && !lang.nativeName.equals(lang.name, ignoreCase = true))
-                                                    "$label (${lang.nativeName})"
-                                                else label,
-                                                style = MaterialTheme.typography.labelSmall
-                                            )
-                                        },
-                                        trailingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.Clear,
-                                                contentDescription = "Remove $label",
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        },
-                                        shape = RoundedCornerShape(8.dp),
-                                        colors = InputChipDefaults.inputChipColors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    )
-                                }
-                            }
-                        }
-
-                        // Manage / Add Languages Button
-                        OutlinedButton(
-                            onClick = { showLanguagePicker = true },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("manage_languages_button")
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Select / Manage Languages (${ModelLanguages.ALL.size}+ available)")
-                        }
-                    }
-                }
+            OutlinedButton(onClick = { showLanguages = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("manage_languages_button")) {
+                Text("Choose languages")
             }
         }
-
-        // --- Card 3: Minimalist Quick Polish Test ---
-        Card(
-            modifier = Modifier.fillMaxWidth().testTag("quick_test_card"),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "Quick Polish Test",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                OutlinedTextField(
-                    value = testInput,
-                    onValueChange = { testInput = it },
-                    enabled = !isTestingPolish,
-                    modifier = Modifier.fillMaxWidth().testTag("polish_playground_input"),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                Button(
-                    enabled = !isTestingPolish && testInput.isNotBlank() && isEngineEnabled && ready,
-                    onClick = {
-                        isTestingPolish = true
-                        testResult = null
-                        scope.launch {
-                            val start = System.currentTimeMillis()
-                            try {
-                                val output = AiPolishBackend.generatePolish(testInput, PolishMode.PROOFREAD)
-                                testResult = if (output.isNullOrBlank()) "No changes made."
-                                else "Polished in ${System.currentTimeMillis() - start} ms:\n$output"
-                            } catch (e: Exception) {
-                                testResult = e.message ?: "Polish failed"
-                            } finally {
-                                isTestingPolish = false
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(46.dp).testTag("polish_test_button"),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    if (isTestingPolish) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Polishing with Gemma 3…")
-                    } else {
-                        Text("Test with Gemma 3")
-                    }
+        SettingsSectionLabel("Try a polish", "See what a little clarity can do")
+        AppSettingsCard(Modifier.testTag("quick_test_card")) {
+            OutlinedTextField(value = input, onValueChange = { input = it }, enabled = !polishing,
+                label = { Text("Your draft") }, minLines = 3, shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth().testTag("polish_playground_input"))
+            Button(enabled = !polishing && input.isNotBlank() && enabled && ready && termsAccepted && GgufPolishEngine.isSupported(), onClick = {
+                polishing = true; result = null; testError = null
+                scope.launch {
+                    try { result = AiPolishBackend.generatePolish(input, PolishMode.PROOFREAD) ?: "No changes made." }
+                    catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { testError = e.message ?: "Polish failed. Try a shorter draft." }
+                    finally { polishing = false }
                 }
-
-                testResult?.let {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surface,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = it,
-                            modifier = Modifier.padding(14.dp),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
+            }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("polish_test_button")) {
+                if (polishing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                else Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp)); Text(if (polishing) "Polishing your draft…" else "Polish draft")
+            }
+            if (!ready || !termsAccepted || !enabled) Text("Set up the model above to try AI polish.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            testError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+            result?.let { output ->
+                SettingsDivider()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Polished draft", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { clipboard.setText(AnnotatedString(output)) }) { Icon(Icons.Default.ContentCopy, "Copy polished draft") }
                 }
+                Text(output, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("polish_test_result"))
             }
         }
+        AppStatusNote("Private by design", "This model polishes text on your phone. A connection is only needed for its initial download.", Icons.Default.Lock)
     }
-
-    // --- Gemma Terms of Use Prompt Dialog ---
     if (showTermsDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showTermsDialog = false
-                settings.setActiveAiEngine(ActiveAiEngine.NONE)
-                engine = ActiveAiEngine.NONE
-            },
-            title = {
-                Text("Accept Gemma Terms of Use", fontWeight = FontWeight.Bold)
-            },
+        AlertDialog(onDismissRequest = { showTermsDialog = false; disable() },
+            title = { Text("Before you use Gemma") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Google Gemma 3 runs 100% locally and privately on your phone without cloud dependence.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        "By tapping Accept, you agree to the Google Gemma Terms of Use. Once accepted, it is saved as always accepted unless you opt out by disabling Gemma in settings.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    TextButton(
-                        onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") },
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text("View Terms of Use Online", style = MaterialTheme.typography.labelSmall)
-                    }
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Gemma runs on your phone. To use it, you need to agree to Google's terms of use, including its prohibited-use policy.")
+                    TextButton(onClick = { uriHandler.openUri("https://ai.google.dev/gemma/terms") }) { Text("Read the Gemma terms") }
+                    TextButton(onClick = { uriHandler.openUri("https://ai.google.dev/gemma/prohibited_use_policy") }) { Text("Read the use policy") }
                 }
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        LocalGgufModel.acceptTerms(context, true)
-                        termsAccepted = true
-                        showTermsDialog = false
-                    },
-                    modifier = Modifier.testTag("dialog_accept_terms_button")
-                ) {
-                    Text("Accept & Enable")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        settings.setActiveAiEngine(ActiveAiEngine.NONE)
-                        engine = ActiveAiEngine.NONE
-                        showTermsDialog = false
-                    }
-                ) {
-                    Text("Decline")
-                }
-            }
+            confirmButton = { Button(onClick = { LocalGgufModel.acceptTerms(context, true); refresh(); showTermsDialog = false },
+                modifier = Modifier.testTag("dialog_accept_terms_button")) { Text("Accept & continue") } },
+            dismissButton = { TextButton(onClick = { disable(); showTermsDialog = false }) { Text("Not now") } }
         )
     }
-
-    // --- Multi-Language Selection Dialog ---
-    if (showLanguagePicker) {
-        MultiLanguagePickerDialog(
-            settings = settings,
-            onDismiss = {
-                showLanguagePicker = false
-                refreshLanguages()
-            }
-        )
-    }
+    if (showLanguages) MultiLanguagePickerDialog(settings) { showLanguages = false; refresh() }
 }
 
 @Composable
@@ -738,6 +255,7 @@ private fun MultiLanguagePickerDialog(
     ) {
         Surface(
             modifier = Modifier
+                .widthIn(max = 560.dp)
                 .fillMaxWidth(0.92f)
                 .fillMaxHeight(0.85f),
             shape = RoundedCornerShape(22.dp),
@@ -782,7 +300,7 @@ private fun MultiLanguagePickerDialog(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search 140+ languages (e.g. Malayalam, Hindi, Spanish)…") },
+                    placeholder = { Text("Search languages…") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {

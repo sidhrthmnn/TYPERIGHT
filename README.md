@@ -6,6 +6,8 @@ With JDK 21 and Android SDK Platform 36.1 installed, run
 `./gradlew :app:testDebugUnitTest :app:assembleDebug` (`gradlew.bat` on Windows).
 See [the keyboard review](docs/KEYBOARD_REVIEW.md) for verified improvements,
 regression coverage, and remaining device-testing and release limitations.
+See [companion app settings](docs/APP_SETTINGS_UI.md) for the app redesign,
+screenshots, and UI verification.
 
 Type Right is an intelligent, modern Android keyboard designed to make typing faster, smarter, and effortless. Combining smart text predictions, an AI-powered writing assistant, extensive visual customization, and dynamic vocabulary updates, Type Right helps you write with speed, confidence, and style in any app.
 

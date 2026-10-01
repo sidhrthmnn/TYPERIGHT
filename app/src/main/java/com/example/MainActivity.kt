@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -27,9 +28,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,9 +49,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
+    private var navigationRequest by mutableIntStateOf(0)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.hasExtra("target_tab")) navigationRequest++
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashReporter.init(this)
@@ -60,28 +73,30 @@ class MainActivity : ComponentActivity() {
             val userPrefs by dataStore.userPreferencesFlow.collectAsState(initial = dataStore.currentSnapshot())
             val isDarkTheme = userPrefs.isDarkMode
 
-            MyApplicationTheme(darkTheme = isDarkTheme) {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    containerColor = MaterialTheme.colorScheme.background
-                ) { innerPadding ->
-                    MainMinimalScreen(
-                        modifier = Modifier.padding(innerPadding)
-                    )
+            SideEffect {
+                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !isDarkTheme
+                    isAppearanceLightNavigationBars = !isDarkTheme
                 }
+            }
+            CompanionAppTheme(darkTheme = isDarkTheme, midnight = userPrefs.theme == KeyboardSettings.THEME_NIGHT) {
+                MainMinimalScreen(navigationRequest = navigationRequest)
             }
         }
     }
 }
 
 @Composable
-fun MainMinimalScreen(modifier: Modifier = Modifier) {
+fun MainMinimalScreen(modifier: Modifier = Modifier, navigationRequest: Int = 0) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val settings = remember { KeyboardSettings(context) }
     val dataStore = remember { settings.dataStore }
     val userPrefs by dataStore.userPreferencesFlow.collectAsState(initial = dataStore.currentSnapshot())
-    val scrollState = rememberScrollState()
+    val scrollStates = List(4) { rememberScrollState() }
+    val savedPages = rememberSaveableStateHolder()
+    val focusManager = LocalFocusManager.current
+    val softwareKeyboard = LocalSoftwareKeyboardController.current
 
     var isKeyboardEnabled by remember { mutableStateOf(false) }
     var isKeyboardSelected by remember { mutableStateOf(false) }
@@ -103,9 +118,23 @@ fun MainMinimalScreen(modifier: Modifier = Modifier) {
     }
 
     val activity = context as? ComponentActivity
-    val initialTab = remember { activity?.intent?.getIntExtra("target_tab", 0) ?: 0 }
-    var selectedTab by remember { mutableIntStateOf(if (initialTab in 0..3) initialTab else 0) }
-    val tabs = listOf("Sandbox", "Predictive Systems", "AI Polish", "Settings")
+    val initialTab = remember { activity?.intent?.getIntExtra("target_tab", 3) ?: 3 }
+    var selectedTab by rememberSaveable { mutableIntStateOf(if (initialTab in 0..3) initialTab else 3) }
+    val tabs = listOf("Home", "Typing", "AI polish", "Settings")
+    val tabIcons = listOf(Icons.Default.Home, Icons.AutoMirrored.Filled.MenuBook, Icons.Default.AutoAwesome, Icons.Default.Settings)
+    fun navigate(index: Int) {
+        focusManager.clearFocus()
+        softwareKeyboard?.hide()
+        selectedTab = index
+    }
+    BackHandler(enabled = selectedTab != 3) { navigate(3) }
+
+    LaunchedEffect(navigationRequest) {
+        if (navigationRequest > 0) {
+            val destination = activity?.intent?.getIntExtra("target_tab", 3) ?: 3
+            navigate(if (destination in 0..3) destination else 3)
+        }
+    }
 
     LaunchedEffect(Unit) {
         refreshStatus()
@@ -132,196 +161,93 @@ fun MainMinimalScreen(modifier: Modifier = Modifier) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .imePadding()
-            .verticalScroll(scrollState)
-            .padding(horizontal = 18.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // --- MINIMAL TOP BAR ---
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    Scaffold(
+        modifier = modifier.fillMaxSize().imePadding(),
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(38.dp)
-                ) {
+                Surface(shape = RoundedCornerShape(13.dp), color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Keyboard,
-                            contentDescription = "Type Right",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Icon(Icons.Default.EditNote, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(24.dp))
                     }
                 }
-                Column {
-                    Text(
-                        text = "Type Right",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text(
-                        text = "100% On-Device Local AI",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // Keyboard Status Pill
-            val isFullyActive = isKeyboardEnabled && isKeyboardSelected
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = if (isFullyActive) Color(0xFF10B981).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, if (isFullyActive) Color(0xFF10B981).copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(if (isFullyActive) Color(0xFF10B981) else Color(0xFFF59E0B))
-                    )
-                    Text(
-                        text = if (isFullyActive) "Active" else "Setup Needed",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isFullyActive) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
-        // --- QUICK SETUP CARD (Shows only if setup not complete) ---
-        AnimatedVisibility(visible = !isKeyboardEnabled || !isKeyboardSelected || !isMicPermissionGranted) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = "Complete Keyboard Setup",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    if (!isKeyboardEnabled) {
-                        SetupRowMinimal(
-                            title = "1. Enable Keyboard",
-                            action = "Enable",
-                            testTag = "step_enable_keyboard_button"
-                        ) {
-                            context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-                        }
-                    }
-
-                    if (isKeyboardEnabled && !isKeyboardSelected) {
-                        SetupRowMinimal(
-                            title = "2. Select Type Right IME",
-                            action = "Select",
-                            testTag = "step_select_keyboard_button"
-                        ) {
-                            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                            imm?.showInputMethodPicker()
-                        }
-                    }
-
-                    if (!isMicPermissionGranted) {
-                        SetupRowMinimal(
-                            title = "3. Microphone Permission",
-                            action = "Allow",
-                            testTag = "step_mic_permission_button"
-                        ) {
-                            micLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- NAVIGATION TABS (SEGMENTED BUTTON BOXES) ---
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            tabs.forEachIndexed { index, title ->
-                val isSelected = selectedTab == index
+                Text("Type Right", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                val active = isKeyboardEnabled && isKeyboardSelected
                 Surface(
-                    onClick = { selectedTab = index },
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 48.dp)
-                        .testTag("tab_${title.lowercase().replace('-', '_')}"),
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isSelected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                    border = BorderStroke(
-                        width = 1.dp,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                    ),
-                    shadowElevation = if (isSelected) 2.dp else 0.dp
+                    onClick = { navigate(0) }, modifier = Modifier.testTag("app_setup_status"),
+                    color = if (active) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                    shape = CircleShape, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 3.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                lineHeight = 13.5.sp
-                            ),
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                            else MaterialTheme.colorScheme.onSurface,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            softWrap = true,
-                            maxLines = 2,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
+                    Row(Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(if (active) Icons.Default.CheckCircle else Icons.Default.Tune, null,
+                            tint = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp))
+                        Text(if (active) "Ready" else "Set up", style = MaterialTheme.typography.labelMedium,
+                            color = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary)
                     }
                 }
             }
+        },
+        bottomBar = {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+                tabs.forEachIndexed { index, title ->
+                    NavigationBarItem(
+                        selected = selectedTab == index, onClick = { navigate(index) },
+                        icon = { Icon(tabIcons[index], null, modifier = Modifier.size(22.dp)) },
+                        label = { Text(title, style = MaterialTheme.typography.labelMedium) },
+                        colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant, unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant),
+                        modifier = Modifier.testTag(listOf("nav_home", "nav_typing", "nav_ai", "nav_settings")[index])
+                    )
+                }
+            }
         }
-
-        // --- TAB CONTENT ---
-        when (selectedTab) {
-            0 -> SandboxTabSection(
-                settings = settings,
-                isMicPermissionGranted = isMicPermissionGranted,
-                onRequestMicPermission = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) }
-            )
-            1 -> PredictiveSystemsTabSection(settings = settings)
-            2 -> AiPolishFlashLiteTabSection(settings = settings)
-            3 -> PreferencesTabSection(settings = settings)
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
+            savedPages.SaveableStateProvider(selectedTab) {
+                Column(
+                    Modifier.widthIn(max = 680.dp).fillMaxSize().verticalScroll(scrollStates[selectedTab])
+                        .padding(horizontal = 20.dp).padding(top = 16.dp, bottom = 28.dp).testTag("app_page_$selectedTab"),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(if (selectedTab == 0) "Your space" else tabs[selectedTab].replaceFirstChar { it.uppercase() },
+                            style = MaterialTheme.typography.headlineLarge)
+                        Text(listOf("Get ready to write. Try something new.", "Personal words. Smarter suggestions.",
+                            "A little clarity, whenever you need it.", "Small details. Better typing.")[selectedTab],
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    when (selectedTab) {
+                        0 -> {
+                            if (!isKeyboardEnabled || !isKeyboardSelected || !isMicPermissionGranted) {
+                                AppSettingsCard {
+                                    Text("Let's get you set up", style = MaterialTheme.typography.titleMedium)
+                                    Text("A couple of steps and you're ready to write.", style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (!isKeyboardEnabled) SetupRowMinimal("Enable Type Right", "Enable", "step_enable_keyboard_button") {
+                                        context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                                    }
+                                    if (isKeyboardEnabled && !isKeyboardSelected) SetupRowMinimal("Choose Type Right", "Choose", "step_select_keyboard_button") {
+                                        (context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.showInputMethodPicker()
+                                    }
+                                    if (!isMicPermissionGranted) SetupRowMinimal("Voice typing (optional)", "Allow", "step_mic_permission_button") {
+                                        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
+                                }
+                            }
+                            SandboxTabSection(settings, isMicPermissionGranted) { micLauncher.launch(Manifest.permission.RECORD_AUDIO) }
+                        }
+                        1 -> PredictiveSystemsTabSection(settings)
+                        2 -> AiBackendSettings(settings)
+                        3 -> AppPreferencesScreen(settings, onOpenTyping = { navigate(1) }, onOpenAi = { navigate(2) })
+                    }
+                }
+            }
         }
     }
 }
@@ -348,7 +274,7 @@ private fun SetupRowMinimal(
             onClick = onClick,
             shape = RoundedCornerShape(8.dp),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-            modifier = Modifier.heightIn(min = 34.dp).testTag(testTag)
+            modifier = Modifier.heightIn(min = 48.dp).testTag(testTag)
         ) {
             Text(action, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1)
         }
@@ -361,7 +287,7 @@ private fun SandboxTabSection(
     isMicPermissionGranted: Boolean,
     onRequestMicPermission: () -> Unit
 ) {
-    var inputText by remember { mutableStateOf("Type something here to test typing, predictions, and grammar...") }
+    var inputText by rememberSaveable { mutableStateOf("Type something here to test typing, predictions, and grammar...") }
     var polishFeedback by remember { mutableStateOf<String?>(null) }
     var isPolishing by remember { mutableStateOf(false) }
     var isVoiceListening by remember { mutableStateOf(false) }
@@ -374,7 +300,7 @@ private fun SandboxTabSection(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
     ) {
         Column(
@@ -387,7 +313,7 @@ private fun SandboxTabSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Live Interactive Sandbox",
+                    text = "Try it out",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -637,14 +563,13 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
     val topTrigrams by remember { userDictRepo.getTopNGramsFlow(3, 8) }.collectAsState(initial = emptyList())
 
     var testInput by remember { mutableStateOf("how are") }
-    var selectedEngineFilter by remember { mutableStateOf("All") }
     var newWordInput by remember { mutableStateOf("") }
     var newShortcutInput by remember { mutableStateOf("") }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
     ) {
         Column(
@@ -657,15 +582,15 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text(
-                        text = "Predictive & Autocorrect Systems",
+                        text = "Your dictionary",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Gboard, SwiftKey & Apple QuickType On-Device Engines",
+                        text = "Names, phrases and shortcuts you use often",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -676,7 +601,7 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
                     color = Color(0xFF10B981).copy(alpha = 0.15f)
                 ) {
                     Text(
-                        text = "Active • Sub-5ms",
+                        text = "On device",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF10B981),
@@ -687,92 +612,252 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
-            // System Cards Grid
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // 1. Gboard System Card
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.Spellcheck, contentDescription = null, tint = Color(0xFF4285F4), modifier = Modifier.size(18.dp))
-                            Text("Google Gboard Core Architecture", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            // Room Database: Custom Dictionary & Shortcuts Management
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Your words & shortcuts",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "${customEntries.size} custom entries • ${frequentWords.size} frequent words${if (blockedSuggestions.isNotEmpty()) " • ${blockedSuggestions.size} removed" else ""}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                        Text(
-                            text = "• SymSpell Precomputed Symmetric Deletion (O(1) fuzzy edit distance lookup across 20,000+ words)\n" +
-                                   "• Bivariate Gaussian Spatial Key-Proximity Model (P(tap | key) centroid likelihood)\n" +
-                                   "• WordTrie prefix index with unigram frequency ranking",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 18.sp
-                        )
                     }
-                }
 
-                // 2. Microsoft SwiftKey System Card
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.Psychology, contentDescription = null, tint = Color(0xFF0078D4), modifier = Modifier.size(18.dp))
-                            Text("Microsoft SwiftKey N-Gram Architecture", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        }
-                        Text(
-                            text = "• Multi-Order N-Gram Statistical Language Model (Quadgram / Trigram / Bigram Katz Backoff)\n" +
-                                   "• Dynamic User Personalization (Real-time on-device bigram learning)\n" +
-                                   "• Contextual Emoji Semantic Predictor (Associates context words with matching emojis)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 18.sp
+                    // Add Custom Word / Shortcut Row
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = newWordInput,
+                            onValueChange = { newWordInput = it },
+                            placeholder = { Text("Word / Phrase", fontSize = 12.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("custom_word_input"),
+                            shape = RoundedCornerShape(8.dp)
                         )
+                        OutlinedTextField(
+                            value = newShortcutInput,
+                            onValueChange = { newShortcutInput = it },
+                            placeholder = { Text("Shortcut (e.g. omw)", fontSize = 12.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("custom_shortcut_input"),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        Button(
+                            onClick = {
+                                if (newWordInput.isNotBlank()) {
+                                    coroutineScope.launch {
+                                        userDictRepo.addCustomEntry(
+                                            word = newWordInput.trim(),
+                                            shortcut = newShortcutInput.trim().ifEmpty { null },
+                                            dictionaryManager = dictionaryManager
+                                        )
+                                        newWordInput = ""
+                                        newShortcutInput = ""
+                                    }
+                                }
+                            },
+                            enabled = newWordInput.isNotBlank(),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("add_custom_word_button")
+                        ) {
+                            Text("Save word", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
-                }
 
-                // 3. Apple QuickType System Card
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.TouchApp, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
-                            Text("Apple QuickType Interface Architecture", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    // Display Custom Entries
+                    if (customEntries.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Custom Words & Shortcuts:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                for (entry in customEntries) {
+                                    InputChip(
+                                        selected = false,
+                                        onClick = {
+                                            testInput = entry.shortcut ?: entry.word
+                                        },
+                                        label = {
+                                            Text(
+                                                text = if (!entry.shortcut.isNullOrEmpty()) "${entry.shortcut} → ${entry.word}" else entry.word,
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        },
+                                        trailingIcon = {
+                                            IconButton(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        userDictRepo.deleteCustomEntry(entry)
+                                                    }
+                                                },
+                                                modifier = Modifier.size(16.dp)
+                                            ) {
+                                                Icon(Icons.Default.Close, contentDescription = "Delete", modifier = Modifier.size(12.dp))
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                         }
-                        Text(
-                            text = "• 3-Slot Dynamic Candidate Strip (Left: Literal input | Center: Autocorrect pill | Right: Next word)\n" +
-                                   "• One-Tap Backspace Revert (Reverts autocorrect on immediate backspace and suppresses loop)\n" +
-                                   "• Smart Contraction & Capitalization normalization (dont -> don't, im -> I'm)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 18.sp
-                        )
+                    }
+
+                    // Display Frequent Words
+                    if (frequentWords.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Frequently used words", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                for (freq in frequentWords.take(10)) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                    ) {
+                                        Text(
+                                            text = "${freq.word} (${freq.frequency})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Display Stored N-Gram Frequency Stats
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Learned phrases",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "$totalNGrams patterns",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (topBigrams.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                for (ngram in topBigrams) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                                    ) {
+                                        Text(
+                                            text = "${ngram.context} → ${ngram.nextWord} (${ngram.frequency})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Display Blocked / Removed Suggestions (with unblock / restore action)
+                    if (blockedSuggestions.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Hidden suggestions",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    text = "${blockedSuggestions.size} blocked",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                for (blocked in blockedSuggestions) {
+                                    InputChip(
+                                        selected = false,
+                                        onClick = { },
+                                        label = {
+                                            Text(
+                                                text = blocked.originalWord.ifEmpty { blocked.word },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        },
+                                        colors = InputChipDefaults.inputChipColors(
+                                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                                        ),
+                                        trailingIcon = {
+                                            IconButton(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        userDictRepo.unblockSuggestion(blocked.word)
+                                                    }
+                                                },
+                                                modifier = Modifier.size(16.dp).testTag("unblock_suggestion_${blocked.word}")
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Refresh,
+                                                    contentDescription = "Restore suggestion",
+                                                    modifier = Modifier.size(13.dp),
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
+            var showPlayground by rememberSaveable { mutableStateOf(false) }
+            TextButton(onClick = { showPlayground = !showPlayground }) {
+                Text(if (showPlayground) "Hide prediction preview" else "Try predictions")
+                Icon(if (showPlayground) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null)
+            }
+            AnimatedVisibility(showPlayground) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             // Interactive Live Playground
             Text(
-                text = "Live Multi-Engine Playground",
+                text = "Try a suggestion",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -864,7 +949,7 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Service Layer: 3-Slot Output (Apple QuickType & Gboard):",
+                        text = "Suggestion preview",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
@@ -882,7 +967,7 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
                             modifier = Modifier.weight(1f)
                         ) {
                             Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Slot 1 (Literal)", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Your input", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
                                     text = "\"${serviceResult.leftCandidate.ifEmpty { activePrefix.ifEmpty { "—" } }}\"",
                                     style = MaterialTheme.typography.bodySmall,
@@ -900,7 +985,7 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
                         ) {
                             Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = if (serviceResult.isCenterAutocorrecting) "Slot 2 (Autocorrect)" else "Slot 2 (Candidate)",
+                                    text = if (serviceResult.isCenterAutocorrecting) "Correction" else "Suggestion",
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 9.sp,
                                     color = if (serviceResult.isCenterAutocorrecting) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
@@ -922,7 +1007,7 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
                             modifier = Modifier.weight(1f)
                         ) {
                             Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Slot 3 (Next Word)", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Next word", style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
                                     text = serviceResult.rightCandidate.ifEmpty { "—" },
                                     style = MaterialTheme.typography.bodySmall,
@@ -1016,540 +1101,9 @@ private fun PredictiveSystemsTabSection(settings: KeyboardSettings) {
                 }
             }
 
-            // Room Database: Custom Dictionary & Shortcuts Management
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "Room Custom Dictionary & Shortcuts",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "${customEntries.size} custom entries • ${frequentWords.size} frequent words${if (blockedSuggestions.isNotEmpty()) " • ${blockedSuggestions.size} removed" else ""} stored in Room",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    // Add Custom Word / Shortcut Row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = newWordInput,
-                            onValueChange = { newWordInput = it },
-                            placeholder = { Text("Word / Phrase", fontSize = 12.sp) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1.3f).testTag("custom_word_input"),
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        OutlinedTextField(
-                            value = newShortcutInput,
-                            onValueChange = { newShortcutInput = it },
-                            placeholder = { Text("Shortcut (e.g. omw)", fontSize = 12.sp) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f).testTag("custom_shortcut_input"),
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        Button(
-                            onClick = {
-                                if (newWordInput.isNotBlank()) {
-                                    coroutineScope.launch {
-                                        userDictRepo.addCustomEntry(
-                                            word = newWordInput.trim(),
-                                            shortcut = newShortcutInput.trim().ifEmpty { null },
-                                            dictionaryManager = dictionaryManager
-                                        )
-                                        newWordInput = ""
-                                        newShortcutInput = ""
-                                    }
-                                }
-                            },
-                            enabled = newWordInput.isNotBlank(),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.testTag("add_custom_word_button")
-                        ) {
-                            Text("Add", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-
-                    // Display Custom Entries
-                    if (customEntries.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Custom Words & Shortcuts:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                            Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                for (entry in customEntries) {
-                                    InputChip(
-                                        selected = false,
-                                        onClick = {
-                                            testInput = entry.shortcut ?: entry.word
-                                        },
-                                        label = {
-                                            Text(
-                                                text = if (!entry.shortcut.isNullOrEmpty()) "${entry.shortcut} → ${entry.word}" else entry.word,
-                                                style = MaterialTheme.typography.labelSmall
-                                            )
-                                        },
-                                        trailingIcon = {
-                                            IconButton(
-                                                onClick = {
-                                                    coroutineScope.launch {
-                                                        userDictRepo.deleteCustomEntry(entry)
-                                                    }
-                                                },
-                                                modifier = Modifier.size(16.dp)
-                                            ) {
-                                                Icon(Icons.Default.Close, contentDescription = "Delete", modifier = Modifier.size(12.dp))
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Display Frequent Words
-                    if (frequentWords.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Frequently Used Words (Room):", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                            Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                for (freq in frequentWords.take(10)) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                                    ) {
-                                        Text(
-                                            text = "${freq.word} (${freq.frequency})",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Display Stored N-Gram Frequency Stats
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Offline N-Gram Frequencies (Room):",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "$totalNGrams transitions stored",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        if (topBigrams.isNotEmpty()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                for (ngram in topBigrams) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                                    ) {
-                                        Text(
-                                            text = "${ngram.context} → ${ngram.nextWord} (${ngram.frequency})",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Display Blocked / Removed Suggestions (with unblock / restore action)
-                    if (blockedSuggestions.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Removed Suggestions (Long-press to bin):",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                                Text(
-                                    text = "${blockedSuggestions.size} blocked",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                for (blocked in blockedSuggestions) {
-                                    InputChip(
-                                        selected = false,
-                                        onClick = { },
-                                        label = {
-                                            Text(
-                                                text = blocked.originalWord.ifEmpty { blocked.word },
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onErrorContainer
-                                            )
-                                        },
-                                        colors = InputChipDefaults.inputChipColors(
-                                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-                                        ),
-                                        trailingIcon = {
-                                            IconButton(
-                                                onClick = {
-                                                    coroutineScope.launch {
-                                                        userDictRepo.unblockSuggestion(blocked.word)
-                                                    }
-                                                },
-                                                modifier = Modifier.size(16.dp).testTag("unblock_suggestion_${blocked.word}")
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Refresh,
-                                                    contentDescription = "Restore suggestion",
-                                                    modifier = Modifier.size(13.dp),
-                                                    tint = MaterialTheme.colorScheme.error
-                                                )
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun AiPolishFlashLiteTabSection(settings: KeyboardSettings) {
-    AiBackendSettings(settings)
-}
-
-@Composable
-private fun PreferencesTabSection(settings: KeyboardSettings) {
-    var autocorrect by remember { mutableStateOf(settings.autocorrectEnabled) }
-    var autocorrectSensitivity by remember { mutableStateOf(settings.autocorrectSensitivity) }
-    var haptics by remember { mutableStateOf(settings.hapticEnabled) }
-    var sound by remember { mutableStateOf(settings.soundEnabled) }
-    var numberRow by remember { mutableStateOf(settings.numberRowEnabled) }
-    var theme by remember { mutableStateOf(settings.theme) }
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // --- 1. Typing & Correction ---
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Keyboard, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    Text(
-                        text = "Typing & Correction",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                MinimalSwitchRow(
-                    title = "Auto-Correction",
-                    subtitle = "Automatically correct typos and contractions on space",
-                    checked = autocorrect,
-                    onCheckedChange = {
-                        autocorrect = it
-                        settings.autocorrectEnabled = it
-                    },
-                    testTag = "pref_autocorrect_switch"
-                )
-
-                AnimatedVisibility(visible = autocorrect) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(start = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "Correction Sensitivity",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            listOf(
-                                KeyboardSettings.SENSITIVITY_MILD to "Mild",
-                                KeyboardSettings.SENSITIVITY_BALANCED to "Balanced",
-                                KeyboardSettings.SENSITIVITY_AGGRESSIVE to "Aggressive"
-                            ).forEach { (sensKey, label) ->
-                                FilterChip(
-                                    selected = autocorrectSensitivity.equals(sensKey, ignoreCase = true),
-                                    onClick = {
-                                        autocorrectSensitivity = sensKey
-                                        settings.autocorrectSensitivity = sensKey
-                                    },
-                                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                    modifier = Modifier.testTag("pref_sensitivity_${sensKey.lowercase()}")
-                                )
-                            }
-                        }
-                    }
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                MinimalSwitchRow(
-                    title = "Number Row",
-                    subtitle = "Show dedicated digit row above QWERTY keyboard",
-                    checked = numberRow,
-                    onCheckedChange = {
-                        numberRow = it
-                        settings.numberRowEnabled = it
-                    },
-                    testTag = "pref_number_row_switch"
-                )
-            }
-        }
-
-        // --- 2. Feedback & Haptics ---
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.TouchApp, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    Text(
-                        text = "Touch & Feedback",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                MinimalSwitchRow(
-                    title = "Haptic Vibration",
-                    subtitle = "Tactile haptic pulse on every keypress",
-                    checked = haptics,
-                    onCheckedChange = {
-                        haptics = it
-                        settings.hapticEnabled = it
-                    },
-                    testTag = "pref_haptic_switch"
-                )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-
-                MinimalSwitchRow(
-                    title = "Keypress Sound",
-                    subtitle = "Subtle auditory click sound on tap",
-                    checked = sound,
-                    onCheckedChange = {
-                        sound = it
-                        settings.soundEnabled = it
-                    },
-                    testTag = "pref_sound_switch"
-                )
-            }
-        }
-
-        // --- 3. Theme & Appearance ---
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    Text(
-                        text = "Theme & Appearance",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf(
-                        KeyboardSettings.THEME_LIGHT to "Light",
-                        KeyboardSettings.THEME_DARK to "Dark Mode",
-                        KeyboardSettings.THEME_NIGHT to "Night (AMOLED)"
-                    ).forEach { (themeKey, label) ->
-                        FilterChip(
-                            selected = theme.equals(themeKey, ignoreCase = true),
-                            onClick = {
-                                theme = themeKey
-                                settings.theme = themeKey
-                            },
-                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                            modifier = Modifier.testTag("theme_chip_${themeKey.lowercase()}")
-                        )
-                    }
-                }
-            }
-        }
-
-        // --- 4. Privacy Guarantee ---
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier.padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                    }
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "100% On-Device Privacy",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Keystrokes, predictive models, voice dictation, and Gemma 3 AI polish run strictly on your device.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MinimalSwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    testTag: String
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable { onCheckedChange(!checked) },
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.testTag(testTag)
-        )
     }
 }
 
