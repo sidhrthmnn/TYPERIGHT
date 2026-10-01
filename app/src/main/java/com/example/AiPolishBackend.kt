@@ -56,7 +56,7 @@ object AiPolishBackend {
         val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
 
         // Local on-device GGUF model
-        if (LocalGgufModel.isReady(ctx) && GgufPolishEngine.isSupported()) {
+        if (engine == ActiveAiEngine.OFFLINE) {
             return GgufPolishEngine.polish(ctx, input, mode)
         }
 
@@ -83,7 +83,7 @@ object AiPolishBackend {
         val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
 
         // Local on-device GGUF model
-        if (LocalGgufModel.isReady(ctx) && GgufPolishEngine.isSupported()) {
+        if (engine == ActiveAiEngine.OFFLINE) {
             emit(GgufPolishEngine.polish(ctx, input, mode))
             return@flow
         }

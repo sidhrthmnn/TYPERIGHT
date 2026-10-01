@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan to remove the divider line between suggested words and the keyboard keys, enlarge toolbar icons and suggestion text, and ensure AI polish processes the entire text while strictly applying the chosen style/tone.",
-  "updatedAt": "2026-09-30T09:45:33.813843713Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Implementation plan to eliminate unwanted conversational preambles, introductory filler, and explanations from AI polish outputs by tightening GGUF prompt constraints and hardening output sanitization with multi-pattern preamble stripping.",
+  "updatedAt":  "2026-10-01T10:16:06.903126173Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

@@ -32,6 +32,32 @@ class OnDeviceAiPolishTest {
         val rawWithCommentary = "Here is the corrected text:\nHello world"
         val cleanedCommentary = AiOutputValidator.sanitize(rawWithCommentary, "helo wrld")
         assertEquals("Hello world", cleanedCommentary)
+
+        // Strip "Here is how we change the tone:" inline and multiline
+        val rawWithToneInline = "Here is how we change the tone: Hello world"
+        assertEquals("Hello world", AiOutputValidator.sanitize(rawWithToneInline, "helo wrld"))
+
+        val rawWithToneMultiline = "Here is how we change the tone:\n\nHello world"
+        assertEquals("Hello world", AiOutputValidator.sanitize(rawWithToneMultiline, "helo wrld"))
+
+        val rawWithHowTo = "Here's how to change the tone: Hello world"
+        assertEquals("Hello world", AiOutputValidator.sanitize(rawWithHowTo, "helo wrld"))
+
+        // Strip conversational "Sure!" with preamble
+        val rawWithSure = "Sure! Here is the text in a professional tone:\nHello world"
+        assertEquals("Hello world", AiOutputValidator.sanitize(rawWithSure, "helo wrld"))
+
+        // Strip "In a professional tone: ..."
+        val rawWithToneColon = "In a professional tone: Hello world"
+        assertEquals("Hello world", AiOutputValidator.sanitize(rawWithToneColon, "helo wrld"))
+
+        // Strip trailing commentary notes
+        val rawWithTrailingNote = "Hello world\n\nNote: I adjusted the tone to be more professional."
+        assertEquals("Hello world", AiOutputValidator.sanitize(rawWithTrailingNote, "helo wrld"))
+
+        // Preserve genuine user text starting with "Here is"
+        val genuineUserText = "Here is the document we reviewed yesterday."
+        assertEquals(genuineUserText, AiOutputValidator.sanitize(genuineUserText, genuineUserText))
     }
 
     @Test
