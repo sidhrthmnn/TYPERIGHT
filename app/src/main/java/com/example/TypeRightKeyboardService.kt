@@ -1266,9 +1266,9 @@ class TypeRightKeyboardService : KeyboardService() {
         if (dictionaryManager.isBlocked(lower)) return null
 
         // 1. If user typed an already valid word, preserve it! Never split or replace valid single words
-        if (dictionaryManager.isWordInDictionary(lower) ||
-            dictionaryManager.isWordInUserDictionary(lower) ||
-            dictionaryManager.gboardEngine.symSpellEngine.hasWord(lower)) {
+        if (dictionaryManager.isWordInUserDictionary(lower) ||
+            ((dictionaryManager.isWordInDictionary(lower) || dictionaryManager.gboardEngine.symSpellEngine.hasWord(lower)) &&
+                !dictionaryManager.gboardEngine.isKnownTypo(lower))) {
             if (prefix == "i" && !dictionaryManager.isBlocked("I")) return "I"
             dictionaryManager.gboardEngine.resolveContextualAmbiguity(prefix, previousWords.value)?.let {
                 if (!dictionaryManager.isCorrectionSuppressed(prefix, it) && !dictionaryManager.isBlocked(it)) return it
@@ -2216,7 +2216,8 @@ class TypeRightKeyboardService : KeyboardService() {
                     var modelResult: String? = null
                     try {
                         kotlinx.coroutines.withTimeoutOrNull(AiPolishBackend.timeoutMillis) {
-                            AiPolishBackend.generatePolish(textToProofread, PolishMode.PROOFREAD)
+                            AiPolishBackend.generatePolish(textToProofread, PolishMode.PROOFREAD,
+                                if (isSelection) TextContext(textBeforeCursor = before.takeLast(300), textAfterCursor = after.take(160), selectedText = selectedText) else null)
                         }?.let { modelResult = it }
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
@@ -2224,8 +2225,7 @@ class TypeRightKeyboardService : KeyboardService() {
                     }
 
                     if (!modelResult.isNullOrBlank()) {
-                        val sanitized = AiOutputValidator.sanitize(modelResult!!, textToProofread)
-                        OnDeviceNeuralPolishEngine.getInstance(applicationContext).quickProofread(sanitized)
+                        AiOutputValidator.sanitize(modelResult!!, textToProofread)
                     } else {
                         OnDeviceNeuralPolishEngine.getInstance(applicationContext).quickProofread(textToProofread)
                     }
@@ -6364,7 +6364,7 @@ fun GboardProofreadPanel(
                         onDismissRequest = { showOverflowMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("On-Device AI (Gemma 4 E2B)") },
+                            text = { Text("On-Device AI") },
                             leadingIcon = { Icon(Icons.Default.PhoneAndroid, contentDescription = null) },
                             onClick = {
                                 showOverflowMenu = false
@@ -6494,7 +6494,7 @@ fun GboardProofreadPanel(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "To use the on-device Gemma 4 AI model, accept Google's terms once. It will stay accepted unless you disable On-Device AI in Settings.",
+                                    text = "Review the selected model's terms in AI polish settings before using it.",
                                     color = titleAndIconColor.copy(alpha = 0.75f),
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center
@@ -6560,7 +6560,7 @@ fun GboardProofreadPanel(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "The on-device Gemma 4 E2B (3.35 GB) model is not downloaded. Open Settings to download it once for full offline polish.",
+                                    text = "The selected model is not downloaded. Open AI polish settings to choose and download a model.",
                                     color = titleAndIconColor.copy(alpha = 0.75f),
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center

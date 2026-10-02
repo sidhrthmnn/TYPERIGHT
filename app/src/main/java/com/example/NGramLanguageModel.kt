@@ -8,7 +8,7 @@ import kotlin.math.max
  *
  * Pluggable Next-Word Context Language Model.
  * Implements a full Multi-Order N-gram Model (Quadgram + Trigram + Bigram + Unigram)
- * with Jelinek-Mercer interpolation and Katz backoff to suggest the most likely next words
+ * with count-sensitive interpolation and lower-order backoff to suggest the most likely next words
  * based on previously typed word sequences.
  */
 interface IContextLanguageModel {
@@ -46,6 +46,9 @@ class NGramLanguageModel : IContextLanguageModel {
 
     private val totalUnigramCount = java.util.concurrent.atomic.AtomicLong(0L)
 
+    private val personalUnigrams = ConcurrentHashMap<String, Int>()
+    private val personalTotal = java.util.concurrent.atomic.AtomicLong(0L)
+    private var bootstrapping = true
     private var frequencyBackoff: List<String> = emptyList()
     private var baseFrequencies: Map<String, Int> = emptyMap()
     private var baseTotal = 0L
@@ -59,6 +62,7 @@ class NGramLanguageModel : IContextLanguageModel {
 
     init {
         seedCommonNGrams()
+        bootstrapping = false
     }
 
     /**
@@ -264,6 +268,10 @@ class NGramLanguageModel : IContextLanguageModel {
         map.merge(target, freq) { a, b -> a + b }
         unigrams.merge(target, freq) { a, b -> a + b }
         totalUnigramCount.addAndGet(freq.toLong())
+        if (!bootstrapping) {
+            personalUnigrams.merge(target, freq) { a, b -> a + b }
+            personalTotal.addAndGet(freq.toLong())
+        }
     }
 
     /**
@@ -288,6 +296,8 @@ class NGramLanguageModel : IContextLanguageModel {
             val w1 = tokens[i]
             unigrams.merge(w1, 1) { a, b -> a + b }
             totalUnigramCount.incrementAndGet()
+            personalUnigrams.merge(w1, 1) { a, b -> a + b }
+            personalTotal.incrementAndGet()
 
             if (i + 1 < tokens.size) {
                 val w2 = tokens[i + 1]
@@ -309,140 +319,49 @@ class NGramLanguageModel : IContextLanguageModel {
     /**
      * Computes the smoothed language model probability P(Word | Context) using Jelinek-Mercer interpolation
      * across Quadgram, Trigram, Bigram, and Unigram layers:
-     * P(w | ctx) = 0.40 * P_quad + 0.30 * P_tri + 0.20 * P_bi + 0.10 * P_uni
+     * Each context weights its observed distribution by N / (N + 12),
+     * backing off to the smoothed lower-order distribution.
      */
     override fun getProbability(word: String, contextWords: List<String>): Float {
-        val target = word.lowercase().trim()
-        if (target.isEmpty()) return 0.05f
-
-        val cleanContext = contextWords.map { it.lowercase().trim() }.filter { it.isNotEmpty() }
-        val prev1 = cleanContext.lastOrNull()
-        val prev2 = if (cleanContext.size >= 2) cleanContext[cleanContext.size - 2] else null
-        val prev3 = if (cleanContext.size >= 3) cleanContext[cleanContext.size - 3] else null
-
-        var quadProb = 0.0f
-        var triProb = 0.0f
-        var biProb = 0.0f
-        var uniProb = 0.05f
-
-        // Quadgram component
-        if (prev3 != null && prev2 != null && prev1 != null) {
-            val quadKey = "$prev3 $prev2 $prev1"
-            val map = quadgrams[quadKey]
-            if (map != null) {
-                val totalFreq = map.values.sum().toFloat().coerceAtLeast(1f)
-                val targetFreq = map[target]?.toFloat() ?: 0f
-                if (targetFreq > 0) {
-                    quadProb = targetFreq / totalFreq
-                }
-            }
+        val target = word.lowercase(java.util.Locale.ROOT).trim()
+        if (target.isEmpty()) return 0.000001f
+        val context = contextWords.takeLast(3).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
+        val total = (if (baseTotal > 0) baseTotal + personalTotal.get() else totalUnigramCount.get()).coerceAtLeast(1).toFloat()
+        val unigram = if (baseTotal > 0) (baseFrequencies[target] ?: 0) + (personalUnigrams[target] ?: 0) else unigrams[target] ?: 0
+        var probability = (unigram.coerceAtLeast(1) / total).coerceIn(0.000001f, 1f)
+        // Count-sensitive interpolation: a single observation should not outweigh
+        // reliable lower-order evidence; repeatedly learned context earns more weight.
+        fun interpolate(map: Map<String, Int>?) {
+            if (map.isNullOrEmpty()) return
+            val observations = map.values.sum().toFloat().coerceAtLeast(1f)
+            val weight = observations / (observations + 12f)
+            probability = weight * ((map[target] ?: 0) / observations) + (1f - weight) * probability
         }
-
-        // Trigram component
-        if (prev2 != null && prev1 != null) {
-            val triKey = "$prev2 $prev1"
-            val map = trigrams[triKey]
-            if (map != null) {
-                val totalFreq = map.values.sum().toFloat().coerceAtLeast(1f)
-                val targetFreq = map[target]?.toFloat() ?: 0f
-                if (targetFreq > 0) {
-                    triProb = targetFreq / totalFreq
-                }
-            }
-        }
-
-        // Bigram component
-        if (prev1 != null) {
-            val map = bigrams[prev1]
-            if (map != null) {
-                val totalFreq = map.values.sum().toFloat().coerceAtLeast(1f)
-                val targetFreq = map[target]?.toFloat() ?: 0f
-                if (targetFreq > 0) {
-                    biProb = targetFreq / totalFreq
-                }
-            }
-        }
-
-        // Unigram component
-        val uniCount = ((unigrams[target] ?: 0) + (baseFrequencies[target] ?: 0)).coerceAtLeast(1).toFloat()
-        val totalCount = (totalUnigramCount.get() + baseTotal).toFloat().coerceAtLeast(1000f)
-        uniProb = (uniCount / totalCount).coerceIn(0.000001f, 1.0f)
-
-        // Jelinek-Mercer weights (0.40 Quadgram, 0.30 Trigram, 0.20 Bigram, 0.10 Unigram)
-        val interpolated = (0.40f * quadProb) + (0.30f * triProb) + (0.20f * biProb) + (0.10f * uniProb)
-        return interpolated.coerceIn(0.000001f, 1.0f)
+        if (context.isNotEmpty()) interpolate(bigrams[context.last()])
+        if (context.size >= 2) interpolate(trigrams[context.takeLast(2).joinToString(" ")])
+        if (context.size >= 3) interpolate(quadgrams[context.joinToString(" ")])
+        return probability.coerceIn(0.000001f, 1f)
     }
 
     /**
      * Predicts the next word candidates based on previous sequence of words typed by the user,
      * matching an optional partially typed word prefix.
      */
-    override fun predictNextWords(
-        contextWords: List<String>,
-        prefix: String,
-        maxResults: Int
-    ): List<String> {
-        val cleanContext = contextWords.map { it.lowercase().trim() }.filter { it.isNotEmpty() }
-        val cleanPrefix = prefix.lowercase().trim()
-        val candidatesWithScores = HashMap<String, Float>()
-
-        // 1. Try Quadgram prediction if we have at least 3 context words
-        if (cleanContext.size >= 3) {
-            val w1 = cleanContext[cleanContext.size - 3]
-            val w2 = cleanContext[cleanContext.size - 2]
-            val w3 = cleanContext.last()
-            val quadKey = "$w1 $w2 $w3"
-            quadgrams[quadKey]?.let { map ->
-                val total = map.values.sum().toFloat().coerceAtLeast(1f)
-                for ((nextWord, freq) in map) {
-                    if (cleanPrefix.isEmpty() || nextWord.startsWith(cleanPrefix)) {
-                        val prob = freq / total
-                        candidatesWithScores[nextWord] = (candidatesWithScores[nextWord] ?: 0f) + (prob * 0.70f)
-                    }
-                }
-            }
-        }
-
-        // 2. Try Trigram prediction if we have at least 2 context words
-        if (cleanContext.size >= 2) {
-            val w1 = cleanContext[cleanContext.size - 2]
-            val w2 = cleanContext.last()
-            val triKey = "$w1 $w2"
-            trigrams[triKey]?.let { map ->
-                val total = map.values.sum().toFloat().coerceAtLeast(1f)
-                for ((nextWord, freq) in map) {
-                    if (cleanPrefix.isEmpty() || nextWord.startsWith(cleanPrefix)) {
-                        val prob = freq / total
-                        candidatesWithScores[nextWord] = (candidatesWithScores[nextWord] ?: 0f) + (prob * 0.50f)
-                    }
-                }
-            }
-        }
-
-        // 3. Try Bigram prediction if we have at least 1 context word
-        if (cleanContext.isNotEmpty()) {
-            val w = cleanContext.last()
-            bigrams[w]?.let { map ->
-                val total = map.values.sum().toFloat().coerceAtLeast(1f)
-                for ((nextWord, freq) in map) {
-                    if (cleanPrefix.isEmpty() || nextWord.startsWith(cleanPrefix)) {
-                        val prob = freq / total
-                        candidatesWithScores[nextWord] = (candidatesWithScores[nextWord] ?: 0f) + (prob * 0.30f)
-                    }
-                }
-            }
-        }
-
-        // Small frequency fallback fills gaps while observed context keeps priority.
-        val total = (totalUnigramCount.get() + baseTotal).coerceAtLeast(1).toFloat()
-        frequencyBackoff.filter { cleanPrefix.isEmpty() || it.startsWith(cleanPrefix) }.forEach { word ->
-            candidatesWithScores.putIfAbsent(word, ((unigrams[word] ?: 0) + (baseFrequencies[word] ?: 0)).coerceAtLeast(1) / total * 0.01f)
-        }
-        // Sort candidates by total interpolated score
-        return candidatesWithScores.entries
-            .sortedByDescending { it.value }
-            .take(maxResults)
-            .map { it.key }
+    override fun predictNextWords(contextWords: List<String>, prefix: String, maxResults: Int): List<String> {
+        if (maxResults <= 0) return emptyList()
+        val context = contextWords.takeLast(3).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
+        val cleanPrefix = prefix.lowercase(java.util.Locale.ROOT).trim()
+        val candidates = linkedSetOf<String>()
+        if (context.size >= 3) candidates.addAll(quadgrams[context.joinToString(" ")]?.keys.orEmpty())
+        if (context.size >= 2) candidates.addAll(trigrams[context.takeLast(2).joinToString(" ")]?.keys.orEmpty())
+        if (context.isNotEmpty()) candidates.addAll(bigrams[context.last()]?.keys.orEmpty())
+        candidates.addAll(frequencyBackoff.filter { it.startsWith(cleanPrefix) })
+        // Personalized words remain discoverable even without a matching n-gram.
+        candidates.addAll((if (baseTotal > 0) personalUnigrams else unigrams).keys.filter { it.startsWith(cleanPrefix) })
+        return candidates.asSequence().filter { it.startsWith(cleanPrefix) }
+            .map { it to getProbability(it, context) }
+            .sortedWith(compareByDescending<Pair<String, Float>> { it.second }.thenBy { it.first })
+            .take(maxResults).map { it.first }.toList()
     }
 
     /**

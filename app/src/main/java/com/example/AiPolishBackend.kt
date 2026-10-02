@@ -35,7 +35,7 @@ object AiPolishBackend {
         return KeyboardSettings(ctx).activeAiEngine
     }
 
-    val label: String get() = engine.title
+    val label: String get() = appContext?.let { if (engine == ActiveAiEngine.OFFLINE) LocalGgufModel.label(it) else engine.title } ?: engine.title
 
     val isCloudActive: Boolean get() = false
 
@@ -57,7 +57,7 @@ object AiPolishBackend {
 
         // Local on-device GGUF model
         if (engine == ActiveAiEngine.OFFLINE) {
-            return GgufPolishEngine.polish(ctx, input, mode)
+            return GgufPolishEngine.polish(ctx, input, mode, context, preferredModel)
         }
 
         val tone = when (mode) {
@@ -84,7 +84,7 @@ object AiPolishBackend {
 
         // Local on-device GGUF model
         if (engine == ActiveAiEngine.OFFLINE) {
-            emit(GgufPolishEngine.polish(ctx, input, mode))
+            emit(GgufPolishEngine.polish(ctx, input, mode, context, preferredModel))
             return@flow
         }
 

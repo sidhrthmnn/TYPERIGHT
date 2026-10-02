@@ -21,10 +21,11 @@ app design. Subsequent Gemma 4 and voice updates are documented in
 | --- | --- |
 | ![Light settings](images/app-settings-light.png) | ![Dark settings](images/app-settings-dark.png) |
 
-The AI page uses the same card layout and now exposes Gemma 4's download size,
-installation status, and license clearly:
+The AI page uses the same card layout with a persistent GRMR/Gemma model picker,
+per-model download size, installation status, cancellation, removal and licenses.
+Compatible custom GGUF downloads can be added by URL and checksum:
 
-![AI polish settings](images/app-ai-polish.png)
+![AI polish settings](images/app-model-library.png)
 
 ## Verification
 
@@ -39,3 +40,6 @@ To run the companion UI checks on a connected Android device:
 ```sh
 ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.AppSettingsUiTest
 ```
+
+`ModelSettingsUiTest` additionally verifies all three model choices, saved selection
+after recreation, Gemma 3 consent and invalid custom download URL handling.

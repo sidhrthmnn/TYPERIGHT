@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -195,7 +197,7 @@ class PredictiveTextSuggestionService(
             val topCustom = customMatches.firstOrNull()
             if (topCustom != null && !topCustom.equals(prefix, ignoreCase = true) && !gboardResult.isCenterAutocorrecting) {
                 rawCenter = topCustom
-                isCenterAutocorrecting = true
+                isCenterAutocorrecting = false // A personal prefix completion still requires a tap.
             } else {
                 rawCenter = gboardResult.centerCandidate.ifEmpty {
                     nGramPredictions.firstOrNull() ?: if (!dictionaryManager.isBlocked(prefix)) prefix else ""
@@ -252,17 +254,18 @@ class PredictiveTextSuggestionService(
     fun observeSuggestions(
         bufferFlow: Flow<TextInputBufferState>,
         debounceMs: Long = 20L
-    ): Flow<PredictiveTextSuggestions> = flow {
-        bufferFlow.collect { buffer ->
+    ): Flow<PredictiveTextSuggestions> = channelFlow {
+        bufferFlow.distinctUntilChanged().collectLatest { buffer ->
             if (debounceMs > 0) {
                 delay(debounceMs)
             }
             try {
                 val suggestions = fetchSuggestions(buffer)
-                emit(suggestions)
+                send(suggestions)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w("PredictiveTextService", "Suggestion generation error: ${e.message}")
-                emit(PredictiveTextSuggestions(sourceBuffer = buffer))
+                send(PredictiveTextSuggestions(sourceBuffer = buffer))
             }
         }
     }.flowOn(defaultDispatcher)

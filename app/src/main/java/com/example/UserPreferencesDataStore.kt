@@ -1,6 +1,7 @@
 package com.example
 
 import android.content.Context
+import androidx.datastore.core.DataMigration
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.SharedPreferencesMigration
 import androidx.datastore.preferences.core.Preferences
@@ -27,9 +28,19 @@ import java.io.IOException
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
     name = "typeright_user_preferences",
     produceMigrations = { context ->
-        listOf(SharedPreferencesMigration(context, KeyboardSettings.PREFS_NAME))
+        listOf(preservingPreferencesMigration(context))
     }
 )
+
+/** KeyboardSettings still reads SharedPreferences, so migration must not delete them. */
+internal fun preservingPreferencesMigration(context: Context): DataMigration<Preferences> {
+    val migration = SharedPreferencesMigration(context, KeyboardSettings.PREFS_NAME)
+    return object : DataMigration<Preferences> {
+        override suspend fun shouldMigrate(currentData: Preferences) = migration.shouldMigrate(currentData)
+        override suspend fun migrate(currentData: Preferences) = migration.migrate(currentData)
+        override suspend fun cleanUp() = Unit
+    }
+}
 
 /**
  * Immutable representation of all user preferences managed via Jetpack DataStore.
@@ -65,7 +76,7 @@ data class UserPreferences(
     val wisprFlowMode: WisprFlowMode = WisprFlowMode.AUTO,
 
     // AI and Language settings
-    val aiModel: String = "local-slm",
+    val aiModel: String = GgufModelCatalog.DEFAULT_ID,
     val offlineAiEnabled: Boolean = true,
     val geminiAiEnabled: Boolean = false,
     val nemotronAiEnabled: Boolean = false,
@@ -200,8 +211,8 @@ class UserPreferencesDataStore private constructor(context: Context) {
                 whisperModel = prefs[PreferencesKeys.WHISPER_MODEL] ?: "gemini-nano",
                 wisprFlowMode = wisprMode,
 
-                aiModel = (prefs[PreferencesKeys.AI_MODEL] ?: "gemini-3.1-flash-lite-preview").let {
-                    if (it.contains("3.5-flash-lite") || it.contains("2.5-flash-lite")) "gemini-3.1-flash-lite-preview" else it
+                aiModel = (prefs[PreferencesKeys.AI_MODEL] ?: GgufModelCatalog.DEFAULT_ID).let {
+                    if (it.contains("3.5-flash-lite") || it.contains("2.5-flash-lite")) GgufModelCatalog.DEFAULT_ID else it
                 },
                 offlineAiEnabled = prefs[PreferencesKeys.OFFLINE_AI_ENABLED] ?: true,
                 geminiAiEnabled = prefs[PreferencesKeys.GEMINI_AI_ENABLED] ?: true,
@@ -518,8 +529,8 @@ class UserPreferencesDataStore private constructor(context: Context) {
                 whisperModel = sp.getString(KeyboardSettings.KEY_WHISPER_MODEL, "gemini-nano") ?: "gemini-nano",
                 wisprFlowMode = wisprMode,
 
-                aiModel = (sp.getString(KeyboardSettings.KEY_AI_MODEL, "gemini-3.1-flash-lite-preview") ?: "gemini-3.1-flash-lite-preview").let {
-                    if (it.contains("3.5-flash-lite") || it.contains("2.5-flash-lite")) "gemini-3.1-flash-lite-preview" else it
+                aiModel = (sp.getString(KeyboardSettings.KEY_AI_MODEL, GgufModelCatalog.DEFAULT_ID) ?: GgufModelCatalog.DEFAULT_ID).let {
+                    if (it.contains("3.5-flash-lite") || it.contains("2.5-flash-lite")) GgufModelCatalog.DEFAULT_ID else it
                 },
                 offlineAiEnabled = sp.getBoolean(KeyboardSettings.KEY_OFFLINE_AI_ENABLED, true),
                 geminiAiEnabled = sp.getBoolean(KeyboardSettings.KEY_GEMINI_AI_ENABLED, true),

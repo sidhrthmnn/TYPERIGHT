@@ -19,7 +19,8 @@ data class EditorSnapshot(
     val originalText: String,
     val startOffset: Int,
     val endOffset: Int,
-    val cursorPosition: Int
+    val cursorPosition: Int,
+    val textContext: TextContext? = null
 )
 
 data class UndoSnapshot(
@@ -56,7 +57,7 @@ sealed interface PolishUiState {
 
 /**
  * Orchestrates on-device AI Polish requests, coordinates with the keyboard editor,
- * ensures truthful labeling ("Local GGUF · Gemma 4 E2B" vs "Basic offline correction"),
+ * ensures truthful labeling ("Local GGUF · selected model" vs "Basic offline correction"),
  * performs output validation, and manages atomic Apply/Undo.
  */
 class PolishCoordinator(
@@ -140,7 +141,7 @@ class PolishCoordinator(
                 if (!forceBasicOffline) {
                     try {
                         kotlinx.coroutines.withTimeoutOrNull(AiPolishBackend.timeoutMillis) {
-                            AiPolishBackend.streamPolish(originalText, mode).collect { chunk ->
+                            AiPolishBackend.streamPolish(originalText, mode, snapshot.textContext).collect { chunk ->
                                 if (currentSessionId == thisSessionId && chunk.isNotBlank()) {
                                     lastStreamedText = chunk
                                     isFromModel = true
@@ -157,8 +158,7 @@ class PolishCoordinator(
                 if (currentSessionId != thisSessionId) return@launch
 
                 val candidateText = if (isFromModel && !lastStreamedText.isNullOrBlank()) {
-                    val sanitized = AiOutputValidator.sanitize(lastStreamedText!!, originalText)
-                    OnDeviceNeuralPolishEngine.getInstance(context).quickProofread(sanitized)
+                    AiOutputValidator.sanitize(lastStreamedText!!, originalText)
                 } else {
                     withContext(Dispatchers.Default) {
                         try {
@@ -192,7 +192,7 @@ class PolishCoordinator(
                 if (currentSessionId != thisSessionId) return@launch
 
                 val isValid = AiOutputValidator.isValid(originalText, candidateText, mode)
-                val finalText = if (candidateText.isNotBlank() && (isFromModel || isValid)) {
+                val finalText = if (candidateText.isNotBlank() && isValid) {
                     candidateText
                 } else {
                     withContext(Dispatchers.Default) {

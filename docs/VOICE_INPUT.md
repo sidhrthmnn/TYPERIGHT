@@ -37,6 +37,6 @@ text, Cancel remains available, and Done is disabled during final processing.
 ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.VoiceInputToolbarTest
 ```
 
-The full unit suite passed 105 tests, and the companion settings and voice toolbar
-passed six Android UI tests on an Android 16 emulator. Physical microphone quality
+The full unit suite passed 119 tests, and the companion settings, model library and voice toolbar
+passed nine Android UI tests on an Android 16 emulator. Physical microphone quality
 and latency still require testing on a phone with its installed speech service.

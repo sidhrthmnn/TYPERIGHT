@@ -350,8 +350,8 @@ class GboardPredictionEngine(private val context: Context) {
         val sensitivity = settings.autocorrectSensitivity
         val minMargin = when (sensitivity) {
             KeyboardSettings.SENSITIVITY_MILD -> 0.16f
-            KeyboardSettings.SENSITIVITY_AGGRESSIVE -> 0.03f
-            else -> 0.08f
+            KeyboardSettings.SENSITIVITY_AGGRESSIVE -> 0.06f
+            else -> AUTOCORRECT_MARGIN
         }
         val maxDist = when (sensitivity) {
             KeyboardSettings.SENSITIVITY_MILD -> 1.2f
@@ -375,9 +375,9 @@ class GboardPredictionEngine(private val context: Context) {
                     0.45f * (1f - distance / maxOf(3, lower.length).toFloat()).coerceIn(0f, 1f) +
                     0.25f * frequency + 0.20f * probability + 0.10f * spatial +
                     (if (literal && rawIsValid) 0.5f else 0f) + (if (completion) 0.05f else 0f) +
-                    (if (isGoogleSpellMatch) 0.45f else 0f)
+                    (if (isGoogleSpellMatch) 0.05f else 0f)
                 val eligible = !literal && (!completion || deterministic) && !dictionaryManager.isCorrectionSuppressed(typed, word) && !dictionaryManager.isBlocked(word) &&
-                    (deterministic || isGoogleSpellMatch || (!rawIsValid && lower.length >= 2 && distance <= maxDist && frequency >= 0.04f))
+                    (deterministic || (!rawIsValid && lower.length >= 3 && distance <= maxDist && frequency >= 0.04f))
                 GboardCandidate(TypingPolicy.restoreCase(typed, word), spatial, probability, distance,
                     frequency, score, if (eligible) ConfidenceTier.HIGH else ConfidenceTier.LOW,
                     eligible, if (deterministic) "Curated typo" else if (isGoogleSpellMatch) "Google Spellcheck" else if (completion) "Completion" else "Dictionary candidate")
@@ -428,7 +428,7 @@ class GboardPredictionEngine(private val context: Context) {
         if (typed.any { !it.isLetter() && it != '\'' } || dictionaryManager.isCodeOrSpecialToken(typed)) return null
 
         val lower = typed.lowercase(Locale.ROOT)
-        if (dictionaryManager.isBlocked(lower)) return null
+        if (dictionaryManager.isBlocked(lower) || dictionaryManager.isWordInUserDictionary(lower)) return null
         // 1. Contraction lookups (dont -> don't, cant -> can't, shouldve -> should've)
         contractionLookup[lower]?.let {
             val restored = restoreCasing(typed, it)
@@ -442,7 +442,8 @@ class GboardPredictionEngine(private val context: Context) {
         }
 
         // 3. If user typed an already valid word, preserve it! Never split valid words
-        if (dictionaryManager.isWordInDictionary(lower) || dictionaryManager.isWordInUserDictionary(lower) || symSpellEngine.hasWord(lower)) {
+        if (dictionaryManager.isWordInUserDictionary(lower) ||
+            ((dictionaryManager.isWordInDictionary(lower) || symSpellEngine.hasWord(lower)) && !isKnownTypo(lower))) {
             return null
         }
 
@@ -465,7 +466,7 @@ class GboardPredictionEngine(private val context: Context) {
         val matches = dictionaryManager.findDictionaryCorrections(lower, maxDistance = maxDist, maxResults = 16).filter { !dictionaryManager.isBlocked(it.term) }
         if (matches.isEmpty()) return null
 
-        val context = contextWords.takeLast(2).map { it.lowercase(Locale.ROOT) }
+        val context = contextWords.takeLast(3).map { it.lowercase(Locale.ROOT) }
         val model = dictionaryManager.nGramModel
 
         val scored = matches.map { match ->
@@ -480,6 +481,18 @@ class GboardPredictionEngine(private val context: Context) {
 
         val best = scored.firstOrNull() ?: return null
         if (best.second < minScoreThreshold) return null
+        val minMargin = when (sensitivity) {
+            KeyboardSettings.SENSITIVITY_MILD -> 0.16f
+            KeyboardSettings.SENSITIVITY_AGGRESSIVE -> 0.06f
+            else -> AUTOCORRECT_MARGIN
+        }
+        if (best.second - (scored.getOrNull(1)?.second ?: 0f) < minMargin) return null
+        // A frequent longer word indicates an unfinished prefix, not a committed typo.
+        val completions = dictionaryManager.findWordsWithPrefix(lower, 4).filter { it.length > lower.length }
+        if (sensitivity != KeyboardSettings.SENSITIVITY_AGGRESSIVE && completions.any {
+            sensitivity == KeyboardSettings.SENSITIVITY_MILD ||
+                dictionaryManager.getWordFrequency(it) > dictionaryManager.getWordFrequency(best.first) * 2
+        }) return null
 
         val restored = restoreCasing(typed, best.first)
         return if (!dictionaryManager.isCorrectionSuppressed(typed, restored) && !dictionaryManager.isBlocked(restored)) restored else null
@@ -525,16 +538,8 @@ class GboardPredictionEngine(private val context: Context) {
             return direct
         }
         
-        // 6. Google device spell check suggestions
-        if (lower.length >= 3 && !dictionaryManager.isWordInDictionary(lower)) {
-            val googleSpell = GoogleDeviceSpellChecker.getInstance(this.context).getSpellCheckSuggestions(lower)
-            if (googleSpell.isNotEmpty()) {
-                val candidate = restoreCasing(typed, googleSpell.first())
-                if (!candidate.contains(" ") && !dictionaryManager.isCorrectionSuppressed(typed, candidate) && !dictionaryManager.isBlocked(candidate)) {
-                    return candidate
-                }
-            }
-        }
+        // Device spell suggestions are ranked in the suggestion strip; they are not
+        // sufficient evidence to silently replace a name or an unfinished prefix.
         return null
     }
     private fun restoreCasing(original: String, target: String): String {

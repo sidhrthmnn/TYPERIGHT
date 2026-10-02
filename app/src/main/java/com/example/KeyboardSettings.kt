@@ -3,7 +3,7 @@ package com.example
 import android.content.Context
 import android.content.SharedPreferences
 
-class KeyboardSettings(context: Context) {
+class KeyboardSettings(private val context: Context) {
     private val appContext = context.applicationContext ?: context
     val sharedPreferences: SharedPreferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val prefs: SharedPreferences = sharedPreferences
@@ -166,14 +166,15 @@ class KeyboardSettings(context: Context) {
         }
 
     var aiModel: String
-        get() = prefs.getString(KEY_AI_MODEL, "local-gemma-4-e2b") ?: "local-gemma-4-e2b"
+        get() = prefs.getString(KEY_AI_MODEL, GgufModelCatalog.DEFAULT_ID) ?: GgufModelCatalog.DEFAULT_ID
         set(value) {
             prefs.edit().putString(KEY_AI_MODEL, value).apply()
             dataStore.updateAsync { it.setAiModel(value) }
         }
 
     fun isModelDownloaded(model: String): Boolean {
-        return true
+        val spec = GgufModelCatalog.all(context).firstOrNull { it.id == model } ?: return false
+        return LocalGgufModel.isReady(context, spec)
     }
 
     fun setModelDownloaded(model: String, downloaded: Boolean) {
@@ -297,7 +298,7 @@ class KeyboardSettings(context: Context) {
 
     fun getActiveAiLanguagePromptGuidance(): String {
         if (isAllAiLanguagesSelected) {
-            return "Active language scope: ALL 140+ languages supported by Gemma 4 (including English, European, Indic/South Asian, East/SE Asian, Middle Eastern, African, and Americas/Pacific languages, as well as transliterated or code-mixed text). Accurately detect, preserve, and respect the input's natural language and script without unwanted cross-language translation."
+            return "Active language scope: ALL 140+ languages in the language picker, subject to the selected model's actual capabilities (including English, European, Indic/South Asian, East/SE Asian, Middle Eastern, African, and Americas/Pacific languages, as well as transliterated or code-mixed text). Accurately detect, preserve, and respect the input's natural language and script without unwanted cross-language translation."
         }
         val codes = getSelectedAiLanguageCodes()
         val languageList = codes.mapNotNull { ModelLanguages.findByCode(it) }
@@ -558,7 +559,7 @@ enum class ActiveAiEngine(
     val description: String
 ) {
     BOTH("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
-    OFFLINE("Local On-Device AI (Gemma 4 E2B)", "Local", "📱", "Runs 100% on this phone offline without cloud dependency"),
+    OFFLINE("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline without cloud dependency"),
     ONLINE("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
     NEMOTRON("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
     NONE("AI Off", "Off", "⚪", "AI assistants disabled")

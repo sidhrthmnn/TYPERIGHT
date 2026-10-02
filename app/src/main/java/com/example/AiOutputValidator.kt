@@ -201,15 +201,23 @@ object AiOutputValidator {
 
         // 6. Number Preservation (for PROOFREAD, POLISH, PROFESSIONAL, CASUAL, SHORTEN, EXPAND, REPHRASE)
         // VOICE_CLEANUP can resolve spoken self-corrections like "five no wait six" -> "6",
-        // but for PROOFREAD numbers must strictly match.
-        if (mode == PolishMode.PROOFREAD) {
+        // but other editing modes preserve all original numbers.
+        if (mode != PolishMode.VOICE_CLEANUP && mode != PolishMode.RAMBLE) {
             val origNumbers = extractMatches(origTrim, NUMBER_REGEX)
             val candNumbers = extractMatches(candTrim, NUMBER_REGEX)
             if (origNumbers != candNumbers) {
-                // If numbers were altered or deleted in PROOFREAD mode, reject
+                // If numbers were altered or deleted in an editing mode, reject
                 return false
             }
         }
+
+        // Preserve refusals during proofreading and keep questions as questions.
+        if (mode == PolishMode.PROOFREAD) {
+            val negations = Regex("""\b(?:not|never|no|without|cannot|dont|doesnt|didnt|cant|wont|shouldnt|wouldnt|couldnt|isnt|arent|wasnt|werent|havent|hasnt|hadnt|mustnt|neednt|shant|aint|[a-z]+n['’]t)\b""", RegexOption.IGNORE_CASE)
+            if (negations.findAll(origTrim).count() != negations.findAll(candTrim).count()) return false
+        }
+        if (mode !in setOf(PolishMode.VOICE_CLEANUP, PolishMode.RAMBLE) &&
+            origTrim.endsWith("?") && !candTrim.endsWith("?")) return false
 
         // 7. Length and Hallucination Check
         val origLen = origTrim.length

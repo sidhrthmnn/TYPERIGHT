@@ -32,7 +32,7 @@ class AiPolishManager(private val context: Context) {
 
         val startTime = System.currentTimeMillis()
         val result = try {
-            AiPolishBackend.generatePolish(text, PolishMode.PROOFREAD)
+            AiPolishBackend.generatePolish(text, PolishMode.PROOFREAD, textContext)
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException || AiPolishBackend.engine == ActiveAiEngine.OFFLINE) throw e
             null
@@ -117,7 +117,7 @@ class AiPolishManager(private val context: Context) {
 
         val startTime = System.currentTimeMillis()
         val result = try {
-            AiPolishBackend.generatePolish(text, mode)
+            AiPolishBackend.generatePolish(text, mode, textContext)
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException || AiPolishBackend.engine == ActiveAiEngine.OFFLINE) throw e
             null

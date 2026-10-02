@@ -53,8 +53,6 @@ fun AiBackendSettings(settings: KeyboardSettings) {
     val enabled = engine == ActiveAiEngine.OFFLINE
     val download by LocalGgufModel.state.collectAsState()
     var ready by remember { mutableStateOf(LocalGgufModel.isReady(context)) }
-    var downloadJob by remember { mutableStateOf<Job?>(null) }
-    var downloadError by remember { mutableStateOf<String?>(null) }
     var allLanguages by remember { mutableStateOf(settings.isAllAiLanguagesSelected) }
     var codes by remember { mutableStateOf(settings.getSelectedAiLanguageCodes()) }
     var showLanguages by rememberSaveable { mutableStateOf(false) }
@@ -66,6 +64,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
         engine = settings.activeAiEngine
         allLanguages = settings.isAllAiLanguagesSelected
         codes = settings.getSelectedAiLanguageCodes()
+        ready = LocalGgufModel.isReady(context)
     }
     DisposableEffect(settings) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> refresh() }
@@ -73,66 +72,8 @@ fun AiBackendSettings(settings: KeyboardSettings) {
         onDispose { settings.sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     LaunchedEffect(download.busy) { ready = LocalGgufModel.isReady(context) }
-    fun disable() {
-        settings.setActiveAiEngine(ActiveAiEngine.NONE)
-        LocalGgufModel.acceptTerms(context, false)
-        refresh()
-    }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        AppSettingsCard(Modifier.testTag("ai_engine_card")) {
-            AppSwitchRow("On-device AI", "Gemma 4 · private text polishing", enabled, { active ->
-                if (active) {
-                    settings.setActiveAiEngine(ActiveAiEngine.OFFLINE)
-                    refresh()
-                } else disable()
-            }, "ai_engine_switch", Icons.Default.AutoAwesome)
-            if (enabled) {
-                SettingsDivider()
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(LocalGgufModel.MODEL_NAME, style = MaterialTheme.typography.titleSmall)
-                        Text("${LocalGgufModel.DOWNLOAD_SIZE} · runs on your phone", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape) {
-                        Text(if (ready) "Installed" else "Not installed", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
-                    }
-                }
-                if (!GgufPolishEngine.isSupported()) {
-                    Text("This model needs a 64-bit Android device.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                } else if (ready) {
-                    AppStatusNote("Ready when you are", "Your model is installed. Polish short selections even without a connection.", Icons.Default.Check,
-                        Modifier.testTag("gemma_terms_accepted_card"))
-                } else if (download.busy) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        LinearProgressIndicator(progress = { download.progress }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape))
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Downloading · ${(download.progress * 100).toInt()}%", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            TextButton(onClick = { downloadJob?.cancel() }) { Text("Cancel") }
-                        }
-                    }
-                } else {
-                    Text("Download once, then polish offline. Allow 3.5 GB of free storage. Keep this screen open while the model downloads.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(onClick = {
-                        downloadError = null
-                        downloadJob = scope.launch {
-                            try { LocalGgufModel.download(context); ready = LocalGgufModel.isReady(context) }
-                            catch (e: CancellationException) { throw e }
-                            catch (e: Exception) { downloadError = e.message ?: "Download failed. Try again." }
-                        }
-                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("download_gguf")) {
-                        Icon(Icons.Default.Download, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp)); Text("Download model · ${LocalGgufModel.DOWNLOAD_SIZE}")
-                    }
-                }
-                downloadError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-                Text("Designed for capable 64-bit phones. Speed and memory use depend on your device.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = { uriHandler.openUri("https://www.apache.org/licenses/LICENSE-2.0") }) { Text("Apache 2.0 license") }
-            } else Text("Turn on AI to polish spelling, clarity and tone with a model on your device.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        GgufModelSettings(settings)
         SettingsSectionLabel("Languages", "Write in the languages you use")
         AppSettingsCard(Modifier.testTag("languages_card")) {
             AppSwitchRow("Detect automatically", "Consider all available language options", allLanguages, {
@@ -161,7 +102,7 @@ fun AiBackendSettings(settings: KeyboardSettings) {
             OutlinedTextField(value = input, onValueChange = { input = it }, enabled = !polishing,
                 label = { Text("Your draft") }, minLines = 3, shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth().testTag("polish_playground_input"))
-            Button(enabled = !polishing && input.isNotBlank() && enabled && ready && GgufPolishEngine.isSupported(), onClick = {
+            Button(enabled = !polishing && input.isNotBlank() && enabled && ready && LocalGgufModel.termsAccepted(context) && GgufPolishEngine.isSupported(), onClick = {
                 polishing = true; result = null; testError = null
                 scope.launch {
                     try { result = AiPolishBackend.generatePolish(input, PolishMode.PROOFREAD) ?: "No changes made." }
