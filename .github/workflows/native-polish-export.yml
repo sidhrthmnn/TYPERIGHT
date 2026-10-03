@@ -1,0 +1,49 @@
+name: Native polish export
+on:
+  push:
+    branches: [codex/android-native-polish-193]
+    paths:
+      - '.github/workflows/native-polish-export.yml'
+      - 'tools/export_polish.py'
+      - 'tools/requirements-polish-export.txt'
+      - 'tools/training/**'
+      - 'tools/polish-template.jinja'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GIT_LFS_SKIP_SMUDGE: '1'
+      HF_HOME: /tmp/hf-polish
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.13'
+      - name: Install pinned export toolchain
+        run: |
+          python -m pip install --upgrade pip==26.2.1
+          pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r tools/requirements-polish-export.txt
+      - name: Export custom checkpoint or verify toolchain against pretrained baseline
+        run: |
+          if test -f tools/training/merged/config.json; then
+            git lfs pull --include='tools/training/merged/*.safetensors' --exclude=''
+            python tools/export_polish.py --checkpoint tools/training/merged --output /tmp/polish-export
+          else
+            python tools/export_polish.py --baseline-only --output /tmp/polish-export
+          fi
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: native-polish-export
+          path: |
+            /tmp/polish-export/*.litertlm
+            /tmp/polish-export/export.json
+            /tmp/polish-export/export-environment.lock
+          retention-days: 7
