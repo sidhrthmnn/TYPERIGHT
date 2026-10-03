@@ -1,4 +1,8 @@
-# Verification on 3 October 2026
+# Archived verification before version 192.0
+
+For the English/Manglish implementation, see [version 192 verification](verification-192.md)
+and [the current validation record](../../tools/typing-validation.json).
+The following results describe the earlier implementation and model inference checks.
 
 ## Build and regression fixtures
 

@@ -7,6 +7,8 @@ import androidx.room.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.Locale
 import kotlin.math.sqrt
 
@@ -55,29 +57,14 @@ data class LearnedTrigram(
 
 @Dao
 interface PatternLearningDao {
-    @Query("SELECT * FROM learned_swipe_patterns")
+    @Query("SELECT * FROM learned_swipe_patterns ORDER BY timestamp DESC LIMIT 256")
     suspend fun getAllSwipePatterns(): List<LearnedSwipePattern>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSwipePattern(pattern: LearnedSwipePattern)
 
-    @Query("SELECT * FROM learned_touch_offsets")
-    suspend fun getAllTouchOffsets(): List<LearnedTouchOffset>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertTouchOffset(offset: LearnedTouchOffset)
-
-    @Query("SELECT * FROM learned_bigrams")
-    suspend fun getAllBigrams(): List<LearnedBigram>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertBigram(bigram: LearnedBigram)
-
-    @Query("SELECT * FROM learned_trigrams")
-    suspend fun getAllTrigrams(): List<LearnedTrigram>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertTrigram(trigram: LearnedTrigram)
+    @Query("DELETE FROM learned_swipe_patterns WHERE word NOT IN (SELECT word FROM learned_swipe_patterns ORDER BY timestamp DESC LIMIT 256)")
+    suspend fun pruneSwipePatterns()
 
     @Query("DELETE FROM learned_swipe_patterns")
     suspend fun clearSwipePatterns()
@@ -101,66 +88,27 @@ class PatternLearningPredictor private constructor(context: Context) {
     private val database = AppDatabase.getDatabase(context)
     private val dao = database.patternLearningDao()
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val settings = KeyboardSettings(context)
+    private val writes = Mutex()
     @Volatile private var resetGeneration = 0L
 
-    // In-memory caches to guarantee sub-millisecond response times for real-time predictions
-    private val swipeTemplates = HashMap<String, List<PointF>>()
-    private val touchOffsets = HashMap<Char, PointF>() // Average offset dx, dy per key
-    private val touchStatsMap = HashMap<Char, Triple<Float, Float, Int>>() // char -> (dxSum, dySum, count)
-    private val bigramCounts = HashMap<String, HashMap<String, Int>>() // prevWord -> (nextWord -> count)
-    private val trigramCounts = HashMap<String, HashMap<String, Int>>() // "prev2:prev1" -> (nextWord -> count)
+    private val swipeTemplates = LinkedHashMap<String, List<PointF>>()
 
     init {
-        loadDataFromDatabase()
-    }
-
-    private fun loadDataFromDatabase() {
         val generation=resetGeneration
-        scope.launch {
-            try {
-                // 1. Load Swipe Templates
-                val dbSwipe = dao.getAllSwipePatterns()
-                if(generation != resetGeneration) return@launch
-                synchronized(swipeTemplates) {
-                    dbSwipe.forEach {
-                        val points = deserializePoints(it.pointsJson)
-                        if (points.isNotEmpty()) {
-                            swipeTemplates[it.word.lowercase()] = points
-                        }
-                    }
+        scope.launch { writes.withLock {
+            // Legacy touch calibration never used confirmed intended letters.
+            // Keep Room's schema for upgrades; the FTRL learner owns touch data.
+            dao.clearTouchOffsets()
+            dao.pruneSwipePatterns()
+            val restored=dao.getAllSwipePatterns()
+            if(generation==resetGeneration) synchronized(swipeTemplates) {
+                restored.asReversed().forEach { record ->
+                    val points=deserializePoints(record.pointsJson)
+                    if(points.size==8) swipeTemplates[record.word.lowercase(Locale.ROOT)]=points
                 }
-
-                // Legacy offsets were trained from pressed keys and synthetic points.
-                // Discard them; confirmed nullable samples now train OnlineTypingLearner.
-                dao.clearTouchOffsets()
-                synchronized(touchOffsets) { touchOffsets.clear(); touchStatsMap.clear() }
-
-                // 3. Load Bigrams
-                val dbBigrams = dao.getAllBigrams()
-                if(generation != resetGeneration) return@launch
-                synchronized(bigramCounts) {
-                    dbBigrams.forEach {
-                        val innerMap = bigramCounts.getOrPut(it.prevWord.lowercase()) { HashMap() }
-                        innerMap[it.nextWord.lowercase()] = it.count
-                    }
-                }
-
-                // 4. Load Trigrams
-                val dbTrigrams = dao.getAllTrigrams()
-                if(generation != resetGeneration) return@launch
-                synchronized(trigramCounts) {
-                    dbTrigrams.forEach {
-                        val key = "${it.prev2.lowercase()}:${it.prev1.lowercase()}"
-                        val innerMap = trigramCounts.getOrPut(key) { HashMap() }
-                        innerMap[it.nextWord.lowercase()] = it.count
-                    }
-                }
-                
-                Log.d("MLPredictor", "Successfully loaded ML caches. Swipes: ${swipeTemplates.size}, Touches: ${touchOffsets.size}, Bigrams: ${bigramCounts.size}, Trigrams: ${trigramCounts.size}")
-            } catch (e: Exception) {
-                Log.e("MLPredictor", "Error loading ML models: ${e.message}", e)
             }
-        }
+        } }
     }
 
     // ------------------------------------------
@@ -172,17 +120,24 @@ class PatternLearningPredictor private constructor(context: Context) {
      */
     fun learnSwipePattern(word: String, path: List<PointF>) {
         val cleanWord = word.lowercase(Locale.ROOT).trim()
-        if (cleanWord.isEmpty() || path.size < 2) return
+        if (!settings.personalizedLearningEnabled || cleanWord.length !in 2..32 || path.size < 2) return
+        val generation=resetGeneration
+        val samples=path.map { PointF(it.x,it.y) }
 
         scope.launch {
             try {
-                val downsampled = downsamplePath(path, 8)
-                if (downsampled.size == 8) {
+                val downsampled = downsamplePath(samples, 8)
+                writes.withLock {
+                  if (generation==resetGeneration && settings.personalizedLearningEnabled && downsampled.size == 8) {
                     synchronized(swipeTemplates) {
+                        swipeTemplates.remove(cleanWord)
                         swipeTemplates[cleanWord] = downsampled
+                        while(swipeTemplates.size>256) swipeTemplates.remove(swipeTemplates.keys.first())
                     }
                     val serialized = serializePoints(downsampled)
                     dao.insertSwipePattern(LearnedSwipePattern(cleanWord, serialized))
+                    dao.pruneSwipePatterns()
+                  }
                 }
             } catch (e: Exception) {
                 Log.e("MLPredictor", "Error learning swipe: ${e.message}")
@@ -195,7 +150,7 @@ class PatternLearningPredictor private constructor(context: Context) {
      * Returns matching words sorted by highest similarity.
      */
     fun predictFromSwipePatterns(path: List<PointF>, confidenceThreshold: Float = 0.04f): List<Pair<String, Float>> {
-        if (path.size < 2) return emptyList()
+        if (!settings.personalizedLearningEnabled || path.size < 2) return emptyList()
         val downsampledNew = downsamplePath(path, 8)
         if (downsampledNew.size != 8) return emptyList()
 
@@ -213,209 +168,19 @@ class PatternLearningPredictor private constructor(context: Context) {
         return matches.sortedByDescending { it.second }
     }
 
-    fun clearSwipeTemplates() {
-        scope.launch {
-            try {
-                dao.clearSwipePatterns()
-                synchronized(swipeTemplates) {
-                    swipeTemplates.clear()
-                }
-            } catch (e: Exception) {
-                Log.e("MLPredictor", "Error clearing swipe patterns: ${e.message}")
-            }
-        }
-    }
-
-    // ------------------------------------------
-    // 2. Typing Touch Offsets Learning (Online Mean Estimation)
-    // ------------------------------------------
-
-    /**
-     * Learn the user's specific key press coordinate deviations to adapt the keyboard map.
-     */
-    fun learnTapPattern(char: Char, tapX: Float, tapY: Float, targetX: Float, targetY: Float) {
-        val charKey = char.lowercaseChar()
-        if (charKey !in 'a'..'z') return
-
-        val dx = tapX - targetX
-        val dy = tapY - targetY
-
-        val updatedOffset: LearnedTouchOffset
-        synchronized(touchOffsets) {
-            val currentStats = touchStatsMap[charKey]
-            val count = currentStats?.third ?: 0
-            val dxSum = currentStats?.first ?: 0f
-            val dySum = currentStats?.second ?: 0f
-
-            val newCount = (count + 1).coerceAtMost(50)
-            val decay = if (count >= 50) 0.95f else 1.0f
-
-            val newDxSum = (dxSum * decay) + dx
-            val newDySum = (dySum * decay) + dy
-
-            touchStatsMap[charKey] = Triple(newDxSum, newDySum, newCount)
-            touchOffsets[charKey] = PointF(newDxSum / newCount, newDySum / newCount)
-
-            updatedOffset = LearnedTouchOffset(
-                char = charKey.toString(),
-                dxSum = newDxSum,
-                dySum = newDySum,
-                count = newCount
-            )
-        }
-
-        scope.launch {
-            try {
-                dao.insertTouchOffset(updatedOffset)
-            } catch (e: Exception) {
-                Log.e("MLPredictor", "Error saving tap pattern: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * Get the learned average tap offset (dx, dy) for a physical key.
-     */
-    fun getTouchOffset(char: Char): PointF {
-        val charKey = char.lowercaseChar()
-        return synchronized(touchOffsets) {
-            touchOffsets[charKey] ?: PointF(0f, 0f)
-        }
-    }
-
-    // ------------------------------------------
-    // 3. Next-Word Prediction (Markov Model with Maximum Likelihood Estimation)
-    // ------------------------------------------
-
-    /**
-     * Learn next-word sequence patterns from user typing transitions.
-     */
-    fun learnBigram(prev: String, current: String) {
-        val p = prev.lowercase(Locale.ROOT).trim()
-        val c = current.lowercase(Locale.ROOT).trim()
-        if (p.isEmpty() || c.isEmpty() || p.length < 2 || c.length < 2) return
-
-        scope.launch {
-            try {
-                val id = "$p:$c"
-                val existingList = dao.getAllBigrams()
-                val match = existingList.firstOrNull { it.id == id }
-                val newCount = (match?.count ?: 0) + 1
-
-                val bigram = LearnedBigram(id = id, prevWord = p, nextWord = c, count = newCount)
-                dao.insertBigram(bigram)
-
-                synchronized(bigramCounts) {
-                    val innerMap = bigramCounts.getOrPut(p) { HashMap() }
-                    innerMap[c] = newCount
-                }
-            } catch (e: Exception) {
-                Log.e("MLPredictor", "Error learning bigram transition: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * Predict the next most likely words using MLE probabilities calculated from learned bigrams.
-     */
-    fun predictNextWords(prevWord: String): List<Pair<String, Float>> {
-        val p = prevWord.lowercase(Locale.ROOT).trim()
-        if (p.isEmpty()) return emptyList()
-
-        val counts = synchronized(bigramCounts) {
-            bigramCounts[p]?.let { HashMap(it) }
-        } ?: return emptyList()
-
-        val totalTransitions = counts.values.sum().toFloat()
-        if (totalTransitions == 0f) return emptyList()
-
-        return counts.entries.map {
-            val probability = it.value / totalTransitions
-            Pair(it.key, probability)
-        }.sortedByDescending { it.second }.take(3)
-    }
-
-    /**
-     * Learn trigram 3-word sequence patterns (prev2 + prev1 -> current).
-     */
-    fun learnTrigram(prev2: String, prev1: String, current: String) {
-        val p2 = prev2.lowercase(Locale.ROOT).trim()
-        val p1 = prev1.lowercase(Locale.ROOT).trim()
-        val c = current.lowercase(Locale.ROOT).trim()
-        if (p2.isEmpty() || p1.isEmpty() || c.isEmpty()) return
-
-        scope.launch {
-            try {
-                val key = "$p2:$p1"
-                val id = "$key:$c"
-                val existingList = dao.getAllTrigrams()
-                val match = existingList.firstOrNull { it.id == id }
-                val newCount = (match?.count ?: 0) + 1
-
-                val trigram = LearnedTrigram(id = id, prev2 = p2, prev1 = p1, nextWord = c, count = newCount)
-                dao.insertTrigram(trigram)
-
-                synchronized(trigramCounts) {
-                    val innerMap = trigramCounts.getOrPut(key) { HashMap() }
-                    innerMap[c] = newCount
-                }
-            } catch (e: Exception) {
-                Log.e("MLPredictor", "Error learning trigram sequence: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * Predict next words using 3-word trigram context (higher accuracy than bigrams).
-     */
-    fun predictNextWordsFromTrigram(prev2: String, prev1: String): List<Pair<String, Float>> {
-        val p2 = prev2.lowercase(Locale.ROOT).trim()
-        val p1 = prev1.lowercase(Locale.ROOT).trim()
-        if (p2.isEmpty() || p1.isEmpty()) return emptyList()
-
-        val key = "$p2:$p1"
-        val counts = synchronized(trigramCounts) {
-            trigramCounts[key]?.let { HashMap(it) }
-        } ?: return emptyList()
-
-        val totalTransitions = counts.values.sum().toFloat()
-        if (totalTransitions == 0f) return emptyList()
-
-        return counts.entries.map {
-            val probability = it.value / totalTransitions
-            Pair(it.key, probability)
-        }.sortedByDescending { it.second }.take(3)
-    }
-
-    data class HabitLearningStats(
-        val swipeTemplatesCount: Int = 0,
-        val calibratedKeysCount: Int = 0,
-        val learnedBigramsCount: Int = 0,
-        val learnedTrigramsCount: Int = 0
-    )
-
-    fun getHabitLearningStats(): HabitLearningStats {
-        return HabitLearningStats(
-            swipeTemplatesCount = synchronized(swipeTemplates) { swipeTemplates.size },
-            calibratedKeysCount = synchronized(touchOffsets) { touchOffsets.size },
-            learnedBigramsCount = synchronized(bigramCounts) { bigramCounts.values.sumOf { it.size } },
-            learnedTrigramsCount = synchronized(trigramCounts) { trigramCounts.values.sumOf { it.size } }
-        )
-    }
-
     fun clearAllLearnedData(onComplete: (() -> Unit)? = null): kotlinx.coroutines.Job {
         resetGeneration++
+        synchronized(swipeTemplates) { swipeTemplates.clear() }
         return scope.launch {
             try {
+              writes.withLock {
                 dao.clearSwipePatterns()
                 dao.clearTouchOffsets()
                 dao.clearBigrams()
                 dao.clearTrigrams()
 
                 synchronized(swipeTemplates) { swipeTemplates.clear() }
-                synchronized(touchOffsets) { touchOffsets.clear(); touchStatsMap.clear() }
-                synchronized(bigramCounts) { bigramCounts.clear() }
-                synchronized(trigramCounts) { trigramCounts.clear() }
+              }
 
                 Log.i("MLPredictor", "All learned typing patterns and habit caches cleared.")
                 onComplete?.invoke()

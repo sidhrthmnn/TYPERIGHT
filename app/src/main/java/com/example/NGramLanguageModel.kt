@@ -1,7 +1,6 @@
 package com.example
 
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.max
 
 /**
  * 4. Context Model for Next-Word Prediction
@@ -63,6 +62,7 @@ class NGramLanguageModel : IContextLanguageModel {
     @Volatile private var frequencyBackoff: List<String> = emptyList()
     @Volatile private var baseFrequencies: Map<String, Int> = emptyMap()
     @Volatile private var baseTotal = 0L
+    @Volatile private var baselineContexts: Map<String, Map<String,Int>> = emptyMap()
     private data class Snapshot(val bigrams: Map<String, Map<String,Int>>, val trigrams: Map<String,Map<String,Int>>,
         val quadgrams: Map<String,Map<String,Int>>, val higherOrders: Map<String,Map<String,Int>>,
         val unigrams: Map<String,Int>, val personalUnigrams: Map<String,Int>)
@@ -80,8 +80,45 @@ class NGramLanguageModel : IContextLanguageModel {
         version++
     }
     /** Probability evidence for the ranker, with up to five context words and count-aware backoff. */
-    fun contextEvidence(word: String, context: List<String>): Float =
-        (getProbability(word.lowercase(java.util.Locale.ROOT), context.takeLast(5)) * 8f).coerceIn(0f, 1f)
+    fun contextEvidence(word: String, context: List<String>): Float = scorer(context).evidence(word)
+
+    /** Prepare the immutable context distributions once for all competing candidates.
+     * Normalization, context keys and distribution totals do not depend on the target word. */
+    internal class ContextScorer(private val frequencies: Map<String,Int>, private val personal: Map<String,Int>,
+        private val total: Float, private val distributions: List<Triple<Map<String,Int>,Float,Float>>) {
+        fun probability(word: String): Float {
+            val target=word.lowercase(java.util.Locale.ROOT).trim()
+            if(target.isEmpty()) return .000001f
+            val unigram=(frequencies[target] ?: 0)+(personal[target] ?: 0)
+            var result=(unigram.coerceAtLeast(1)/total).coerceIn(.000001f,1f)
+            for((counts,observations,weight) in distributions)
+                result=weight*((counts[target] ?: 0)/observations)+(1f-weight)*result
+            return result.coerceIn(.000001f,1f)
+        }
+        fun evidence(word: String)=(probability(word)*8f).coerceIn(0f,1f)
+    }
+
+    internal fun scorer(contextWords: List<String>): ContextScorer {
+        val state=predictionSnapshot
+        val bundled=baselineContexts
+        val context=contextWords.takeLast(5).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
+        val keys=(1..context.size).map { context.takeLast(it).joinToString(" ") }
+        val distributions=ArrayList<Triple<Map<String,Int>,Float,Float>>(15)
+        fun add(counts: Map<String,Int>?) {
+            if(counts.isNullOrEmpty()) return
+            val observations=counts.values.sum().toFloat().coerceAtLeast(1f)
+            distributions.add(Triple(counts,observations,observations/(observations+12f)))
+        }
+        fun learned(size: Int,key: String)=when(size) { 1 -> state.bigrams[key]; 2 -> state.trigrams[key]; 3 -> state.quadgrams[key]; else -> state.higherOrders[key] }
+        keys.take(3).forEachIndexed { i,key -> add(learned(i+1,key)); add(bundled[key]) }
+        keys.drop(3).forEachIndexed { i,key -> add(learned(i+4,key)) }
+        keys.drop(3).forEach { key -> add(bundled[key]) }
+        // Repeated personal choices remain the final evidence layer.
+        keys.forEachIndexed { i,key -> if(key in bundled) add(learned(i+1,key)) }
+        val seeded=baseTotal>0
+        return ContextScorer(if(seeded) baseFrequencies else state.unigrams,if(seeded) state.personalUnigrams else emptyMap(),
+            (if(seeded) baseTotal+personalTotal.get() else totalUnigramCount.get()).coerceAtLeast(1).toFloat(),distributions)
+    }
 
     fun seedUnigramFrequencies(frequencies: Map<String, Int>) {
         // Share the immutable corpus; each keyboard keeps only its learned/curated counts.
@@ -90,6 +127,12 @@ class NGramLanguageModel : IContextLanguageModel {
         version++
         frequencyBackoff = frequencies.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
             .take(200).map { it.key }
+    }
+
+    /** Immutable bundled conversational evidence, loaded once on the startup worker. */
+    fun seedContextBaseline(contexts: Map<String, Map<String,Int>>) {
+        baselineContexts = contexts
+        version++
     }
 
     init {
@@ -358,28 +401,7 @@ class NGramLanguageModel : IContextLanguageModel {
      * backing off to the smoothed lower-order distribution.
      */
     override fun getProbability(word: String, contextWords: List<String>): Float {
-        val state = predictionSnapshot
-        val bigrams=state.bigrams; val trigrams=state.trigrams; val quadgrams=state.quadgrams; val higherOrders=state.higherOrders
-        val unigrams=state.unigrams; val personalUnigrams=state.personalUnigrams
-        val target = word.lowercase(java.util.Locale.ROOT).trim()
-        if (target.isEmpty()) return 0.000001f
-        val context = contextWords.takeLast(5).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
-        val total = (if (baseTotal > 0) baseTotal + personalTotal.get() else totalUnigramCount.get()).coerceAtLeast(1).toFloat()
-        val unigram = if (baseTotal > 0) (baseFrequencies[target] ?: 0) + (personalUnigrams[target] ?: 0) else unigrams[target] ?: 0
-        var probability = (unigram.coerceAtLeast(1) / total).coerceIn(0.000001f, 1f)
-        // Count-sensitive interpolation: a single observation should not outweigh
-        // reliable lower-order evidence; repeatedly learned context earns more weight.
-        fun interpolate(map: Map<String, Int>?) {
-            if (map.isNullOrEmpty()) return
-            val observations = map.values.sum().toFloat().coerceAtLeast(1f)
-            val weight = observations / (observations + 12f)
-            probability = weight * ((map[target] ?: 0) / observations) + (1f - weight) * probability
-        }
-        if (context.isNotEmpty()) interpolate(bigrams[context.last()])
-        if (context.size >= 2) interpolate(trigrams[context.takeLast(2).joinToString(" ")])
-        if (context.size >= 3) interpolate(quadgrams[context.takeLast(3).joinToString(" ")])
-        for (size in 4..minOf(5, context.size)) interpolate(higherOrders[context.takeLast(size).joinToString(" ")])
-        return probability.coerceIn(0.000001f, 1f)
+        return scorer(contextWords).probability(word)
     }
 
     /**
@@ -394,6 +416,7 @@ class NGramLanguageModel : IContextLanguageModel {
         val context = contextWords.takeLast(5).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
         val cleanPrefix = prefix.lowercase(java.util.Locale.ROOT).trim()
         val candidates = linkedSetOf<String>()
+        for (size in 1..minOf(5,context.size)) candidates.addAll(baselineContexts[context.takeLast(size).joinToString(" ")]?.keys.orEmpty())
         for (size in 4..minOf(5, context.size)) candidates.addAll(higherOrders[context.takeLast(size).joinToString(" ")]?.keys.orEmpty())
         if (context.size >= 3) candidates.addAll(quadgrams[context.takeLast(3).joinToString(" ")]?.keys.orEmpty())
         if (context.size >= 2) candidates.addAll(trigrams[context.takeLast(2).joinToString(" ")]?.keys.orEmpty())
@@ -401,8 +424,9 @@ class NGramLanguageModel : IContextLanguageModel {
         candidates.addAll(frequencyBackoff.filter { it.startsWith(cleanPrefix) })
         // Personalized words remain discoverable even without a matching n-gram.
         candidates.addAll((if (baseTotal > 0) personalUnigrams else unigrams).keys.filter { it.startsWith(cleanPrefix) })
+        val scoring=scorer(context)
         return candidates.asSequence().filter { it.startsWith(cleanPrefix) }
-            .map { it to getProbability(it, context) }
+            .map { it to scoring.probability(it) }
             .sortedWith(compareByDescending<Pair<String, Float>> { it.second }.thenBy { it.first })
             .take(maxResults).map { it.first }.toList()
     }

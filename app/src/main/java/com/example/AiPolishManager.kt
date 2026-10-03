@@ -1,7 +1,6 @@
 package com.example
 
 import android.content.Context
-import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -13,35 +12,7 @@ import kotlinx.coroutines.withContext
  * Delegates to LocalInferenceEngine following a strict confidence-evaluated, local-first pipeline.
  */
 class AiPolishManager(private val context: Context) {
-    private val dictionaryManager = DictionaryManager(context)
-
-    companion object {
-        private const val TAG = "AiPolishManager"
-    }
-
     private val localRambleFormatter = LocalRambleFormatter(context)
-
-    /**
-     * Executes proofreading using on-device AI with local heuristic fallback.
-     */
-    suspend fun proofreadText(
-        text: String,
-        textContext: TextContext = TextContext(mode = PolishMode.PROOFREAD)
-    ): String = withContext(Dispatchers.Default) {
-        if (text.isBlank()) return@withContext ""
-
-        val startTime = System.currentTimeMillis()
-        val result = try {
-            AiPolishBackend.generatePolish(text, PolishMode.PROOFREAD, textContext)
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException || AiPolishBackend.engine == ActiveAiEngine.OFFLINE) throw e
-            null
-        } ?: OnDeviceNeuralPolishEngine.getInstance(context).quickProofread(text)
-        val duration = System.currentTimeMillis() - startTime
-
-        AiExecutionLogger.logAiAction(context, "Proofread", AiPolishBackend.label, text, result, duration)
-        return@withContext result
-    }
 
     /**
      * Executes voice dictation transcript cleanup.

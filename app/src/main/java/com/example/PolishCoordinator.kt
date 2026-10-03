@@ -271,33 +271,6 @@ class PolishCoordinator(
     }
 
     /**
-     * Applies polished text atomically to the editor using InputConnection batch edit.
-     */
-    fun applyResult(
-        inputConnection: InputConnection?,
-        snapshot: EditorSnapshot,
-        newText: String
-    ): Boolean {
-        if (inputConnection == null) return false
-        return try {
-            inputConnection.beginBatchEdit()
-            val replaceLength = snapshot.endOffset - snapshot.startOffset
-            if (replaceLength > 0) {
-                inputConnection.setSelection(snapshot.startOffset, snapshot.endOffset)
-                inputConnection.commitText(newText, 1)
-            } else {
-                inputConnection.commitText(newText, 1)
-            }
-            inputConnection.endBatchEdit()
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to apply text to editor", e)
-            try { inputConnection.endBatchEdit() } catch (_: Exception) {}
-            false
-        }
-    }
-
-    /**
      * Reverts text to previous text using UndoSnapshot.
      */
     fun undo(inputConnection: InputConnection?): Boolean {

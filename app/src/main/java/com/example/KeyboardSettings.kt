@@ -30,6 +30,10 @@ class KeyboardSettings(private val context: Context) {
         const val KEY_VOICE_LANGUAGE = "keyboard_voice_language"
         const val KEY_VOICE_INPUT_MODE = "keyboard_voice_input_mode"
         const val KEY_KEYBOARD_LANGUAGE = "keyboard_language"
+        const val LANGUAGE_ENGLISH = "English"
+        const val LANGUAGE_MALAYALAM_SCRIPT = "Malayalam"
+        fun isMalayalamScriptLanguage(value: String): Boolean = value.equals("ml",true) ||
+            value.contains("Malayalam",true) || value.contains("മലയാളം")
         const val KEY_AI_LANGUAGE = "keyboard_ai_language"
         const val KEY_AI_SELECT_ALL_LANGUAGES = "ai_select_all_languages"
         const val KEY_AI_SELECTED_LANGUAGES = "ai_selected_languages"
@@ -172,15 +176,6 @@ class KeyboardSettings(private val context: Context) {
             dataStore.updateAsync { it.setAiModel(value) }
         }
 
-    fun isModelDownloaded(model: String): Boolean {
-        val spec = GgufModelCatalog.all(context).firstOrNull { it.id == model } ?: return false
-        return LocalGgufModel.isReady(context, spec)
-    }
-
-    fun setModelDownloaded(model: String, downloaded: Boolean) {
-        prefs.edit().putBoolean("model_downloaded_$model", downloaded).apply()
-    }
-
     var whisperModel: String
         get() = prefs.getString(KEY_WHISPER_MODEL, "whisper-base") ?: "whisper-base"
         set(value) {
@@ -196,11 +191,15 @@ class KeyboardSettings(private val context: Context) {
         }
 
     var keyboardLanguage: String
-        get() = prefs.getString(KEY_KEYBOARD_LANGUAGE, "English") ?: "English"
-        set(value) {
-            prefs.edit().putString(KEY_KEYBOARD_LANGUAGE, value).apply()
-            dataStore.updateAsync { it.setKeyboardLanguage(value) }
+        get() = (prefs.getString(KEY_KEYBOARD_LANGUAGE, LANGUAGE_ENGLISH) ?: LANGUAGE_ENGLISH).let {
+            if(isMalayalamScriptLanguage(it)) LANGUAGE_MALAYALAM_SCRIPT else it
         }
+        set(value) {
+            val normalized=if(isMalayalamScriptLanguage(value)) LANGUAGE_MALAYALAM_SCRIPT else value
+            prefs.edit().putString(KEY_KEYBOARD_LANGUAGE, normalized).apply()
+            dataStore.updateAsync { it.setKeyboardLanguage(normalized) }
+        }
+    val isMalayalamScriptMode get() = isMalayalamScriptLanguage(keyboardLanguage)
 
     var aiLanguage: String
         get() = prefs.getString(KEY_AI_LANGUAGE, "English") ?: "English"
@@ -225,40 +224,6 @@ class KeyboardSettings(private val context: Context) {
 
     fun setSelectedAiLanguageCodes(codes: Set<String>) {
         prefs.edit().putString(KEY_AI_SELECTED_LANGUAGES, codes.joinToString(",")).apply()
-    }
-
-    fun selectSingleAiLanguage(code: String) {
-        if (code.equals("ALL", ignoreCase = true)) {
-            isAllAiLanguagesSelected = true
-            setSelectedAiLanguageCodes(setOf("ALL"))
-        } else {
-            isAllAiLanguagesSelected = false
-            setSelectedAiLanguageCodes(setOf(code))
-        }
-    }
-
-    fun getSingleSelectedAiLanguageCode(): String {
-        if (isAllAiLanguagesSelected) return "ALL"
-        return getSelectedAiLanguageCodes().firstOrNull() ?: "en"
-    }
-
-    fun getActiveAiLanguageDisplay(): String {
-        if (isAllAiLanguagesSelected) return "All Languages (140+)"
-        val codes = getSelectedAiLanguageCodes()
-        if (codes.isEmpty()) return "English"
-        val names = codes.mapNotNull { ModelLanguages.findByCode(it)?.name }
-        return when {
-            names.size == 1 -> {
-                val lang = ModelLanguages.findByCode(codes.first())
-                if (lang != null && lang.nativeName.isNotBlank() && !lang.nativeName.equals(lang.name, ignoreCase = true)) {
-                    "${lang.name} (${lang.nativeName})"
-                } else {
-                    names.first()
-                }
-            }
-            names.size in 2..3 -> names.joinToString(", ")
-            else -> "${names.take(2).joinToString(", ")}, +${names.size - 2} more (${names.size})"
-        }
     }
 
     fun isAiLanguageSelected(code: String): Boolean {
@@ -289,11 +254,6 @@ class KeyboardSettings(private val context: Context) {
     fun deselectAllAiLanguages() {
         isAllAiLanguagesSelected = false
         setSelectedAiLanguageCodes(emptySet())
-    }
-
-    fun resetToDefaultAiLanguages() {
-        isAllAiLanguagesSelected = false
-        setSelectedAiLanguageCodes(ModelLanguages.DEFAULT_SELECTED_CODES)
     }
 
     fun getActiveAiLanguagePromptGuidance(): String {

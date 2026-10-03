@@ -37,7 +37,7 @@ class DictionaryUpdateService : Service() {
     private val binder = LocalBinder()
 
     inner class LocalBinder : Binder() {
-        fun getService(): DictionaryUpdateService = this@DictionaryUpdateService
+
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -228,7 +228,9 @@ class DictionaryUpdateService : Service() {
             val allWords = learnedWordDao.getAllWords()
             val totalWordsCount = allWords.size
 
-            val dictManager = DictionaryManager(appContext)
+            val dictManager = DictionaryManager.getInstance(appContext)
+            dictManager.ready.await()
+            dictManager.typingAssetsReady.await()
             dictManager.bulkInsertTrendingAndUserVocab(
                 words = allWords,
                 bigrams = TRENDING_BIGRAMS

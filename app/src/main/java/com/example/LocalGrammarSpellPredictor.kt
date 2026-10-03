@@ -1,114 +1,11 @@
 package com.example
 
 import android.content.Context
-import android.graphics.PointF
 
-/**
- * High-performance On-Device Local Model for real-time grammar checking,
- * contextual agreement, homophone disambiguation, and smart autocorrection.
- *
- * Implements industry-leading mobile NLP best practices:
- * 1. Confusion Sets & Contextual Homophone Disambiguation (their/there/they're, your/you're, its/it's, then/than, etc.)
- * 2. Indefinite Article Agreement (a vs. an phonotactic vowel-sound analysis)
- * 3. Subject-Verb Number & Person Agreement (3rd person singular, plurals, 1st person)
- * 4. Modal / Auxiliary Verb Base-Form Agreement (could of -> could have, will went -> will go)
- * 5. Run-on Word Segmentation & Contraction Apostrophe Restoration
- * 6. Retro-active Multi-Token Grammar Correction
- */
+/** Phrase proposals and explicit local proofreading, using the shared ranked correction policy. */
 class LocalGrammarSpellPredictor(private val context: Context) {
 
     private val dictionaryManager by lazy { DictionaryManager.getInstance(context) }
-    val wordTrie = WordTrie()
-
-    init {
-        // Seed WordTrie with top common words for zero-latency lookups
-        listOf(
-            "the", "be", "to", "of", "and", "a", "in", "that", "have", "i",
-            "it", "for", "not", "on", "with", "he", "as", "you", "do", "at",
-            "this", "but", "his", "by", "from", "they", "we", "say", "her", "she",
-            "or", "an", "will", "my", "one", "all", "would", "there", "their", "what",
-            "so", "up", "out", "if", "about", "who", "get", "which", "go", "me",
-            "when", "make", "can", "like", "time", "no", "just", "him", "know", "take",
-            "people", "into", "year", "your", "good", "some", "could", "them", "see", "other",
-            "than", "then", "now", "look", "only", "come", "its", "over", "think", "also",
-            "back", "after", "use", "two", "how", "our", "work", "first", "well", "way",
-            "even", "new", "want", "because", "any", "these", "give", "day", "most", "us",
-            "hello", "welcome", "right", "type", "flow", "keyboard", "smart", "awesome",
-            "today", "perfect", "great", "love", "typing", "please", "thanks", "voice",
-            "polish", "device", "typeright", "don't", "can't", "won't", "I'm", "I've", "I'll",
-            "I'd", "you're", "they're", "we're", "it's", "that's", "what's", "there's",
-            "here's", "where's", "isn't", "aren't", "wasn't", "weren't", "haven't", "hasn't",
-            "couldn't", "shouldn't", "wouldn't", "doesn't", "didn't", "let's"
-        ).forEachIndexed { index, w -> wordTrie.insert(w, 1000 - index) }
-    }
-
-    data class GrammarCorrection(
-        val correctedWord: String,
-        val tokensToReplaceCount: Int = 1, // 1 = replace current token; 2 = replace previous + current
-        val ruleCategory: String = "Grammar",
-        val confidence: Float = 0f
-    )
-
-    data class LocalAnalysisResult(
-        val originalWord: String,
-        val correctedSpelling: String?,
-        val grammarFix: String?,
-        val grammarCorrection: GrammarCorrection?,
-        val predictions: List<String>,
-        val centerCandidate: String
-    )
-
-    /**
-     * Performs instant real-time on-device analysis as the user types each character or word.
-     */
-    fun analyzeTypingLocally(
-        typedWord: String,
-        previousWords: List<String> = emptyList(),
-        sentenceContext: String = "",
-        tapCoords: List<PointF>? = null
-    ): LocalAnalysisResult {
-        val cleanWord = typedWord.trim()
-        val prevWord = previousWords.lastOrNull()
-        val prevWord2 = if (previousWords.size >= 2) previousWords[previousWords.size - 2] else null
-
-        val ranked = dictionaryManager.correctionPipeline.rank(cleanWord, previousWords, tapCoords, CorrectionPhase.KEYSTROKE)
-        val grammarCorrection = checkGrammarDetailed(cleanWord, previousWords, sentenceContext)
-        val grammarFix = grammarCorrection?.correctedWord
-        val correctedSpelling = ranked.suggestion.takeIf { it != cleanWord && grammarFix == null }
-        val predictions = ranked.candidates.map { it.word }.take(3)
-        val center = ranked.suggestion
-
-        return LocalAnalysisResult(
-            originalWord = typedWord,
-            correctedSpelling = correctedSpelling,
-            grammarFix = grammarFix,
-            grammarCorrection = grammarCorrection,
-            predictions = predictions,
-            centerCandidate = center
-        )
-    }
-
-    /**
-     * Simple string-based local grammar check API for backwards-compatibility.
-     */
-    fun checkGrammarLocally(
-        word: String,
-        previousWords: List<String>,
-        sentenceContext: String = ""
-    ): String? {
-        return checkGrammarDetailed(word, previousWords, sentenceContext)?.correctedWord
-    }
-
-    /**
-     * Deep rule-based & statistical on-device grammar validator.
-     */
-    fun checkGrammarDetailed(word: String, previousWords: List<String>, sentenceContext: String = ""): GrammarCorrection? {
-        val ranked = dictionaryManager.correctionPipeline.rank(word, previousWords)
-        val best = ranked.best ?: return null
-        if (ranked.tier == ConfidenceTier.LOW || CandidateOrigin.CONTEXT !in best.origins) return null
-        return GrammarCorrection(best.word, 1, "Ranked context", ranked.confidence)
-    }
-
     companion object {
         fun contextCandidates(word: String, previous: List<String>, following: List<String> = emptyList()): List<String> {
             val last = previous.lastOrNull().orEmpty()
@@ -295,51 +192,17 @@ class LocalGrammarSpellPredictor(private val context: Context) {
         return polishSingleSentenceLocally(sentence)
     }
 
-    /**
-     * Resolves and corrects spelling errors, typos, contractions, and missed-space splits for a word.
-     */
-    fun correctWordSpelling(token: String, prevWord: String? = null): String {
-        val core = token.trim { !TypingPolicy.isWordCharacter(it) }
-        if (core.isEmpty()) return token
-        val correction = dictionaryManager.correctionPipeline.rank(core, listOfNotNull(prevWord)).automatic ?: return token
-        return token.replaceRange(token.indexOf(core), token.indexOf(core) + core.length, correction)
-    }
-
     private fun polishSingleSentenceLocally(sentence: String): String {
-        if (sentence.isBlank()) return sentence
-        val words = sentence.split(Regex("\\s+"))
-        val resultWords = mutableListOf<String>()
-
-        for (i in words.indices) {
-            val w = words[i]
-            val clean = w.trim { !TypingPolicy.isWordCharacter(it) }
-            val prevList = words.take(i).takeLast(5).map { it.trim { c -> !TypingPolicy.isWordCharacter(c) } }.filter { it.isNotBlank() }
-
-            val ranked = dictionaryManager.correctionPipeline.rank(clean, prevList, following = words.drop(i+1).take(2).map { it.trim { c -> !TypingPolicy.isWordCharacter(c) }.lowercase() })
-            val correction = ranked.automatic?.let { GrammarCorrection(it, 1, "Ranked context", ranked.confidence) }
-            if (correction != null) {
-                val fix = correction.correctedWord
-                val leadingPunct = w.takeWhile { !it.isLetterOrDigit() && it != '\'' }
-                val trailingPunct = w.takeLastWhile { !it.isLetterOrDigit() && it != '\'' }
-
-                if (correction.tokensToReplaceCount == 2 && resultWords.isNotEmpty()) {
-                    // Retroactively replace previous word as well (e.g. "a apple" -> "an apple", "could of" -> "could have")
-                    resultWords.removeAt(resultWords.size - 1)
-                }
-
-                resultWords.add("$leadingPunct$fix$trailingPunct")
-            } else {
-                val spellChecked = correctWordSpelling(w, prevWord = prevList.lastOrNull())
-                resultWords.add(spellChecked)
-            }
+        val matches=Regex("[\\p{L}\\p{M}]+(?:['’][\\p{L}\\p{M}]+)*").findAll(sentence).toList()
+        val previous=mutableListOf<String>()
+        var index=0
+        val output=Regex("[\\p{L}\\p{M}]+(?:['’][\\p{L}\\p{M}]+)*").replace(sentence) { match ->
+            val following=matches.drop(++index).take(2).map { it.value.lowercase() }
+            val ranked=dictionaryManager.correctionPipeline.rank(match.value,previous,following=following)
+            val corrected=ranked.automatic ?: match.value
+            previous.add(corrected.lowercase()); if(previous.size>5) previous.removeAt(0)
+            corrected
         }
-
-        var output = resultWords.joinToString(" ")
-        // Capitalize first letter of sentence (if not a bullet point or symbol)
-        if (output.isNotEmpty() && output[0].isLowerCase()) {
-            output = output.replaceFirstChar { it.uppercase() }
-        }
-        return output
+        return if(output.firstOrNull()?.isLowerCase()==true) output.replaceFirstChar { it.uppercase() } else output
     }
 }
-

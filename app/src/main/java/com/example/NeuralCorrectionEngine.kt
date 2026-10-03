@@ -1,16 +1,11 @@
 package com.example
 
 import android.content.Context
-import java.io.File
-import java.io.FileInputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /** Curated candidate source and optional local sentence inference, both coordinated with CandidateRanker. */
 class NeuralCorrectionEngine private constructor(private val context: Context) {
 
     companion object {
-        private const val TAG = "NeuralCorrectionEngine"
 
         @Volatile
         private var instance: NeuralCorrectionEngine? = null
@@ -56,9 +51,6 @@ class NeuralCorrectionEngine private constructor(private val context: Context) {
 
     }
 
-    /** Compatibility readiness for dictionary-based proposals; actual LLM availability is checked separately. */
-    fun isModelReady(): Boolean = true
-
     /** Dictionary correction shares the same ranker as the IME. Execute on a worker. */
     fun correctText(input: String): String {
         if (input.isBlank()) return input
@@ -72,16 +64,6 @@ class NeuralCorrectionEngine private constructor(private val context: Context) {
         }
     }
 
-    /**
-     * Evaluates bigram transition probability score between two consecutive tokens.
-     */
-    fun scoreTransition(w1: String, w2: String): Float {
-        if (w1.isBlank() || w2.isBlank()) return 0.0f
-        val bigram = "${w1.trim().lowercase()} ${w2.trim().lowercase()}"
-        val corrected = correctText(bigram)
-        return if (corrected.equals(bigram, ignoreCase = true)) 0.35f else 0.0f
-    }
-
     /** Optional sentence inference. Never called by rank(), predictions, or keystroke candidate generation. */
     suspend fun contextualCorrection(input: String, modelId: String): String? {
         if (input.length !in 8..320 || input.count(Char::isWhitespace) < 2) return null
@@ -91,5 +73,5 @@ class NeuralCorrectionEngine private constructor(private val context: Context) {
         val output = GgufPolishEngine.polish(context, input, PolishMode.PROOFREAD, preferredModel = model.id)
         return output.takeIf { MinimalContextEdit.isAllowed(input, it, DictionaryManager.getInstance(context)) }
     }
-    fun close() = Unit
+
 }

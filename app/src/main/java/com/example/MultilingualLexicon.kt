@@ -76,8 +76,12 @@ class MultilingualLexicon private constructor(context: Context) {
         fun get(context: Context) = instance ?: synchronized(this) {
             instance ?: MultilingualLexicon(context.applicationContext).also { instance = it }
         }
-        private fun lookupWord(word: String) = Normalizer.normalize(android.icu.lang.UCharacter.foldCase(word.replace('’', '\''), true), Normalizer.Form.NFC)
-        fun normalize(word: String) = Normalizer.normalize(word.lowercase(Locale.ROOT).replace('’', '\''), Normalizer.Form.NFC)
+        // English and Latin Malayalam need neither ICU case folding nor Unicode
+        // composition. Keep full normalization for every non-ASCII language.
+        private fun lookupWord(word: String) = if(word.all { it.code<128 }) word.lowercase(Locale.ROOT)
+            else Normalizer.normalize(android.icu.lang.UCharacter.foldCase(word.replace('’', '\''), true), Normalizer.Form.NFC)
+        fun normalize(word: String) = if(word.all { it.code<128 }) word.lowercase(Locale.ROOT)
+            else Normalizer.normalize(word.lowercase(Locale.ROOT).replace('’', '\''), Normalizer.Form.NFC)
         val romanizedMalayalam = setOf("njan", "njangal", "nee", "ningal", "avan", "aval", "nammal", "ente", "ninte", "enikku", "ninakku", "aanu", "alla", "aano", "undu", "illa", "varilla", "varum", "vannu", "pokum", "poyi", "pokan", "evide", "enth", "entha", "enthanu", "eppol", "inn", "innu", "nale", "naale", "sheri", "shari", "venam", "venda", "cheyyam", "cheyyum", "cheythu", "officil", "officeil", "veettil", "nattil", "enthina", "pinne", "kollam", "adipoli", "machane", "mone", "molu", "sugham", "sukham", "ippo", "ippol", "kazhinju", "alle", "koode", "koodi", "onnum", "nalla", "samayam", "ariyilla", "ariyaam", "parayu", "paranja", "okke", "kurachu")
         val romanizedHindi = setOf("main", "mein", "mai", "mera", "meri", "mere", "mujhe", "tum", "tumhara", "aap", "aapka", "hum", "ham", "hai", "hain", "ho", "tha", "thi", "nahi", "nahin", "kal", "aaj", "abhi", "kya", "kyun", "kaise", "kahan", "kab", "ka", "ki", "ke", "ko", "se", "par", "aur", "lekin", "bahut", "accha", "achha", "theek", "thik", "haan", "han", "ji", "yaar", "bhai", "dost", "jaunga", "jaungi", "jayega", "jaana", "jana", "aaunga", "karunga", "karenge", "karo", "karna", "karta", "krna", "kuch", "sab", "bas", "phir", "fir", "chalo", "chahiye", "milenge", "milte", "pata", "samajh", "gaya", "gayi")
         val slang = setOf("plz", "pls", "thx", "thanx", "lol", "lmao", "rofl", "brb", "idk", "imo", "imho", "tbh", "btw", "gud", "gonna", "wanna", "gotta", "kinda", "sorta", "dunno", "yup", "nah", "bro", "sis", "fam", "rn", "fr", "ngl", "omg", "omw", "ttyl", "ily", "ikr", "nope", "ok", "okay", "haha", "hehe", "yolo", "fyi", "asap", "api", "sdk", "gguf", "llm", "http", "https", "otp", "json", "sql", "html", "css", "id", "ui", "ux")

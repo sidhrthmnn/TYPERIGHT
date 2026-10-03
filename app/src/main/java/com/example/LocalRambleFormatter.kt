@@ -71,19 +71,6 @@ class LocalRambleFormatter(private val context: Context) {
     }
 
     /**
-     * Cleans model output, stripping any stray tokens or markdown code blocks.
-     */
-    private fun cleanModelOutput(output: String): String {
-        return output
-            .replace("<start_of_turn>model", "")
-            .replace("<end_of_turn>", "")
-            .replace(Regex("^```[a-zA-Z]*\\s*"), "")
-            .replace(Regex("\\s*```$"), "")
-            .trim()
-            .trim('"', '\'')
-    }
-
-    /**
      * Deterministic, 100% offline rule-based transformation engine that satisfies all
      * Ramble Mode requirements when SLM weights are loading or on resource-constrained devices.
      */

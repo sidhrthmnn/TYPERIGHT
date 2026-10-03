@@ -1,7 +1,6 @@
 package com.example
 
 import java.util.Locale
-import java.util.regex.Pattern
 
 /**
  * Formatting styles available for voice transcription.

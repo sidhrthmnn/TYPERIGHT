@@ -1,4 +1,4 @@
-# Internal typing pipeline (191.0)
+# Internal typing pipeline (192.0)
 
 Normal typing requires no GGUF download or inference. The existing AI-polish model
 catalog, cloud configuration, settings, keyboard appearance and other app features
@@ -22,8 +22,8 @@ transpositions, key proximity, nullable touches, frequency, context, personal
 usage, accepted/rejected choices and recency contribute to ranking. Real words
 require strong span evidence; ambiguous unknown spellings remain reviewable.
 Malayalam/Hindi transliteration, native script words, names, contacts, slang,
-identifiers and explicit vocabulary receive protection. Dictionary, Gboard,
-grammar and system spellchecker entry points adapt this pipeline.
+identifiers and explicit vocabulary receive protection. Dictionary, Gboard, grammar and system spellchecker entry points adapt this pipeline.
+Gesture proposals also pass through this ranker after worker-side decoding.
 
 Startup workers load canonical SCOWL spelling and frequency indexes. Vocabulary,
 context, profile and ML scoring snapshots are immutable. Typing-time predictions
@@ -73,19 +73,83 @@ Editor contract: [Android InputConnection](https://developer.android.com/referen
   another app's rendering/IPC work. Device timings are emulator observations, not
   a guarantee for every physical phone.
 - CI reproduces training artifacts, runs unit checks and uploads the versioned
-  installable debug APK plus reports.
+  reports. There is no standalone APK build/upload job.
 
-## Observed validation, 2026-10-03
+## English and Manglish vocabulary
 
-`tools/typing-validation.json` records the local APK checksum and final results.
-All 166 unit and 19 Android device checks passed. Native, Compose and WebView
-fixtures preserve rapid input and exact undo. The Pixel_9 Android 16 x86_64
-emulator measured warm worker p95 9.05 ms, IME-exclusive p95 0.63 ms and delegated
-native-editor end-to-end p95 9.55 ms.
+`tools/import_manglish.py` imports the three pinned Malayalam romanization
+lexicons from Google's [Dakshina v1.0](https://github.com/google-research-datasets/dakshina).
+Raw licensed sources, SHA256 provenance, attribution and CC BY-SA 4.0 are retained.
+The 66,439 Latin forms include 276 authored conversational spellings and productive
+English-stem suffixes such as `officeil`, `meetinginu` and `projectinte`.
+Attestation votes are separate from native subtitle frequency proxies. Valid
+`nale/naale` and `sheri/shari` variants are protected; phonetic normalization only
+retrieves proposals and never asserts equivalent meaning. A character 3/4-gram
+model uses training families only. Unknown words retain explicit uncertainty.
 
-The 9,767 synthetic holdout errors achieved 99.765% automatic precision and 99.959%
-automatic recall on 7,370 unambiguous cases. Correct-text holdout controls had zero
-changes. Overall holdout recall, including ambiguity, was 78.13%; ambiguous cases
-remain suggestions. The 237 authored cases include 131 English typos, 74 protected
-controls and Malayalam/Hindi code switching. All protected controls stayed literal.
-The four required misses (`finaly`, `libary`, `buisness`, `differnt`) autocorrect.
+English and Manglish rank together. Nearby English spans can still correct
+`tomorow` and contextual `sea` while Manglish spans protect intentional loans and
+variants. AI-polish and optional sentence validation share these span guards.
+Latin mode stays Latin; script conversion is an explicit Malayalam setting, with
+legacy values normalized. The authored, fictional conversational n-gram baseline
+replaces a fixed list of Manglish predictions. Swipe decoding runs on a worker,
+includes Manglish words, prunes by gesture geometry, and ranks using context and
+personal evidence. Swipe casing stays lowercase unless caps lock is active.
+
+Deletion indexes now use sorted primitive fingerprint/word-ID postings instead of
+retaining a string/map/list object per deletion. Fingerprint collisions retrieve
+extra proposals only; exact distance still validates every candidate. English and
+Manglish lexical proposal caches are bounded; current touch, language, context and
+personal scores are always recomputed on workers. Learned swipe templates are
+bounded to 256, with reset generations and serialized writes. Legacy duplicate
+Markov/touch engines and 91 unused methods were removed; Android callbacks, Room
+migration entities and JNI entrypoints remain.
+
+The ranker also reuses up to 2,048 invariant spelling/geometry comparisons and
+prepares n-gram distributions once per request instead of once per candidate.
+ASCII tokens avoid unnecessary Unicode composition/case folding. Startup swipe
+buckets use constant-time word deduplication, and vocabulary updates reuse the
+same initialized dictionary. Chromium publication is allowed up to 256 ms only
+when the older snapshot matches an owned edit; replacements still validate the
+entire range, selection and following text. The WebView instrumentation bridge
+waits for a focused DOM text field and posts every edit to its connection handler.
+
+## Training, calibration and limitations
+
+The generic spelling prior is refined by pairwise FTRL using 2,690 actual runtime
+candidate competitions (1,797 English, 893 Manglish). `tools/data/runtime-ranking-training.jsonl.gz`
+records the exact 21-dimensional scoring vectors and alternative words. Unit tests
+verify feature parity against runtime; the trainer consumes training families only.
+Existing personal model slots and hash labels keep their meanings; new language,
+variant and mixed-context features use unused slots/labels. Learning remains local
+and invisible, and no full messages are retained.
+
+Confidence gates are calibrated separately for English and Manglish. Run the unit
+evaluations, `tools/calibrate_typing_ranker.py` and `tools/calibrate_bilingual.py`;
+only calibration partitions are read. The frozen gates are loaded once from
+`ranker-calibration.tsv`, not assigned per typo. `tools/verify_typing_assets.py`
+checks source/asset hashes, disjoint variant families and conversational templates,
+and training membership. CI reproduces vocabulary, language assets, ranker weights
+and evaluation splits byte-for-byte.
+
+The English benchmark contains 9,767 word-family-disjoint synthetic holdout errors,
+with intended-word controls and independent closest-candidate labels. The additional
+bilingual holdout contains 900 English and 905 Manglish synthetic errors, 1,376 valid
+Manglish controls, and 103 next-word targets from disjoint authored templates. These
+fixtures supplement the human-authored typo, name, slang, contextual, multilingual
+and editing regressions; they do not establish natural-chat accuracy. Calibration
+and training are disjoint from holdout; the frozen holdout is also a development
+regression gate, not a hidden external evaluation. Overall recall deliberately
+includes ambiguity; unambiguous English recall is reported separately.
+
+The implemented methods follow published Gboard work on joint lexical/spatial/context
+evidence, personal touch calibration and gesture search pruning:
+[decoding architecture](https://aclanthology.org/2024.emnlp-industry.93/),
+[personal spatial models](https://arxiv.org/abs/2209.11311), and
+[on-device prediction](https://research.google/blog/the-machine-intelligence-behind-gboard/).
+TypeRight uses its existing offline ranker/FTRL architecture; it does not reproduce
+Google's private model, training corpus or measured product quality.
+
+Current validation results are recorded in `tools/typing-validation.json`.
+Device instrumentation generates temporary packages; no APK is delivered or
+uploaded as a build artifact. The existing GGUF catalog and other app features remain.

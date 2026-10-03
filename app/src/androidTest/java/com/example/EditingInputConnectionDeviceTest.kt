@@ -32,14 +32,27 @@ class EditingInputConnectionDeviceTest {
             for(kind in listOf("native","compose","web")) {
                 ActivityScenario.launch<EditingHostActivity>(Intent(owner,EditingHostActivity::class.java).putExtra("editor",kind)).use { scenario ->
                     var bound=false
+                    var candidate: InputConnection?=null
+                    var candidateInfo: EditorInfo?=null
                     repeat(60) {
                         if(!bound) scenario.onActivity { activity ->
-                            val info=EditorInfo()
-                            if(kind=="web") activity.focusWebEditor()
-                            val connection=activity.inputView()?.onCreateInputConnection(info)
-                            if(connection!=null) {
-                                service.editorConnection=if(kind=="web") ThreadedEditorConnection(connection) else connection; service.editorInfo=info
-                                service.onStartInput(info,false); service.lowercaseInput(); bound=true
+                            if(candidate==null) {
+                                if(kind=="web") {
+                                    if(!activity.webReady) return@onActivity
+                                    activity.focusWebEditor()
+                                }
+                                val info=EditorInfo()
+                                val connection=activity.inputView()?.onCreateInputConnection(info)
+                                // Chromium can return a connection before its DOM field is focused.
+                                if(connection!=null && (kind!="web" || info.inputType and android.text.InputType.TYPE_MASK_CLASS == android.text.InputType.TYPE_CLASS_TEXT && info.initialSelEnd>=0)) {
+                                    candidate=if(kind=="web") ThreadedEditorConnection(connection) else connection
+                                    candidateInfo=info
+                                }
+                            }
+                            val connection=candidate
+                            if(connection!=null && (connection !is ThreadedEditorConnection || connection.hasSnapshot)) {
+                                service.editorConnection=connection; service.editorInfo=candidateInfo!!
+                                service.onStartInput(candidateInfo,false); service.lowercaseInput(); bound=true
                             }
                         }
                         if(!bound) SystemClock.sleep(50)
@@ -47,9 +60,25 @@ class EditingInputConnectionDeviceTest {
                     assertTrue("$kind input connection",bound)
                     DictionaryManager.getInstance(owner).correctionPipeline.clearCache()
                     instrumentation.runOnMainSync { "teh next buisness ".forEach { if(it==' ') service.onKeySpace() else service.onKeyText(it.toString()) } }
-                    awaitText(service,"the next business ",kind)
+                    // The first editor deliberately types before startup asset loading.
+                    // Warm editor checks retain the short publication deadline.
+                    awaitText(service,"the next business ",kind,if(kind=="native") 30000 else 2000)
                     instrumentation.runOnMainSync { service.onKeyDelete() }
                     awaitText(service,"the next buisness",kind)
+                    instrumentation.runOnMainSync {
+                        service.editorConnection!!.finishComposingText()
+                        service.editorConnection!!.setSelection(0,"the next buisness".length)
+                        service.editorConnection!!.commitText("",1)
+                    }
+                    awaitText(service,"",kind)
+                    instrumentation.runOnMainSync {
+                        service.onStartInput(service.editorInfo,false); service.lowercaseInput()
+                        DictionaryManager.getInstance(owner).correctionPipeline.clearCache()
+                        "njan tomorow officeil varillla ".forEach { if(it==' ') service.onKeySpace() else service.onKeyText(it.toString()) }
+                    }
+                    awaitText(service,"njan tomorrow officeil varilla ",kind)
+                    instrumentation.runOnMainSync { service.onKeyDelete() }
+                    awaitText(service,"njan tomorrow officeil varillla",kind)
                     instrumentation.runOnMainSync { service.onFinishInput() }
                     service.editorConnection=null
                 }
@@ -67,10 +96,11 @@ class EditingInputConnectionDeviceTest {
             val ranker=DictionaryManager.getInstance(owner).correctionPipeline
             withContext(Dispatchers.Default) { ranker.awaitDictionaries() }
             // JIT/geometry warmup is separate from measured worker samples; editing tests use cold caches.
-            withContext(Dispatchers.Default) { repeat(60) { ranker.rank(listOf("finaly","libary","buisness","differnt","teh","recieve")[it%6]) } }
+            val words=listOf("finaly","libary","buisness","differnt","teh","recieve","varillla","njan","officeil")
+            withContext(Dispatchers.Default) { repeat(90) { ranker.rank(words[it%words.size],listOf("njan","innu")) } }
             val worker=withContext(Dispatchers.Default) { (0 until 240).map { i ->
-                val word=listOf("finaly","libary","buisness","differnt","teh","recieve")[i%6]
-                val start=System.nanoTime(); ranker.rank(word); (System.nanoTime()-start)/1e6
+                val word=words[i%words.size]
+                val start=System.nanoTime(); ranker.rank(word,listOf("njan","innu")); (System.nanoTime()-start)/1e6
             }.sorted() }
             val cached=mutableListOf<Double>()
             val endToEnd=mutableListOf<Double>()
@@ -112,13 +142,24 @@ class EditingInputConnectionDeviceTest {
         override fun beginBatchEdit()=timed { super.beginBatchEdit() }
         override fun endBatchEdit()=timed { super.endBatchEdit() }
     }
-    private fun awaitText(service: EditingTestIme,expected: String,kind: String) {
+    private fun awaitText(service: EditingTestIme,expected: String,kind: String,timeoutMs: Long = 2000) {
         var actual=""
-        repeat(80) {
-            instrumentation.runOnMainSync { actual=service.editorConnection?.getTextBeforeCursor(1000,0)?.toString().orEmpty() }
-            if(actual==expected) return
+        var following=""; var selected=""
+        val deadline=SystemClock.uptimeMillis()+timeoutMs
+        while(SystemClock.uptimeMillis()<deadline) {
+            instrumentation.runOnMainSync {
+                val connection=service.editorConnection!!
+                actual=connection.getTextBeforeCursor(1000,0)?.toString().orEmpty()
+                following=connection.getTextAfterCursor(1000,0)?.toString().orEmpty()
+                selected=connection.getSelectedText(0)?.toString().orEmpty()
+            }
+            // WebView can publish cursor zero before its queued select-all/delete
+            // is complete. An empty prefix alone does not prove an empty editor.
+            if(actual==expected && following.isEmpty() && selected.isEmpty()) return
             SystemClock.sleep(25)
         }
         assertEquals(kind,expected,actual)
+        assertEquals("$kind following text","",following)
+        assertEquals("$kind selected text","",selected)
     }
 }

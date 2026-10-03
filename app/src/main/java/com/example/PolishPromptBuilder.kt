@@ -43,8 +43,8 @@ internal object PolishPromptBuilder {
             if (numbers.isNotEmpty()) "\nRetain these original numbers exactly: ${numbers.joinToString(", ")}.\n" else ""
         val tokens = Regex("[\\p{L}\\p{M}]+").findAll(input).map { it.value }.toList()
         val romanizedHindiSpan = tokens.count { it.lowercase() in MultilingualLexicon.romanizedHindi && it.lowercase() !in setOf("main", "hi", "par", "se", "fir", "bas") } >= 2
-        val protectedTokens = tokens.filter { it.lowercase() in MultilingualLexicon.romanizedMalayalam ||
-            (romanizedHindiSpan && it.lowercase() in MultilingualLexicon.romanizedHindi) || it.lowercase() in MultilingualLexicon.slang }.distinct()
+        val protectedTokens = tokens.filterIndexed { index, word -> RomanizedMalayalamLexicon.preservesLiteral(word,tokens.take(index),tokens.drop(index+1)) || word.lowercase() in MultilingualLexicon.romanizedMalayalam ||
+            (romanizedHindiSpan && word.lowercase() in MultilingualLexicon.romanizedHindi) || word.lowercase() in MultilingualLexicon.slang }.distinct()
         // Compact models follow a short editing task better than a long list of prohibitions.
         // Validators independently enforce preservation; transliterated vocabulary is explicit data.
         val qwenSystem = if (mode == PolishMode.PROOFREAD) "Correct the grammar and spelling of the user text. Return only the corrected text. Preserve names, numbers, language and meaning, including negation." +

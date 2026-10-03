@@ -9,12 +9,17 @@ class ThreadedEditorConnection(private val target: InputConnection) : InputConne
     private val handler: Handler = requireNotNull(target.handler)
     private data class State(val before: String="",val after: String="",val selected: String?=null,val extracted: ExtractedText?=null)
     @Volatile private var state=State()
+    @Volatile var hasSnapshot=false
+        private set
     private val refreshPending=AtomicBoolean()
     init { refresh() }
     private fun refresh() {
         if(!refreshPending.compareAndSet(false,true)) return
         handler.postDelayed({
-            try { state=State(target.getTextBeforeCursor(20000,0)?.toString().orEmpty(),target.getTextAfterCursor(20000,0)?.toString().orEmpty(),target.getSelectedText(0)?.toString(),target.getExtractedText(ExtractedTextRequest(),0)) }
+            try {
+                state=State(target.getTextBeforeCursor(20000,0)?.toString().orEmpty(),target.getTextAfterCursor(20000,0)?.toString().orEmpty(),target.getSelectedText(0)?.toString(),target.getExtractedText(ExtractedTextRequest(),0))
+                hasSnapshot=true
+            }
             finally { refreshPending.set(false) }
         },16)
     }
@@ -26,6 +31,7 @@ class ThreadedEditorConnection(private val target: InputConnection) : InputConne
     override fun setComposingText(text: CharSequence?,position: Int)=edit { target.setComposingText(text,position) }
     override fun finishComposingText()=edit { target.finishComposingText() }
     override fun setComposingRegion(start: Int,end: Int)=edit { target.setComposingRegion(start,end) }
+    override fun setSelection(start: Int,end: Int)=edit { target.setSelection(start,end) }
     override fun commitText(text: CharSequence?,position: Int)=edit { target.commitText(text,position) }
     override fun deleteSurroundingText(before: Int,after: Int)=edit { target.deleteSurroundingText(before,after) }
     override fun beginBatchEdit()=edit { target.beginBatchEdit() }

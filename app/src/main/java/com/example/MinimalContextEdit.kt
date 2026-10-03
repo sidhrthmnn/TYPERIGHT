@@ -17,7 +17,7 @@ internal object MinimalContextEdit {
             if (a == b) continue
             val lower = MultilingualLexicon.normalize(a)
             if (lower in negation || MultilingualLexicon.normalize(b) in negation ||
-                lower in MultilingualLexicon.slang || lower in MultilingualLexicon.romanizedMalayalam || lower in MultilingualLexicon.romanizedHindi ||
+                lower in MultilingualLexicon.slang || RomanizedMalayalamLexicon.preservesLiteral(lower,before.take(i).map { it.value },before.drop(i+1).take(2).map { it.value }) || lower in MultilingualLexicon.romanizedMalayalam || lower in MultilingualLexicon.romanizedHindi ||
                 dictionary.correctionPipeline.isProtectedPersonalWord(a) || (a.first().isUpperCase() && lower != MultilingualLexicon.normalize(b) && (i > 0 || !dictionary.gboardEngine.isKnownTypo(lower))) ||
                 dictionary.isCodeOrSpecialToken(a) || CandidateRanker.editDistance(lower, MultilingualLexicon.normalize(b)) > 2f) return false
             val lexicon = MultilingualLexicon.get(dictionary.appContext)

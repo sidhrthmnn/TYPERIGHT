@@ -5,16 +5,11 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.content.pm.PackageManager
 import android.graphics.PointF
-import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Build
-import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.view.KeyEvent
 import android.media.MediaRecorder
@@ -26,11 +21,6 @@ import android.view.Gravity
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
-import android.view.inputmethod.InputMethodManager
-import android.text.SpannableString
-import android.text.Spanned
-import android.text.style.UnderlineSpan
-import android.text.style.SuggestionSpan
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -43,9 +33,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -64,7 +52,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -81,21 +68,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.progressBarRangeInfo
-import androidx.compose.ui.semantics.ProgressBarRangeInfo
-import androidx.compose.ui.semantics.setProgress
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.TextMeasurer
 import android.util.Log
-import kotlin.random.Random
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -108,21 +90,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.catch
 import java.util.*
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.LifecycleRegistry
-import androidx.lifecycle.ViewModelStore
-import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
-import androidx.savedstate.SavedStateRegistry
-import androidx.savedstate.SavedStateRegistryController
-import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 
 data class TextInputBufferState(
@@ -344,9 +316,8 @@ open class TypeRightKeyboardService : KeyboardService() {
                                 rightCandidate = pred.rightCandidate,
                                 isCenterAutocorrecting = pred.isCenterAutocorrecting
                             )
-                            val malayalam = settings.keyboardLanguage.contains("Malayalam", ignoreCase = true)
-                            val transliterations = if (buffer.activePrefix.isNotEmpty() &&
-                                (malayalam || settings.manglishTransliterationEnabled)) {
+                            val malayalam = settings.isMalayalamScriptMode
+                            val transliterations = if (buffer.activePrefix.isNotEmpty() && malayalam) {
                                 manglishEngine.getTransliterationCandidates(buffer.activePrefix)
                             } else emptyList()
                             val finalResult = if (malayalam && transliterations.isNotEmpty()) gboard.copy(
@@ -355,8 +326,7 @@ open class TypeRightKeyboardService : KeyboardService() {
                                 rightCandidate = transliterations.getOrElse(2) { "" },
                                 isCenterAutocorrecting = true
                             ) else gboard
-                            val suggestions = listOf(finalResult.leftCandidate, finalResult.centerCandidate,
-                                if (!malayalam && transliterations.isNotEmpty()) transliterations[0] else finalResult.rightCandidate)
+                            val suggestions = listOf(finalResult.leftCandidate, finalResult.centerCandidate, finalResult.rightCandidate)
 
                             AsyncKeyboardPredictions(finalResult, suggestions, pred.phraseCompletions, buffer)
                         }
@@ -605,17 +575,6 @@ open class TypeRightKeyboardService : KeyboardService() {
         val partAfter = after.substring(0, endIdx)
 
         return Pair(partBefore, partAfter)
-    }
-
-    private fun getWordBeforeCursor(ic: InputConnection): String {
-        val before = ic.getTextBeforeCursor(50, 0) ?: return ""
-        if (before.isEmpty()) return ""
-        var i = before.length - 1
-        if (!isWordChar(before[i])) return ""
-        while (i >= 0 && isWordChar(before[i])) {
-            i--
-        }
-        return before.substring(i + 1).toString()
     }
 
     private fun updatePreviousWord() {
@@ -1361,10 +1320,6 @@ open class TypeRightKeyboardService : KeyboardService() {
         playFeedback(FeedbackType.Standard)
     }
 
-    private fun formatGrammarCheckedText(word: String): CharSequence {
-        return word
-    }
-
     fun allowsTextAssistance(): Boolean {
         val info = currentInputEditorInfo ?: return false
         return !isSensitiveField()
@@ -1487,17 +1442,6 @@ open class TypeRightKeyboardService : KeyboardService() {
             lastAutoCorrection = AutoCorrectionEvent(prefix, corrected, context, android.os.SystemClock.uptimeMillis())
             retainedCorrection(prefix, corrected, context, taps)
         } else rankCompletedWord(prefix, trailingText, context, taps)
-    }
-
-    private fun restoreCasing(original: String, target: String): String {
-        if (original.isEmpty() || target.isEmpty()) return target
-        if (original.all { it.isUpperCase() }) {
-            return target.uppercase()
-        }
-        if (original[0].isUpperCase()) {
-            return target.replaceFirstChar { if (it.isLowerCase()) it.uppercase() else it.toString() }
-        }
-        return target
     }
 
     private fun handleKeyPress(text: String) {
@@ -2057,6 +2001,29 @@ open class TypeRightKeyboardService : KeyboardService() {
         updatePreviousWord()
     }
 
+    /** Capture the editor on the IME thread; all geometry/ranking runs on a worker. */
+    internal fun handleSwipePath(path: List<PointF>) {
+        val ic=currentInputConnection ?: return
+        if(isSensitiveField() || !settings.swipeEnabled || path.size<2) return
+        val session=editorSession
+        val before=ic.getTextBeforeCursor(512,0)?.toString().orEmpty()
+        val after=ic.getTextAfterCursor(256,0)?.toString().orEmpty()
+        if(!ic.getSelectedText(0).isNullOrEmpty()) return
+        val prior=previousWords.value.toList()
+        val captured=path.map { PointF(it.x,it.y) }
+        val adaptive=mayLearn()
+        serviceScope.launch {
+            val candidates=withContext(Dispatchers.Default) {
+                dictionaryManager.correctionPipeline.awaitDictionaries()
+                dictionaryManager.decodeSwipePath(captured,previousWords=prior,learningAllowed=adaptive)
+            }
+            if(candidates.isEmpty() || editorSession!=session || currentInputConnection!==ic || isSensitiveField() ||
+                !settings.swipeEnabled || !ic.getSelectedText(0).isNullOrEmpty() ||
+                before!=ic.getTextBeforeCursor(512,0)?.toString().orEmpty() || after!=ic.getTextAfterCursor(256,0)?.toString().orEmpty()) return@launch
+            handleSwipeResult(candidates.first(),candidates,captured)
+        }
+    }
+
     internal fun handleSwipeResult(decodedWord: String, decodedCandidates: List<String>, path: List<PointF>) {
         val topWord = TypingPolicy.swipeCase(decodedWord, isCapsLockActive.value)
         val candidates = decodedCandidates.map { TypingPolicy.swipeCase(it, isCapsLockActive.value) }
@@ -2154,15 +2121,6 @@ open class TypeRightKeyboardService : KeyboardService() {
     }
 
     private var recordingJob: Job? = null
-
-    private fun createMediaRecorder(): MediaRecorder {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(this)
-        } else {
-            @Suppress("DEPRECATION")
-            MediaRecorder()
-        }
-    }
 
     private fun startVoiceTyping() {
         val hasMic = MicrophonePermissionHelper.hasMicrophonePermission(this)
@@ -2371,11 +2329,6 @@ open class TypeRightKeyboardService : KeyboardService() {
             aiRephraseSuggestions.clear()
             rephraseSnapshot = null
         }
-    }
-
-    private fun handleAiPolishButtonClick() {
-        playFeedback()
-        performDirectAiPolish()
     }
 
     /**
@@ -2700,38 +2653,6 @@ open class TypeRightKeyboardService : KeyboardService() {
                         isAiPolishing.value = false
                     }
                 }
-            }
-        }
-    }
-
-    /**
-     * Executes AI Polish on-device to suggest professional, casual, or concise rewrites.
-     */
-    private fun performAiPolish() {
-        if (!allowsTextAssistance() || settings.supportTier == KeyboardSettings.TIER_3) return
-        cancelPendingPolish()
-        playFeedback()
-        val snapshot = captureEditorText() ?: return
-        if (snapshot.text.isBlank()) return
-        rephraseSnapshot = snapshot
-        val requestId = currentAiRequestId
-        currentAiJob = serviceScope.launch {
-            isAiPolishing.value = true
-            try {
-                aiPolishManager.suggestImprovements(snapshot.text).collect { suggestions ->
-                    if (requestId == currentAiRequestId && snapshot.session == editorSession) {
-                        aiRephraseSuggestions.clear()
-                        aiRephraseSuggestions.addAll(suggestions.filter {
-                            AiOutputValidator.isValid(snapshot.text, it, PolishMode.REPHRASE)
-                        })
-                    }
-                }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                Log.w("TypeRight", "Polish failed: ${failure.javaClass.simpleName}")
-            } finally {
-                if (requestId == currentAiRequestId) isAiPolishing.value = false
             }
         }
     }
@@ -3065,10 +2986,10 @@ fun KeyboardLayout(
         }
     }
 
-    val isMalayalamKeyboard = keyboardLanguageState.contains("Malayalam", ignoreCase = true)
+    val isMalayalamKeyboard = KeyboardSettings.isMalayalamScriptLanguage(keyboardLanguageState)
     val spacebarLabel = if (isMalayalamKeyboard) "മലയാളം (Manglish)" else "English"
     val onToggleLanguage: () -> Unit = {
-        val next = if (isMalayalamKeyboard) "English" else "മലയാളം (Manglish)"
+        val next = if (isMalayalamKeyboard) KeyboardSettings.LANGUAGE_ENGLISH else KeyboardSettings.LANGUAGE_MALAYALAM_SCRIPT
         settings.keyboardLanguage = next
         keyboardLanguageState = next
         (context as? TypeRightKeyboardService)?.notifyTextBufferChanged()
@@ -4553,17 +4474,13 @@ fun KeyboardLayout(
                             onEmojiToggle = onEmojiToggle,
                             onSpaceClick = onSpace,
                             onEnterClick = onEnter,
-                            onSwipeResult = { topWord, candidates, path ->
-                                service?.handleSwipeResult(topWord, candidates, path)
-                            },
-                            dictionaryManager = dictionaryManager,
+                            onSwipePath = { path -> service?.handleSwipePath(path) },
                             onVoiceTypingToggle = onVoiceTypingToggle,
                             onTapCoordinates = onTapCoordinates,
                             onSpaceSwipeLeft = onSpaceSwipeLeft,
                             onSpaceSwipeRight = onSpaceSwipeRight,
                             spacebarLabel = spacebarLabel,
                             onSpaceLongClick = onToggleLanguage,
-                            prevWord = previousWords.lastOrNull(),
                             swipeEnabled = swipeEnabledState
                         )
                     }
@@ -4640,8 +4557,7 @@ fun QwertyLayout(
     onEmojiToggle: () -> Unit,
     onSpaceClick: () -> Unit,
     onEnterClick: () -> Unit,
-    onSwipeResult: (String, List<String>, List<android.graphics.PointF>) -> Unit,
-    dictionaryManager: DictionaryManager,
+    onSwipePath: (List<android.graphics.PointF>) -> Unit,
     onVoiceTypingToggle: () -> Unit,
     onTapCoordinates: (Float, Float) -> Unit = { _, _ -> },
     onSpaceSwipeLeft: (() -> Unit)? = null,
@@ -4649,7 +4565,6 @@ fun QwertyLayout(
     showNumberRow: Boolean = false,
     spacebarLabel: String = "English",
     onSpaceLongClick: (() -> Unit)? = null,
-    prevWord: String? = null,
     swipeEnabled: Boolean = true
 ) {
     val numberRow = listOf('1', '2', '3', '4', '5', '6', '7', '8', '9', '0')
@@ -4836,14 +4751,7 @@ fun QwertyLayout(
                                     if (detectedSwipe && !isSpaceScrolling && !isSpaceTouching) {
                                         change.consume()
 
-                                        val decoded = dictionaryManager.decodeSwipePath(normalizedPath.toList(), prevWord)
-                                        if (decoded.isNotEmpty()) {
-                                            val formattedCandidates = decoded.map { word ->
-                                                TypingPolicy.swipeCase(word, isCapsLock)
-                                            }
-                                            val bestWord = formattedCandidates.first()
-                                            onSwipeResult(bestWord, formattedCandidates, normalizedPath.toList())
-                                        }
+                                        onSwipePath(normalizedPath.toList())
 
                                         isSwiping = false
                                         // Animate subtle fade-out animation and elastic spring physics contraction

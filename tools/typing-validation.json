@@ -1,15 +1,17 @@
 {
-  "version": "191.0",
-  "validatedUTC": "2026-10-03T18:46:25.754459+00:00",
+  "version": "192.0",
+  "validatedUTC": "2026-10-03T21:41:56.162900+00:00",
   "unitTests": {
-    "tests": 166,
+    "tests": 174,
     "failures": 0,
     "errors": 0,
     "skipped": 0
   },
   "deviceTests": {
-    "tests": 19,
+    "tests": 18,
     "failures": 0,
+    "errors": 0,
+    "skipped": 0,
     "environment": "Pixel_9 emulator, Android 16, x86_64, SwiftShader",
     "editors": [
       "native EditText",
@@ -17,39 +19,84 @@
       "WebView textarea"
     ],
     "latency": {
-      "workerP95Ms": 9.049866,
-      "imeExclusiveHandlerP95Ms": 0.630045,
-      "nativeEditorEndToEndP95Ms": 9.546144
+      "workerP95Ms": 13.661456,
+      "imeExclusiveHandlerP95Ms": 1.567622,
+      "nativeEditorEndToEndP95Ms": 8.109808
     },
-    "latencyDefinition": "240 warm worker ranking samples; 150 actual IME key callbacks. IME-exclusive subtracts delegated native InputConnection work; end-to-end includes it."
+    "latencyDefinition": "240 warm worker rankings with fresh context/personal scoring; 150 actual IME callbacks. IME-exclusive subtracts delegated InputConnection work; end-to-end includes it."
   },
   "independent": {
     "calibration": {
       "cases": 9867,
-      "automaticPrecision": 0.9976878612716763,
-      "unambiguousCases": 7519,
-      "automaticRecall": 0.9998670035909031,
+      "automaticPrecision": 0.9965744734838874,
+      "unambiguousCases": 7433,
+      "automaticRecall": 0.9990582537333512,
       "falseCorrectionRate": 0.0004053917097395358
     },
     "holdout": {
       "cases": 9767,
-      "automaticPrecision": 0.9976467512093085,
-      "unambiguousCases": 7370,
-      "automaticRecall": 0.9995929443690638,
+      "automaticPrecision": 0.9963973237261966,
+      "unambiguousCases": 7265,
+      "automaticRecall": 0.999036476256022,
       "falseCorrectionRate": 0
     }
   },
-  "overallHoldoutTypoRecall": 0.7813043923415584,
+  "bilingualHoldout": {
+    "en": {
+      "typos": 900,
+      "automaticChanges": 712,
+      "hits": 710,
+      "recall": 0.7888888888888889,
+      "precision": 0.9971910112359551,
+      "protected": 0,
+      "protectedChanges": 0
+    },
+    "ml-Latn": {
+      "typos": 905,
+      "automaticChanges": 721,
+      "hits": 718,
+      "recall": 0.7933701657458564,
+      "precision": 0.9958391123439667,
+      "protected": 1376,
+      "protectedChanges": 0
+    },
+    "prediction": {
+      "cases": 103,
+      "top3Hits": 80,
+      "top3Recall": 0.7766990291262136
+    }
+  },
+  "previousMainBilingual": {
+    "en": {
+      "typos": 900,
+      "automaticChanges": 692,
+      "hits": 691,
+      "recall": 0.7677777777777778,
+      "precision": 0.9985549132947977,
+      "protected": 0,
+      "protectedChanges": 0
+    },
+    "ml-Latn": {
+      "typos": 905,
+      "automaticChanges": 60,
+      "hits": 8,
+      "recall": 0.008839779005524863,
+      "precision": 0.13333333333333333,
+      "protected": 1376,
+      "protectedChanges": 128
+    },
+    "prediction": {
+      "cases": 103,
+      "top3Hits": 9,
+      "top3Recall": 0.08737864077669903
+    }
+  },
   "authored": {
     "cases": 237,
     "englishTypos": 131,
     "automaticPrecision": 1,
     "falseCorrectionRate": 0,
-    "automaticRecall": 0.8045112781954887
-  },
-  "protectedControls": {
-    "cases": 74,
-    "changes": 0
+    "automaticRecall": 0.8947368421052632
   },
   "undoTrace": {
     "trace": "one correction followed by immediate backspace",
@@ -57,10 +104,8 @@
     "undone": 1,
     "undoRate": 1.0
   },
-  "limitations": "Synthetic word-disjoint typo evaluation supplements authored multilingual/context fixtures. Unambiguous recall labels the only closest dictionary spelling. Overall recall deliberately includes ambiguous cases. Undo is a deterministic regression trace, not observed user behavior. Emulator measurements are not physical-device guarantees.",
-  "apk": {
-    "file": "TypeRight-191.0-internal-learning-debug.apk",
-    "bytes": 39749858,
-    "sha256": "d2eb6ffdd115d0dd11f35cc5d30a760c500cb62675a0dfe23c143fdec96b5463"
-  }
+  "removedUnusedMethods": 91,
+  "assetReproduction": "Pinned sources, derived SHA256 values and family/template splits verified; vocabulary, character model, ranker and evaluation splits regenerate byte-identically.",
+  "delivery": "Unit tests and temporary device instrumentation packages only. No standalone APK build, delivery or CI APK artifact.",
+  "limitations": "Synthetic word-family and authored conversation-template holdouts are development regression gates, not hidden external or natural-chat evaluations. Unambiguous English recall labels the only closest canonical spelling; overall recall includes ambiguous cases. Valid vocabulary is available for every partition, but training weights/character evidence use training families and confidence gates use calibration only. Cold startup queues checks during asset loading; warm timing excludes startup. Undo is a deterministic regression trace, not observed user behavior. Emulator timings are not physical-device guarantees; competing host workloads can exceed the warm target."
 }

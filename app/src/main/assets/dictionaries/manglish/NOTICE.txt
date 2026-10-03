@@ -1,0 +1,22 @@
+Dakshina Dataset v1.0 (Malayalam romanization lexicons)
+Source: https://github.com/google-research-datasets/dakshina
+Download: https://storage.googleapis.com/gresearch/dakshina/dakshina_dataset_v1.0.tar
+License: Creative Commons Attribution-ShareAlike 4.0 International.
+Full license: ../LICENSE-CC-BY-SA-4.0.txt
+
+Citation: Roark, Brian; Wolf-Sonkin, Lawrence; Kirov, Christo; Mielke,
+Sabrina J.; Johny, Cibu; Demirsahin, Isin; Hall, Keith (2020).
+Processing South Asian Languages Written in the Latin Script: the Dakshina
+Dataset. LREC 2020, pp. 2413-2423. https://aclanthology.org/2020.lrec-1.294/
+
+Modifications by TypeRight: lowercase/filter Latin forms; merge attested
+romanizations into word-family metadata; add existing authored conversational
+entries; join native-script usage proxies; train smoothed character n-gram
+language evidence. These derived data assets are distributed under CC BY-SA 4.0.
+Annotation vote counts are recorded separately from word-frequency proxies.
+Source member and output SHA256 values appear in provenance.json.
+
+Conversational examples in tools/data/manglish-conversations.tsv are fictional,
+authored fixtures, not messages collected from users. They supply conversational
+priors and an independently partitioned template holdout, not a claim of real
+world typing accuracy or Gboard equivalence.

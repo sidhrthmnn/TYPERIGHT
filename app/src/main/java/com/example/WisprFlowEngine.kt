@@ -1,7 +1,6 @@
 package com.example
 
 import android.content.Context
-import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -157,10 +156,6 @@ class WisprFlowEngine private constructor(private val context: Context) {
 
     private val _currentMode = MutableStateFlow(WisprFlowMode.AUTO)
     val currentMode: StateFlow<WisprFlowMode> = _currentMode
-
-    fun setMode(mode: WisprFlowMode) {
-        _currentMode.value = mode
-    }
 
     /**
      * Transforms raw spoken transcript into finalized Wispr Flow output according to the selected mode.

@@ -167,8 +167,8 @@ object AiOutputValidator {
         val sourceTokens = Regex("[\\p{L}\\p{M}]+").findAll(origTrim).map { MultilingualLexicon.normalize(it.value) }.toList()
         val targetTokens = Regex("[\\p{L}\\p{M}]+").findAll(candTrim).map { MultilingualLexicon.normalize(it.value) }.toList()
         val hiSpan = sourceTokens.count { it in MultilingualLexicon.romanizedHindi && it !in setOf("main", "hi", "par", "se", "fir", "bas") } >= 2
-        val literals = sourceTokens.filter { it in MultilingualLexicon.romanizedMalayalam || (hiSpan && it in MultilingualLexicon.romanizedHindi) ||
-            (mode == PolishMode.PROOFREAD && it in MultilingualLexicon.slang) }
+        val literals = sourceTokens.filterIndexed { index, word -> RomanizedMalayalamLexicon.preservesLiteral(word,sourceTokens.take(index),sourceTokens.drop(index+1)) || word in MultilingualLexicon.romanizedMalayalam || (hiSpan && word in MultilingualLexicon.romanizedHindi) ||
+            (mode == PolishMode.PROOFREAD && word in MultilingualLexicon.slang) }
         if (literals.distinct().any { token -> targetTokens.count { it == token } < literals.count { it == token } }) return false
 
         // 2. Reject obvious AI chat commentary if unstripped

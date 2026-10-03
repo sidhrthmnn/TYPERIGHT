@@ -96,13 +96,6 @@ class ManglishTransliterationEngine private constructor(private val context: Con
     }
 
     /**
-     * Query Trie directly for prefix predictions.
-     */
-    fun searchTrie(prefix: String, maxResults: Int = 5): List<MalayalamPrediction> {
-        return trie.searchPrefix(prefix, maxResults)
-    }
-
-    /**
      * Algorithmic phonetic transliteration for Manglish into Malayalam script.
      */
     fun transliteratePhonetic(input: String): String {

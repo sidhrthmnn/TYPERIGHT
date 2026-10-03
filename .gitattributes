@@ -4,3 +4,5 @@ gradlew text eol=lf
 app/src/main/assets/dictionaries/* text eol=lf
 
 app/src/main/assets/dictionaries/** text eol=lf
+tools/data/dakshina/*.tsv text eol=lf
+tools/data/*.tsv text eol=lf

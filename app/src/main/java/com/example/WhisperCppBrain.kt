@@ -2,8 +2,6 @@ package com.example
 
 import android.content.Context
 import android.util.Log
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 /**
@@ -109,89 +107,5 @@ object WhisperCppBrain {
         return result
     }
 
-    /**
-     * Advanced Ramble Mode Intent & Self-Correction Polishing Engine (Offline / Local Fallback).
-     * 1. Resolves phrase-level live self-corrections (e.g. "Let's meet at 2... actually let's make it 4" -> "Let's meet at 4").
-     * 2. Detects and processes inline trailing instructions (e.g. "...make this more concise", "...bullet points please").
-     * 3. Aggressively removes fillers, false starts, and stutters.
-     */
-    fun whisperRambleIntentPolish(rawText: String): String {
-        if (rawText.isBlank()) return ""
-        var text = rawText.trim()
-
-        // Check for trailing intent commands
-        var isBulletListIntent = false
-        var isTodoIntent = false
-        var isConciseIntent = false
-        var isProfessionalIntent = false
-        var isSpanishIntent = false
-
-        val trailingDirectives = listOf(
-            Regex("(?i)[.,]?\\s*(?:make this|make it|please make it)?\\s*(?:more\\s+concise|concise|shorter|brief)[.]?$") to { isConciseIntent = true },
-            Regex("(?i)[.,]?\\s*(?:make this|make it|turn this into|please format as)?\\s*(?:bullet points?|a bulleted list|a list|bullet points please)[.]?$") to { isBulletListIntent = true },
-            Regex("(?i)[.,]?\\s*(?:make this|make it|turn this into)?\\s*(?:a to\\s*do list|todo list|a checklist|checklist)[.]?$") to { isTodoIntent = true },
-            Regex("(?i)[.,]?\\s*(?:make this|make it|please make it)?\\s*(?:sound\\s+professional|professional|more\\s+formal|formal)[.]?$") to { isProfessionalIntent = true },
-            Regex("(?i)[.,]?\\s*(?:translate to|in|translate into)\\s+spanish[.]?$") to { isSpanishIntent = true }
-        )
-
-        for ((regex, action) in trailingDirectives) {
-            if (regex.containsMatchIn(text)) {
-                action()
-                text = regex.replace(text, "").trim()
-            }
-        }
-
-        // Resolve multi-word sentence self-corrections
-        // e.g., "Let's meet at 2 actually let's make it 4" -> "Let's make it 4"
-        text = text.replace(Regex("(?i)(?:.+?)\\s+(?:actually let's make it|actually make it|let's make it instead)\\s+(\\d+.*)"), "Let's meet at $1")
-        text = text.replace(Regex("(?i)(?:.+?)\\s+(?:actually|no wait|sorry|or rather|i mean)\\s+(let's|can we|please|we should|i will|make it)\\s+(.+)"), "$1 $2")
-        text = text.replace(Regex("(?i)\\b(.+?)\\s+(?:no wait|sorry i mean|i mean|or rather|actually wait)\\s+(.+)"), "$2")
-
-        // Run basic Whisper cleanup (fillers, stutters, emojis, basic punctuation)
-        var polished = whisperCleanAndPolish(text)
-
-        // Apply detected voice intents if triggered
-        if (isBulletListIntent) {
-            val items = polished.split(Regex("[.!?\\n]+")).filter { it.isNotBlank() }
-            if (items.isNotEmpty()) {
-                polished = items.joinToString("\n") { "• ${it.trim().replaceFirstChar { c -> c.uppercase() }}" }
-            }
-        } else if (isTodoIntent) {
-            val items = polished.split(Regex("[.!?\\n]+")).filter { it.isNotBlank() }
-            if (items.isNotEmpty()) {
-                polished = items.joinToString("\n") { "[ ] ${it.trim().replaceFirstChar { c -> c.uppercase() }}" }
-            }
-        } else if (isProfessionalIntent) {
-            polished = polished
-                .replace(Regex("(?i)\\bgonna\\b"), "going to")
-                .replace(Regex("(?i)\\bwanna\\b"), "would like to")
-                .replace(Regex("(?i)\\bgotta\\b"), "need to")
-                .replace(Regex("(?i)\\bhaha|lol\\b"), "")
-                .trim()
-        }
-
-        return polished
-    }
-
-    /**
-     * Streams polished text word-by-word.
-     */
-    fun streamWhisperPolish(text: String): Flow<String> = flow {
-        val cleaned = whisperCleanAndPolish(text)
-        if (cleaned.isEmpty()) {
-            emit("")
-            return@flow
-        }
-
-        val words = cleaned.split(" ")
-        val currentBuild = StringBuilder()
-
-        for (i in words.indices) {
-            if (i > 0) currentBuild.append(" ")
-            currentBuild.append(words[i])
-            emit(currentBuild.toString())
-            delay(35)
-        }
-    }
 }
 

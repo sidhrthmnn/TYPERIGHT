@@ -1,5 +1,6 @@
 {
   "seed": 190191,
+  "runtimeSeed": 192193,
   "features": [
     "literal",
     "canonical",
@@ -18,34 +19,46 @@
     "prefix",
     "suffix",
     "missing",
-    "repetition"
+    "repetition",
+    "languageProbability",
+    "attestedLiteral",
+    "mixedMalayalam"
   ],
-  "algorithm": "pairwise FTRL-Proximal alpha=.25 beta=1 L1=.01 L2=.25 epochs=8",
-  "splitUnit": "SHA256 of intended word; 60/20/20",
+  "algorithm": "pairwise FTRL-Proximal alpha=.25 beta=1 L1=.01 L2=.25; 8 prior + 8 runtime epochs; runtime prior n=100000",
+  "splitUnit": "SHA256 of intended word/native variant family; 60/20/20",
   "counts": {
     "training": 29272,
     "holdout": 9767,
     "calibration": 9867
   },
   "datasetSHA256": "2d36ae11238904bb478283b7d1d62236be4f61e376ef000a8feaea691dbd6c7c",
+  "runtimeExamples": 2690,
+  "runtimeLanguages": {
+    "en": 1797,
+    "ml-Latn": 893
+  },
+  "runtimeSHA256": "5e5c372a3187747b18ea2911ed1a6ba26828154e57ad4c701152c85b935c177b",
   "weights": [
-    0.39004381,
-    14.95444292,
-    -4.19910469,
-    2.17298806,
-    -2.5626091,
-    12.6636511,
-    11.5051455,
+    0.33429298,
+    14.93222808,
+    -4.77316046,
+    2.26223406,
+    -2.72420965,
+    12.07274538,
+    11.50095816,
     7.83024915,
     7.83551691,
     -9.62758783,
     7.83251383,
-    7.82601486,
-    11.45469346,
+    7.82601487,
+    11.4570345,
     -9.62758783,
-    2.83034913,
-    2.95097576,
-    -0.00223804,
-    -0.09708792
+    3.01364092,
+    3.12748198,
+    1.63179224,
+    0.32650799,
+    0.03537474,
+    -0.00233316,
+    0.05145763
   ]
 }

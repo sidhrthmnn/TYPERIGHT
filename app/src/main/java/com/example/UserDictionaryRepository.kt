@@ -1,11 +1,9 @@
 package com.example
 
 import android.content.Context
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
@@ -326,20 +324,6 @@ class UserDictionaryRepository(
         customWordsSet.remove(clean.lowercase())
         publishVocabulary()
         existing?.shortcut?.let { shortcutMap.remove(it.trim().lowercase()) }
-    }
-
-    /**
-     * Deletes a frequently used word.
-     */
-    suspend fun deleteFrequentlyUsedWord(word: String) = withContext(Dispatchers.IO) {
-        frequentlyUsedWordDao.deleteWord(word.trim())
-    }
-
-    /**
-     * Clears all frequently used words.
-     */
-    suspend fun clearFrequentlyUsedWords() = withContext(Dispatchers.IO) {
-        frequentlyUsedWordDao.clearAll()
     }
 
     suspend fun clearAdaptiveStores() = withContext(Dispatchers.IO) {

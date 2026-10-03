@@ -9,7 +9,6 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.CoroutineScope
@@ -102,6 +101,8 @@ data class UserPreferences(
  * Jetpack DataStore implementation managing user preferences including theme selection,
  * auto-correction toggles, voice input settings, and AI engine controls.
  */
+private fun normalizeKeyboardLanguage(value: String): String = if (KeyboardSettings.isMalayalamScriptLanguage(value)) KeyboardSettings.LANGUAGE_MALAYALAM_SCRIPT else value
+
 class UserPreferencesDataStore private constructor(context: Context) {
 
     private val appContext = context.applicationContext ?: context
@@ -217,7 +218,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
                 offlineAiEnabled = prefs[PreferencesKeys.OFFLINE_AI_ENABLED] ?: true,
                 geminiAiEnabled = prefs[PreferencesKeys.GEMINI_AI_ENABLED] ?: true,
                 nemotronAiEnabled = prefs[PreferencesKeys.NEMOTRON_AI_ENABLED] ?: false,
-                keyboardLanguage = prefs[PreferencesKeys.KEYBOARD_LANGUAGE] ?: "English",
+                keyboardLanguage = normalizeKeyboardLanguage(prefs[PreferencesKeys.KEYBOARD_LANGUAGE] ?: "English"),
                 aiLanguage = prefs[PreferencesKeys.AI_LANGUAGE] ?: "English",
                 manglishTransliterationEnabled = prefs[PreferencesKeys.MANGLISH_TRANSLITERATION_ENABLED] ?: true,
                 clipboardEnabled = prefs[PreferencesKeys.CLIPBOARD_ENABLED] ?: true,
@@ -405,7 +406,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
     }
 
     suspend fun setKeyboardLanguage(lang: String) {
-        dataStore.edit { it[PreferencesKeys.KEYBOARD_LANGUAGE] = lang }
+        dataStore.edit { it[PreferencesKeys.KEYBOARD_LANGUAGE] = normalizeKeyboardLanguage(lang) }
     }
 
     suspend fun setAiLanguage(lang: String) {
@@ -428,51 +429,12 @@ class UserPreferencesDataStore private constructor(context: Context) {
         dataStore.edit { it[PreferencesKeys.ONE_HANDED_MODE] = mode }
     }
 
-    suspend fun setSupportTier(tier: String) {
-        dataStore.edit { it[PreferencesKeys.SUPPORT_TIER] = tier }
-    }
-
-    suspend fun setProfanityFilterEnabled(enabled: Boolean) {
-        dataStore.edit { it[PreferencesKeys.PROFANITY_FILTER_ENABLED] = enabled }
-    }
-
-    suspend fun setCloudSyncEnabled(enabled: Boolean) {
-        dataStore.edit { it[PreferencesKeys.CLOUD_SYNC_ENABLED] = enabled }
-    }
-
     suspend fun setStrictlyUseGemini(enabled: Boolean) {
         dataStore.edit { it[PreferencesKeys.STRICTLY_USE_GEMINI] = enabled }
     }
 
     suspend fun setNavBarClearance(clearance: String) {
         dataStore.edit { it[PreferencesKeys.NAV_BAR_CLEARANCE] = clearance }
-    }
-
-    suspend fun setVocabAutoUpdateEnabled(enabled: Boolean) {
-        dataStore.edit { it[PreferencesKeys.VOCAB_AUTO_UPDATE_ENABLED] = enabled }
-    }
-
-    suspend fun setVocabUpdateIntervalHours(hours: Int) {
-        dataStore.edit { it[PreferencesKeys.VOCAB_UPDATE_INTERVAL_HOURS] = hours }
-    }
-
-    suspend fun setTotalVocabWordsCount(count: Int) {
-        dataStore.edit { it[PreferencesKeys.TOTAL_VOCAB_WORDS_COUNT] = count }
-    }
-
-    suspend fun setUserWordsCount(count: Int) {
-        dataStore.edit { it[PreferencesKeys.USER_WORDS_COUNT] = count }
-    }
-
-    suspend fun setLastVocabSyncStatus(status: String) {
-        dataStore.edit { it[PreferencesKeys.LAST_VOCAB_SYNC_STATUS] = status }
-    }
-
-    /**
-     * Resets all preferences back to default values.
-     */
-    suspend fun resetToDefaults() {
-        dataStore.edit { it.clear() }
     }
 
     /**
@@ -535,7 +497,7 @@ class UserPreferencesDataStore private constructor(context: Context) {
                 offlineAiEnabled = sp.getBoolean(KeyboardSettings.KEY_OFFLINE_AI_ENABLED, true),
                 geminiAiEnabled = sp.getBoolean(KeyboardSettings.KEY_GEMINI_AI_ENABLED, true),
                 nemotronAiEnabled = sp.getBoolean(KeyboardSettings.KEY_NEMOTRON_AI_ENABLED, false),
-                keyboardLanguage = sp.getString(KeyboardSettings.KEY_KEYBOARD_LANGUAGE, "English") ?: "English",
+                keyboardLanguage = normalizeKeyboardLanguage(sp.getString(KeyboardSettings.KEY_KEYBOARD_LANGUAGE, "English") ?: "English"),
                 aiLanguage = sp.getString(KeyboardSettings.KEY_AI_LANGUAGE, "English") ?: "English",
                 manglishTransliterationEnabled = sp.getBoolean(KeyboardSettings.KEY_MANGLISH_TRANSLITERATION_ENABLED, true),
                 clipboardEnabled = sp.getBoolean(KeyboardSettings.KEY_CLIPBOARD_ENABLED, true),

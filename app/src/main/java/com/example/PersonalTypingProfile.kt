@@ -3,7 +3,6 @@ package com.example
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit

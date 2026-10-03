@@ -1,0 +1,166 @@
+# Authored, fictional conversational examples. family / split / utterance.
+# Families are partitioned before spelling-variant augmentation. No user messages.
+arrival-plan	training	njan nale officeil varum
+arrival-plan	training	njan innu officeil varilla
+arrival-plan	training	njan tomorrow officeil varum
+arrival-plan	training	njan innu veettil aanu
+arrival-plan	training	njangal nale varum
+arrival-plan	training	nammal nale kaanam
+arrival-plan	training	nee nale varumo
+arrival-plan	training	njan ippo varam
+location-question	training	nee evide aanu
+location-question	training	ningal evide aanu
+location-question	training	nee ippo evide
+location-question	training	avan evide poyi
+location-question	training	aval evide aanu
+location-question	training	ente phone evide
+location-question	training	ninte veedu evide
+location-question	training	njan busil aanu
+location-question	training	njan trainil aanu
+meal-question	training	nee food kazhicho
+meal-question	training	nee lunch kazhicho
+meal-question	training	njan food kazhichu
+meal-question	training	njan lunch kazhichu
+meal-question	training	food nalla sukham
+meal-question	training	enikku food venam
+meal-question	training	enikku coffee venam
+meal-question	training	enikku chaya venam
+meal-question	training	lunchinu entha venam
+meal-question	training	food ready aanu
+meeting-time	training	meeting eppol aanu
+meeting-time	training	meeting nale aanu
+meeting-time	training	meeting kazhinju
+meeting-time	training	meetinginu nee varumo
+meeting-time	training	meetingil njan undu
+meeting-time	training	meeting cancel aayi
+meeting-time	training	meeting time parayu
+meeting-time	training	meeting tomorrow aanu
+meeting-time	training	nee meetinginu varumo
+request-help	training	enikku help venam
+request-help	training	enikku ariyilla
+request-help	training	enikku manassilayi
+request-help	training	enikku time illa
+request-help	training	ninakku entha venam
+request-help	training	ninakku ariyamo
+request-help	training	enikku kurachu time venam
+request-help	training	ithu engane cheyyam
+request-help	training	ithu cheyyan pattumo
+request-help	training	nee onnu nokku
+request-help	training	please onnu nokku
+status-update	training	work kazhinju
+status-update	training	work ready aanu
+status-update	training	project ready aanu
+status-update	training	projectinte status entha
+status-update	training	ente work kazhinju
+status-update	training	ninte work kazhinjo
+status-update	training	message ayachu
+status-update	training	message kittiyo
+status-update	training	file ayachu
+status-update	training	file kittiyo
+status-update	training	njan reply cheyyam
+status-update	training	njan call cheyyam
+status-update	training	nee call cheyyu
+status-update	training	call kazhinju
+status-update	training	njan busy aanu
+social-chat	training	sukham aano
+social-chat	training	ellam sheri aanu
+social-chat	training	sheri nale kaanam
+social-chat	training	pinne entha
+social-chat	training	entha vishesham
+social-chat	training	adipoli machane
+social-chat	training	nalla adipoli aanu
+social-chat	training	nanni machane
+social-chat	training	okke sheri aanu
+social-chat	training	ithu kollam
+social-chat	training	athum sheri aanu
+social-chat	training	ningal ellarum varumo
+social-chat	training	namaskaram sukham aano
+english-mixed	training	i will call you nale
+english-mixed	training	can you send the file ippo
+english-mixed	training	please send the message ippo
+english-mixed	training	i am busy ippo
+english-mixed	training	thank you machane
+english-mixed	training	see you nale
+english-mixed	training	ok njan varam
+english-mixed	training	sorry njan late aanu
+english-mixed	training	please njan onnu nokkatte
+english-mixed	training	tomorrow njan free aanu
+english-mixed	training	njan tomorrow free aanu
+english-mixed	training	nale we can meet
+english-mixed	training	njan will send the file
+english-mixed	training	nee please send the file
+english-mixed	training	njan tomorrow meetinginu varum
+english-mixed	training	njan innu workinu pokum
+english-mixed	training	njan schoolil aanu
+english-mixed	training	nee classil undallo
+acknowledgment	training	shari njan nokkam
+acknowledgment	training	ok njan cheyyam
+acknowledgment	training	venam njan cheyyam
+acknowledgment	training	venda ippo venda
+acknowledgment	training	illa enikku ariyilla
+acknowledgment	training	athe sheri aanu
+acknowledgment	training	onnum illa
+acknowledgment	training	ariyam njan cheyyam
+acknowledgment	training	ariyaam sheri aanu
+arrival-followup	holdout	ente friend nale officeil varum
+arrival-followup	holdout	ente friend innu officeil varilla
+arrival-followup	holdout	aval tomorrow officeil varum
+arrival-followup	holdout	avan ippo veettil aanu
+arrival-followup	holdout	ningal nale varum
+arrival-followup	holdout	avare nale kaanam
+arrival-followup	holdout	sheri nee nale varumo
+arrival-followup	holdout	ok njangal ippo varam
+location-followup	holdout	ente friend evide aanu
+location-followup	holdout	aval ippo evide
+location-followup	holdout	avar evide poyi
+location-followup	holdout	aval busil aanu
+location-followup	holdout	avar trainil aanu
+meal-followup	holdout	avan food kazhicho
+meal-followup	holdout	aval lunch kazhicho
+meal-followup	holdout	ningal food kazhichu
+meal-followup	holdout	avan lunch kazhichu
+meal-followup	holdout	avarkku coffee venam
+meal-followup	holdout	avalkku chaya venam
+meal-followup	holdout	nee lunchinu entha venam
+meal-followup	holdout	innu food ready aanu
+meeting-followup	holdout	nammude meeting eppol aanu
+meeting-followup	holdout	nammude meeting nale aanu
+meeting-followup	holdout	innu meeting cancel aayi
+meeting-followup	holdout	innu meeting time parayu
+meeting-followup	holdout	nale meetinginu nee varumo
+meeting-followup	holdout	innu meeting tomorrow aanu
+request-followup	holdout	njangalkku help venam
+request-followup	holdout	avalkku ariyilla
+request-followup	holdout	avarkku time illa
+request-followup	holdout	enikku ithu engane cheyyam
+request-followup	holdout	nee please onnu nokku
+status-followup	holdout	innu work ready aanu
+status-followup	holdout	innu project ready aanu
+status-followup	holdout	nammude projectinte status entha
+status-followup	holdout	nee message kittiyo
+status-followup	holdout	nee file kittiyo
+status-followup	holdout	avan reply cheyyam
+status-followup	holdout	aval call cheyyam
+status-followup	holdout	ente friend busy aanu
+social-followup	holdout	avarkku sukham aano
+social-followup	holdout	innu ellam sheri aanu
+social-followup	holdout	nee sheri nale kaanam
+social-followup	holdout	innu entha vishesham
+social-followup	holdout	ithu nalla adipoli aanu
+social-followup	holdout	nale ningal ellarum varumo
+english-followup	holdout	we will call you nale
+english-followup	holdout	could you send the file ippo
+english-followup	holdout	please send the file ippo
+english-followup	holdout	he is busy ippo
+english-followup	holdout	thanks machane
+english-followup	holdout	ok aval varam
+english-followup	holdout	sorry avan late aanu
+english-followup	holdout	njangal tomorrow free aanu
+english-followup	holdout	njan innu meetinginu varum
+english-followup	holdout	aval innu workinu pokum
+english-followup	holdout	aval schoolil aanu
+english-followup	holdout	aval please send the file
+confirmation-followup	holdout	innu athum sheri aanu
+confirmation-followup	holdout	ok njangal cheyyam
+confirmation-followup	holdout	nee illa enikku ariyilla
+confirmation-followup	holdout	nee onnum illa

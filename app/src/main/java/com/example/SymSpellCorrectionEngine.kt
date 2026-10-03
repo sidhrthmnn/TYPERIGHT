@@ -1,8 +1,8 @@
 package com.example
 
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
-import kotlin.math.min
+
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 2 & 3. SymSpell-Style Bounded, Weighted Edit-Distance Correction Engine
@@ -31,13 +31,6 @@ class SymSpellCorrectionEngine(
     
     // Map: term -> frequency
     private val wordFrequencyMap = ConcurrentHashMap<String, Int>()
-
-    /**
-     * Checks if a word exists directly in the dictionary.
-     */
-    fun hasWord(word: String): Boolean {
-        return wordFrequencyMap.containsKey(word.lowercase().trim())
-    }
 
     /**
      * Inserts a dictionary word and precomputes its deletion variants up to maxEditDistance.
@@ -138,11 +131,6 @@ class SymSpellCorrectionEngine(
      * Checks if a word is in the dictionary.
      */
     fun contains(word: String): Boolean = wordFrequencyMap.containsKey(word.lowercase().trim())
-
-    /**
-     * Gets word frequency.
-     */
-    fun getFrequency(word: String): Int = wordFrequencyMap[word.lowercase().trim()] ?: 0
 
     /**
      * Clear or reset user additions.

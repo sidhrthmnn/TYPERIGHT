@@ -128,8 +128,13 @@ class OnlineTypingLearner internal constructor(private val owner: Context) {
         const val SIZE = 4096
         const val DEFAULT_LAYOUT = "qwerty-normalized-v1"
         private const val ALPHA = .25f; private const val BETA = 1f; private const val L1 = .02f; private const val L2 = .5f
-        fun features(task: RankingTask, word: String, typed: String, prior: List<String>, language: String, numeric: FloatArray, recency: Float = 0f): Features {
-            val labels = listOf("task:$task", "word:$task:$word", "edit:$typed>$word", "language:$language:$word", "last:${prior.lastOrNull()}:$word", "span:${prior.takeLast(2).joinToString(" ")}:$word")
+        fun features(task: RankingTask, word: String, typed: String, prior: List<String>, language: String, numeric: FloatArray,
+            recency: Float = 0f, variantFamily: String? = null, mixed: Boolean = false): Features {
+            // Existing numeric slots and hash labels retain their meanings, preserving
+            // compatible v1 weights. New evidence uses previously unassigned slots.
+            require(numeric.size < 31)
+            val labels = listOf("task:$task", "word:$task:$word", "edit:$typed>$word", "language:$language:$word", "last:${prior.lastOrNull()}:$word", "span:${prior.takeLast(2).joinToString(" ")}:$word") +
+                listOfNotNull(variantFamily?.let { "variant:$task:$it:$word" },if(mixed) "mixed:$task:$language:$word" else null)
             val indices = IntArray(numeric.size + labels.size + 1) { if (it < numeric.size) it else if (it == numeric.size+labels.size) 31 else 32 + (labels[it - numeric.size].hashCode().and(Int.MAX_VALUE) % (SIZE - 32)) }
             return Features(indices, numeric + FloatArray(labels.size) { 1f } + recency)
         }

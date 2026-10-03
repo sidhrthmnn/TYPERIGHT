@@ -1,7 +1,6 @@
 package com.example
 
 import android.content.Context
-import android.graphics.PointF
 import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -158,6 +157,7 @@ class PredictiveTextSuggestionService(
         selectedWord: String,
         previousWords: List<String>
     ) = withContext(ioDispatcher) {
+        if(!KeyboardSettings(context).personalizedLearningEnabled || dictionaryManager.resettingLearning) return@withContext
         val word = selectedWord.trim()
         if (word.isEmpty()) return@withContext
 

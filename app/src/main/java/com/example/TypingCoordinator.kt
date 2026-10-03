@@ -45,8 +45,10 @@ internal class TypingCoordinator(
             val ic = request.editor
             var before = ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty()
             // Some editors publish a shorter, older prefix while owned writes are queued.
-            // Wait for evidence; never apply against the stale snapshot or infer that it is accepted.
-            for (attempt in 0 until 6) {
+            // Chromium can take several frames to publish a rapid burst. Wait up
+            // to 256 ms only for a recognized owned prefix; every other mismatch
+            // cancels immediately. Never apply against a stale snapshot.
+            for (attempt in 0 until 16) {
                 val expected=ownedBefore ?: break
                 if(before.endsWith(expected)) { publicationBefore=null; break }
                 val knownQueuedSnapshot=publicationBefore?.let { before.startsWith(it) } == true

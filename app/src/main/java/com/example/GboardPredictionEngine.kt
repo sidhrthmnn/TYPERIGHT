@@ -2,17 +2,6 @@ package com.example
 
 import android.content.Context
 import android.graphics.PointF
-import android.util.Log
-import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.exp
-import kotlin.math.ln
-import kotlin.math.log10
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.pow
-import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
 /**
  * Detailed breakdown of intermediate scores contributing to a candidate's posterior ranking.
@@ -72,38 +61,12 @@ data class GboardTelemetry(
     val decisionReason: String
 )
 
-/**
- * Production-grade Gboard-Style Prediction and Autocorrection Engine.
- *
- * Implements:
- * 1. Spatial Key-Proximity Model (Bivariate Gaussian & Hitbox geometry)
- * 2. Frequency-weighted Trie & User Dictionary Prefix Lookup
- * 3. SymSpell-style Precomputed-Deletion Weighted Edit-Distance Lookup (capped at distance 2)
- * 4. Katz Backoff Multi-Order Context N-Gram Language Model
- * 5. Candidate Scorer combining spatial likelihood, language model, corpus frequency, and user habit
- * 6. Decoupled Confidence Gating with distinct thresholds for key correction, whole-word autocorrect, word completion, and next-word prediction
- * 7. Personalization Hooks (learning accepted terms & suppressing rejected/undone corrections)
- * 8. Comprehensive UX details (auto-capitalization, one-tap/backspace undo, sensitive field suppression)
- */
+/** Compatibility presentation/candidate adapters. CandidateRanker owns every ranking decision. */
 class GboardPredictionEngine(private val context: Context) {
 
     private val settings = KeyboardSettings(context)
-    private val mlPredictor = PatternLearningPredictor.getInstance(context)
     val spatialModel = SpatialKeyProximityModel()
     val symSpellEngine = SymSpellCorrectionEngine(spatialModel, maxEditDistance = 2)
-
-    companion object {
-        private const val TAG = "TypeRightAutoCorrect"
-
-        // 6. Decoupled Confidence Gating Thresholds
-        const val KEY_CORRECTION_THRESHOLD = 0.35f
-        const val WHOLE_WORD_AUTOCORRECT_THRESHOLD = 0.45f
-        // A correction should clearly beat the runner-up. Tiny score differences are
-        // common for names, slang, and multilingual input and should stay suggestions.
-        const val AUTOCORRECT_MARGIN = 0.12f
-        const val WORD_COMPLETION_THRESHOLD = 0.25f
-        const val NEXT_WORD_PREDICTION_THRESHOLD = 0.20f
-    }
 
     // High-frequency typo and transposition table
     val commonTypoLookup: Map<String, String> = mapOf(
@@ -181,118 +144,6 @@ class GboardPredictionEngine(private val context: Context) {
         "hi" to "👋", "hello" to "👋", "bye" to "👋", "sleep" to "😴"
     )
 
-    private val properNouns = setOf(
-        "I", "I'm", "I've", "I'll", "I'd", "Sunday", "Monday", "Tuesday",
-        "Wednesday", "Thursday", "Friday", "Saturday", "January", "February",
-        "March", "April", "May", "June", "July", "August", "September",
-        "October", "November", "December", "Google", "Android", "America"
-    )
-
-    /**
-     * Algorithmic candidate generator for transpositions, adjacent QWERTY substitutions, deletions, and insertions.
-     */
-    fun generateAlgorithmicCandidates(raw: String, dictionaryManager: DictionaryManager): Set<String> {
-        val lower = raw.lowercase().trim()
-        if (lower.isEmpty()) return emptySet()
-        val candidates = LinkedHashSet<String>()
-
-        // 1. Fast SymSpell bounded edit-distance lookup (distance <= 2)
-        val symSpellMatches = dictionaryManager.findDictionaryCorrections(lower, maxDistance = 2.0f)
-        for (match in symSpellMatches) {
-            candidates.add(match.term)
-        }
-
-        // 2. Adjacent Transpositions (teh -> the, adn -> and, woudl -> would)
-        if (lower.length >= 2) {
-            val chars = lower.toCharArray()
-            for (i in 0 until chars.size - 1) {
-                val temp = chars[i]
-                chars[i] = chars[i + 1]
-                chars[i + 1] = temp
-                val transposed = String(chars)
-                if (dictionaryManager.isWordInDictionary(transposed)) {
-                    candidates.add(transposed)
-                }
-                chars[i + 1] = chars[i]
-                chars[i] = temp
-            }
-        }
-
-        // 3. Single-letter deletions (helllo -> hello, annd -> and)
-        if (lower.length >= 3) {
-            for (i in lower.indices) {
-                val deleted = lower.removeRange(i, i + 1)
-                if (deleted.length >= 2 && dictionaryManager.isWordInDictionary(deleted)) {
-                    candidates.add(deleted)
-                }
-            }
-        }
-
-        // 4. Single-letter insertions & doubling (tomorow -> tomorrow, runing -> running)
-        if (lower.length in 2..12) {
-            for (i in lower.indices) {
-                val doubled = lower.substring(0, i + 1) + lower[i] + lower.substring(i + 1)
-                if (dictionaryManager.isWordInDictionary(doubled)) {
-                    candidates.add(doubled)
-                }
-            }
-        }
-
-        return candidates
-    }
-
-    /**
-     * Context-aware ambiguity resolution for words that are valid dictionary words
-     * but frequently typed as unpunctuated contractions (e.g. "ill" -> "I'll", "well" -> "we'll", "id" -> "I'd", "lets" -> "let's", "its" -> "it's").
-     */
-    fun resolveContextualAmbiguity(word: String, contextWords: List<String>): String? {
-        if (contextWords.isEmpty()) return null
-        val lower = word.lowercase(Locale.ROOT)
-        if (!ambiguousRealWords.contains(lower)) return null
-        val prevWord = contextWords.lastOrNull()?.lowercase(Locale.ROOT) ?: return null
-        if (prevWord.isEmpty()) return null
-        val resolved = when (lower) {
-            "ill" -> if (prevWord == "i") "I'll" else null
-            "well" -> if (prevWord == "we") "we'll" else null
-            "id" -> if (prevWord in listOf("i", "if", "that", "what", "how", "when", "why")) "I'd" else null
-            "lets" -> if (prevWord in listOf("so", "and", "then", "now", "okay", "ok", "yes", "well")) "let's" else null
-            "its" -> if (prevWord in listOf("think", "believe", "know", "guess", "sure", "because", "said", "say", "thought")) "it's" else null
-            else -> null
-        }
-        return resolved?.let { restoreCasing(word, it) }
-    }
-
-    /**
-     * Missed space segmentation (goodmorning -> good morning, thankyou -> thank you, alot -> a lot)
-     */
-    fun segmentMissedSpaces(raw: String, dictionaryManager: DictionaryManager): String? {
-        val clean = raw.lowercase(Locale.ROOT).trim()
-        if (clean.length < 4) return null
-
-        // 1. If the word itself is an established valid dictionary word, NEVER split it!
-        if (dictionaryManager.isWordInDictionary(clean) ||
-            dictionaryManager.isWordInUserDictionary(clean) ||
-            symSpellEngine.hasWord(clean)) {
-            return null
-        }
-
-        // 2. Whitelist common digital run-together tokens that are always intended to be split
-        val forcedSplitMap = mapOf(
-            "alot" to "a lot", "infront" to "in front", "atleast" to "at least",
-            "aswell" to "as well", "ofcourse" to "of course", "thankyou" to "thank you",
-            "goodmorning" to "good morning", "goodnight" to "good night", "howareyou" to "how are you",
-            "seeyou" to "see you", "loveyou" to "love you", "letsgo" to "let's go",
-            "withyou" to "with you", "goingto" to "going to", "wantto" to "want to",
-            "bytheway" to "by the way", "nevermind" to "never mind", "eachother" to "each other",
-            "allright" to "all right", "noone" to "no one", "cantwait" to "can't wait",
-            "dontworry" to "don't worry", "dontknow" to "don't know", "rightnow" to "right now",
-            "takecare" to "take care", "goodluck" to "good luck", "havefun" to "have fun",
-            "howmuch" to "how much", "howmany" to "how many", "thanksalot" to "thanks a lot"
-        )
-        // Only split explicit whitelisted run-together phrases; never arbitrarily split words or typos
-        return forcedSplitMap[clean]
-    }
-
     /**
      * Generate, Rank, and Decode Candidates for the current typing state.
      * Combines dictionary frequency, spatial tap likelihood, and context n-gram probability into a ranked list.
@@ -306,15 +157,15 @@ class GboardPredictionEngine(private val context: Context) {
     ): GboardSuggestionResult {
         if (isSensitiveField) return GboardSuggestionResult("", "", "", false)
         val typed = rawTyped.trim()
-        val model = dictionaryManager.nGramModel
         val context = contextWords.takeLast(5)
         if (typed.isEmpty()) {
             val top = dictionaryManager.correctionPipeline.nextWords(context)
             return GboardSuggestionResult(top.getOrElse(1) { "" }, top.getOrElse(0) { "" }, top.getOrElse(2) { "" }, false)
         }
-        val ranked = dictionaryManager.correctionPipeline.rank(typed, context, tapCoords, CorrectionPhase.KEYSTROKE)
-        val center = ranked.suggestion
-        val other = ranked.candidates.map { it.word }.filter { !it.equals(center, true) }.distinct()
+        val ranked = dictionaryManager.correctionPipeline.rank(typed, context, tapCoords)
+        val displayed = if (ranked.tier == ConfidenceTier.LOW) dictionaryManager.correctionPipeline.prefix(typed,context,tapCoords) else ranked
+        val center = if (ranked.tier == ConfidenceTier.LOW && !dictionaryManager.isWordInDictionary(typed)) displayed.candidates.firstOrNull()?.word ?: typed else ranked.suggestion
+        val other = displayed.candidates.map { it.word }.filter { !it.equals(center, true) }.distinct()
         val left = if (!center.equals(typed, true)) typed else other.firstOrNull().orEmpty()
         val right = other.firstOrNull { !it.equals(left, true) }.orEmpty()
         val telemetry = ranked.candidates.take(5).map {
@@ -348,13 +199,4 @@ class GboardPredictionEngine(private val context: Context) {
         return contractionLookup[word] ?: commonTypoLookup[word] ?: TypingPolicy.correction(word) ?: NeuralCorrectionEngine.NEURAL_CORRECTION_MAP[word]?.takeIf { it != word }
     }
 
-    private fun restoreCasing(original: String, target: String): String {
-        if (original.isEmpty() || target.isEmpty()) return target
-        if (properNouns.contains(target)) return target
-        if (original.all { it.isUpperCase() }) return target.uppercase()
-        if (original[0].isUpperCase()) {
-            return target.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
-        }
-        return target
-    }
 }

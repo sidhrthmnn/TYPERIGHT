@@ -4,9 +4,6 @@ import android.content.Context
 import android.graphics.PointF
 import android.provider.UserDictionary
 import android.view.textservice.TextServicesManager
-import android.view.textservice.SpellCheckerSession
-import android.view.textservice.SuggestionsInfo
-import android.view.textservice.TextInfo
 import kotlin.math.sqrt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,7 +17,10 @@ class DictionaryManager(private val context: Context) {
     @Volatile var vocabularyVersion: Int = 1
         private set
     private val contactWords = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    fun isRecognizedInAnyLanguage(word: String): Boolean = isWordInDictionary(word) || isContactWord(word) || MultilingualLexicon.get(context).contains(word)
+    fun isRecognizedInAnyLanguage(word: String): Boolean = isWordInDictionary(word) || isContactWord(word) ||
+        (RomanizedMalayalamLexicon.get(context).contains(word) &&
+            (RomanizedMalayalamLexicon.get(context).entry(word)?.conversational == true || !gboardEngine.isKnownTypo(word))) ||
+        MultilingualLexicon.get(context).contains(word)
     fun phoneticCandidates(word: String): List<String> = corpus.phoneticCandidates(word)
     /** Reset every adaptive store; explicit custom and Android dictionary entries survive. */
     @Volatile var adaptiveEpoch: Long = 0
@@ -32,11 +32,13 @@ class DictionaryManager(private val context: Context) {
         personalProfile.clear()
         correctionPipeline.learner.clear()
         correctionPipeline.clearCache()
+        RomanizedMalayalamLexicon.get(context).clearProposalCache()
         synchronized(spellingCache) { spellingCache.clear() }
         vocabularyVersion++
         return scope.launch {
             try {
                 ready.await()
+                typingAssetsReady.await()
                 val repository = UserDictionaryRepository.getInstance(context)
                 val explicit = repository.explicitWords()
                 repository.clearAdaptiveStores()
@@ -55,7 +57,11 @@ class DictionaryManager(private val context: Context) {
                 synchronized(swipeWordIndex) { swipeWordIndex.clear() }
                 commonWordsFreqMap.forEach { (word, frequency) -> indexWordForSwipe(word,frequency) }
                 explicit.forEach { indexWordForSwipe(it,120) }
-                nGramModel = NGramLanguageModel().also { it.seedUnigramFrequencies(corpus.frequencies) }
+                nGramModel = NGramLanguageModel().also {
+                    it.seedUnigramFrequencies(corpus.frequencies)
+                    it.seedContextBaseline(manglish.contexts)
+                }
+                manglish.entries.forEach { (word, entry) -> indexWordForSwipe(word,entry.frequency) }
                 loadSystemUserDictionary()
                 vocabularyVersion++; correctionPipeline.clearCache()
             } finally { resettingLearning = false }
@@ -92,9 +98,9 @@ class DictionaryManager(private val context: Context) {
 
     val mlPredictor = PatternLearningPredictor.getInstance(context)
     private val corpus = EnglishFrequencyLexicon.get(context)
+    private val manglish = RomanizedMalayalamLexicon.get(context)
     @Volatile var nGramModel = NGramLanguageModel()
         private set
-    init { CoroutineScope(Dispatchers.Default).launch { corpus.ready.await(); nGramModel.seedUnigramFrequencies(corpus.frequencies) } }
     val localGrammarPredictor by lazy { LocalGrammarSpellPredictor(context) }
     val gboardEngine by lazy { GboardPredictionEngine(context) }
 
@@ -122,40 +128,12 @@ class DictionaryManager(private val context: Context) {
         mlPredictor.learnSwipePattern(word, path)
     }
 
-    fun clearLearnedSwipePatterns() {
-        mlPredictor.clearSwipeTemplates()
-    }
-
-    fun learnTapPattern(char: Char, tapX: Float, tapY: Float) {
-        val charKey = char.lowercaseChar()
-        val p = keyCoordinates[charKey]
-        if (p != null) {
-            mlPredictor.learnTapPattern(charKey, tapX, tapY, p.x, p.y)
-        }
-    }
-
     fun findWordsWithPrefix(prefix: String, maxResults: Int = 3): List<String> {
         return (wordTrie.findByPrefix(prefix, maxResults) + corpus.prefix(prefix, maxResults))
             .distinctBy { it.lowercase(java.util.Locale.ROOT) }
             .filter { isWordInDictionary(it) && !isBlocked(it) }
             .sortedWith(compareByDescending<String> { getWordFrequency(it) }.thenBy { it })
             .take(maxResults)
-    }
-
-    /**
-     * Find nearest dictionary candidates for user input using Levenshtein distance algorithm.
-     */
-    fun findLevenshteinCorrections(
-        input: String,
-        maxDistance: Int = 2,
-        maxResults: Int = 5
-    ): List<LevenshteinAutoCorrector.LevenshteinMatch> {
-        return LevenshteinAutoCorrector.findClosestWords(
-            input = input,
-            dictionary = commonWords,
-            maxDistance = maxDistance,
-            maxResults = maxResults
-        )
     }
 
     data class WordFrequency(val word: String, val frequency: Int)
@@ -684,8 +662,6 @@ class DictionaryManager(private val context: Context) {
         "sun" to "☀️", "clock" to "⏰", "heart" to "❤️"
     )
 
-
-
     // Profanity list for filtering
     private val profaneWords = setOf(
         "damn", "hell", "crap", "shit", "fuck", "bitch", "asshole"
@@ -866,10 +842,9 @@ class DictionaryManager(private val context: Context) {
     @Volatile private var trie = TrieDictionary()
     @Volatile var wordTrie = WordTrie()
         private set
-    private val phoneticIndex = HashMap<String, MutableList<String>>()
     private val commonWordsSet = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val commonWordsFreqMap = java.util.concurrent.ConcurrentHashMap<String, Int>()
-    private val swipeWordIndex = HashMap<Pair<Char, Char>, MutableList<Pair<String, Int>>>(700)
+    private val swipeWordIndex = HashMap<Pair<Char, Char>, MutableMap<String, Int>>(700)
 
     val neuralEngine by lazy { NeuralCorrectionEngine.getInstance(context) }
     private val database = AppDatabase.getDatabase(context)
@@ -889,15 +864,9 @@ class DictionaryManager(private val context: Context) {
         if (clean.length >= 2) {
             val key = Pair(clean.first(), clean.last())
             synchronized(swipeWordIndex) {
-                val list = swipeWordIndex.getOrPut(key) { ArrayList() }
-                val existingIdx = list.indexOfFirst { it.first.equals(word, ignoreCase = true) }
-                if (existingIdx >= 0) {
-                    if (freq > list[existingIdx].second) {
-                        list[existingIdx] = Pair(word, freq)
-                    }
-                } else {
-                    list.add(Pair(word, freq))
-                }
+                val bucket = swipeWordIndex.getOrPut(key) { LinkedHashMap() }
+                val normalized=word.lowercase(java.util.Locale.ROOT)
+                bucket[normalized]=maxOf(freq,bucket[normalized] ?: 0)
             }
         }
     }
@@ -912,10 +881,6 @@ class DictionaryManager(private val context: Context) {
             trie.insert(it.word, it.frequency)
             wordTrie.insert(it.word, it.frequency)
             gboardEngine.symSpellEngine.insertWord(it.word, it.frequency)
-            val pKey = computePhoneticKey(it.word)
-            if (pKey.isNotEmpty()) {
-                phoneticIndex.getOrPut(pKey) { mutableListOf() }.add(it.word)
-            }
         }
         // Build supplemental vocabulary for comprehensive English coverage
         SUPPLEMENTAL_WORDS.forEach { word ->
@@ -927,10 +892,6 @@ class DictionaryManager(private val context: Context) {
                 trie.insert(lower, 60)
                 wordTrie.insert(lower, 60)
                 gboardEngine.symSpellEngine.insertWord(lower, 60)
-                val pKey = computePhoneticKey(lower)
-                if (pKey.isNotEmpty()) {
-                    phoneticIndex.getOrPut(pKey) { mutableListOf() }.add(lower)
-                }
             }
         }
         // Ingest comprehensive lexicon across technology, conversation, and modern mobile domains
@@ -943,10 +904,6 @@ class DictionaryManager(private val context: Context) {
                 trie.insert(item.word, item.frequency)
                 wordTrie.insert(item.word, item.frequency)
                 gboardEngine.symSpellEngine.insertWord(item.word, item.frequency)
-                val pKey = computePhoneticKey(item.word)
-                if (pKey.isNotEmpty()) {
-                    phoneticIndex.getOrPut(pKey) { mutableListOf() }.add(item.word)
-                }
             }
         }
         loadUserDictionary()
@@ -954,43 +911,12 @@ class DictionaryManager(private val context: Context) {
         loadSystemUserDictionary()
     }
 
-    /**
-     * High-speed phonetic representation algorithm (combining Soundex & Metaphone rules)
-     * for resilient sound-alike spelling error detection.
-     */
-    fun computePhoneticKey(word: String): String {
-        val clean = word.lowercase().filter { it.isLetter() }
-        if (clean.isEmpty()) return ""
-
-        var s = clean
-        s = s.replace("ph", "f")
-        s = s.replace("gh", "f")
-        s = s.replace("dg", "j")
-        s = s.replace("ck", "k")
-        s = s.replace("kn", "n")
-        s = s.replace("wr", "r")
-        s = s.replace("wh", "w")
-        s = s.replace("tion", "shn")
-        s = s.replace("sion", "shn")
-        s = s.replace("ce", "se")
-        s = s.replace("ci", "si")
-        s = s.replace("cy", "sy")
-        s = s.replace("c", "k")
-        s = s.replace("q", "k")
-        s = s.replace("x", "ks")
-        s = s.replace("z", "s")
-
-        val collapsed = StringBuilder()
-        for (ch in s) {
-            if (collapsed.isEmpty() || collapsed.last() != ch) {
-                collapsed.append(ch)
-            }
-        }
-
-        if (collapsed.isEmpty()) return ""
-        val firstChar = collapsed[0]
-        val rest = collapsed.substring(1).filter { it !in "aeiouy" }
-        return "$firstChar$rest"
+    val typingAssetsReady = scope.async(Dispatchers.Default) {
+        ready.await(); corpus.ready.await(); manglish.ready.await()
+        nGramModel.seedUnigramFrequencies(corpus.frequencies)
+        nGramModel.seedContextBaseline(manglish.contexts)
+        manglish.entries.forEach { (word, entry) -> indexWordForSwipe(word,entry.frequency) }
+        vocabularyVersion++
     }
 
     private fun loadSystemUserDictionary() {
@@ -1064,10 +990,6 @@ class DictionaryManager(private val context: Context) {
                     trie.insert(clean, freq)
                     wordTrie.insert(clean, freq)
                     gboardEngine.symSpellEngine.insertWord(clean, freq)
-                    val pKey = computePhoneticKey(clean)
-                    if (pKey.isNotEmpty()) {
-                        phoneticIndex.getOrPut(pKey) { mutableListOf() }.add(clean)
-                    }
                 }
             }
         }
@@ -1082,7 +1004,6 @@ class DictionaryManager(private val context: Context) {
                     targetList.add(0, n)
                     if (targetList.size > 10) targetList.removeAt(targetList.size - 1)
                 }
-                mlPredictor.learnBigram(p, n)
                 nGramModel.addBigram(p, n, 2)
             }
         }
@@ -1162,21 +1083,6 @@ class DictionaryManager(private val context: Context) {
         }
     }
 
-    /**
-     * Checks whether a given word is recognized by the local dictionary, user words, or SymSpell index.
-     */
-    fun isValidOrKnownWord(word: String): Boolean {
-        val clean = MultilingualLexicon.normalize(word).trim().trim { !TypingPolicy.isWordCharacter(it) }
-        if (clean.isEmpty()) return true
-        if (clean.length == 1 && (clean == "a" || clean == "i")) return true
-        if (clean.all { it.isDigit() }) return true
-        if (commonWordsSet.contains(clean)) return true
-        if (synchronized(userWords) { userWords.contains(clean) }) return true
-        if (gboardEngine.symSpellEngine.hasWord(clean)) return true
-        if (isWordInDictionary(clean)) return true
-        return false
-    }
-
     fun learnWord(word: String, explicit: Boolean = false) {
         vocabularyVersion++
         val clean = MultilingualLexicon.normalize(word).trim().trim { !TypingPolicy.isWordCharacter(it) }
@@ -1225,64 +1131,6 @@ class DictionaryManager(private val context: Context) {
                     // Ignore
                 }
             }
-        }
-    }
-
-    fun learnBigram(prev: String, current: String) {
-        val p = prev.lowercase().trim()
-        val c = current.lowercase().trim()
-        if (p.isEmpty() || c.isEmpty() || isProfane(c)) return
-        
-        // Train the machine learning Markov model & N-gram Language Model
-        mlPredictor.learnBigram(p, c)
-        nGramModel.addBigram(p, c, 1)
-
-        val list = personalizedBigrams.getOrPut(p) { mutableListOf() }
-        if (!list.contains(c)) {
-            list.add(0, c)
-            if (list.size > 8) {
-                list.removeAt(list.size - 1)
-            }
-            saveUserDictionary()
-        }
-    }
-
-    fun learnTrigram(prev2: String, prev1: String, current: String) {
-        val p2 = prev2.lowercase().trim()
-        val p1 = prev1.lowercase().trim()
-        val c = current.lowercase().trim()
-        if (p2.isEmpty() || p1.isEmpty() || c.isEmpty() || isProfane(c)) return
-
-        // Train the machine learning Markov model & N-gram Language Model
-        mlPredictor.learnTrigram(p2, p1, c)
-        nGramModel.addTrigram(p2, p1, c, 1)
-
-        val key = "$p2 $p1"
-        val list = personalizedBigrams.getOrPut(key) { mutableListOf() }
-        if (!list.contains(c)) {
-            list.add(0, c)
-            if (list.size > 8) {
-                list.removeAt(list.size - 1)
-            }
-            saveUserDictionary()
-        }
-    }
-
-    fun learnQuadgram(prev3: String, prev2: String, prev1: String, current: String) {
-        val p3 = prev3.lowercase().trim()
-        val p2 = prev2.lowercase().trim()
-        val p1 = prev1.lowercase().trim()
-        val c = current.lowercase().trim()
-        if (p3.isEmpty() || p2.isEmpty() || p1.isEmpty() || c.isEmpty() || isProfane(c)) return
-
-        nGramModel.addQuadgram(p3, p2, p1, c, 1)
-    }
-
-    fun addToBlocklist(word: String) {
-        val clean = word.lowercase().trim()
-        if (clean.isNotEmpty()) {
-            personalBlocklist.add(clean)
-            saveUserDictionary()
         }
     }
 
@@ -1346,10 +1194,6 @@ class DictionaryManager(private val context: Context) {
         return profaneWords.contains(word.lowercase().trim())
     }
 
-    fun expandSlang(word: String): String? {
-        return slangExpansions[word.lowercase().trim()]
-    }
-
     /**
      * Get 3 word suggestions for the given raw typing prefix.
      * Incorporates next-word bigram prediction, keyboard-proximity-weighted Levenshtein spelling correction,
@@ -1368,17 +1212,12 @@ class DictionaryManager(private val context: Context) {
         if (isSensitiveField) return emptyList()
         val normalizedPrefix = prefix.lowercase(java.util.Locale.ROOT).trim()
 
-        val isMalayalam = settings.keyboardLanguage.contains("Malayalam", ignoreCase = true)
+        val isMalayalam = settings.isMalayalamScriptMode
         if (isMalayalam && normalizedPrefix.isNotEmpty()) {
             val candidates = ManglishTransliterationEngine.getInstance(context).getTransliterationCandidates(prefix)
             if (candidates.isNotEmpty()) {
                 return candidates.take(3)
             }
-        }
-
-        if (isSensitiveField) {
-            // Never derive, display, or retain text from password fields.
-            return emptyList()
         }
 
         // Code or special token check: no auto-completion if code-like
@@ -1440,103 +1279,6 @@ class DictionaryManager(private val context: Context) {
         val left = if(prefix.isNotBlank() && !prefix.equals(center,true)) prefix else words.firstOrNull { !it.equals(center,true) }.orEmpty()
         val right = words.firstOrNull { !it.equals(center,true) && !it.equals(left,true) }.orEmpty()
         return listOf(left,center,right)
-    }
-
-    /**
-     * Finds spelling corrections scoring above the suggestion confidence threshold using fast Trie Levenshtein and fuzzy lookup.
-     */
-    fun getSpellingCorrections(
-        word: String,
-        prevWord: String? = null,
-        prevWord2: String? = null,
-        tapCoords: List<PointF>? = null
-    ): List<String> {
-        if (word.isBlank()) return emptyList()
-        val result = correctionPipeline.rank(word, listOfNotNull(prevWord2, prevWord), tapCoords)
-        return result.candidates.filter { it.word != word && it.posterior >= .01f }.map { it.word }.take(5)
-    }
-
-    /**
-     * Splits a run-on word where the user missed one or more spaces (e.g. "goodmorning" -> "good morning", "thankyou" -> "thank you", "howareyou" -> "how are you").
-     */
-    fun findMissedSpaceSplits(typed: String): List<String> {
-        val lower = typed.lowercase().trim()
-        if (lower.length < 4) return emptyList()
-
-        // 1. If the user typed an already valid word, never split it!
-        if (isWordInDictionary(lower) || userWords.contains(lower) || recentlyAcceptedWords.contains(lower)) {
-            return emptyList()
-        }
-
-        // 2. Curated whitelist of digital run-together phrases (e.g. goodmorning -> good morning, thankyou -> thank you)
-        val forcedSplitMap = mapOf(
-            "alot" to "a lot", "infront" to "in front", "atleast" to "at least",
-            "aswell" to "as well", "ofcourse" to "of course", "thankyou" to "thank you",
-            "goodmorning" to "good morning", "goodnight" to "good night", "howareyou" to "how are you",
-            "seeyou" to "see you", "loveyou" to "love you", "letsgo" to "let's go",
-            "withyou" to "with you", "goingto" to "going to", "wantto" to "want to",
-            "bytheway" to "by the way", "nevermind" to "never mind", "eachother" to "each other",
-            "allright" to "all right", "noone" to "no one", "cantwait" to "can't wait",
-            "dontworry" to "don't worry", "dontknow" to "don't know", "rightnow" to "right now",
-            "takecare" to "take care", "goodluck" to "good luck", "havefun" to "have fun",
-            "howmuch" to "how much", "howmany" to "how many", "thanksalot" to "thanks a lot"
-        )
-        val match = forcedSplitMap[lower]
-        return if (match != null) listOf(match) else emptyList()
-    }
-
-    /**
-     * Compute keyboard-proximity weighted Damerau-Levenshtein edit distance.
-     */
-    fun computeWeightedEditDistance(s1: String, s2: String): Float {
-        val clean1 = s1.lowercase().replace("'", "")
-        val clean2 = s2.lowercase().replace("'", "")
-        if (clean1 == clean2) return 0.1f // Contraction match (dont <-> don't)
-
-        val n = s1.length
-        val m = s2.length
-        val dp = Array(n + 1) { FloatArray(m + 1) }
-        for (i in 0..n) dp[i][0] = i.toFloat()
-        for (j in 0..m) dp[0][j] = j.toFloat()
-
-        for (i in 1..n) {
-            for (j in 1..m) {
-                val subCost = getSubstitutionCost(s1[i - 1], s2[j - 1])
-                val delCost = if (s1[i - 1] == '\'') 0.1f else 1f
-                val insCost = if (s2[j - 1] == '\'') 0.1f else 1f
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + delCost,        // deletion
-                    dp[i][j - 1] + insCost,        // insertion
-                    dp[i - 1][j - 1] + subCost     // substitution
-                )
-                // Transposition (swapping adjacent letters e.g. teh <-> the)
-                if (i > 1 && j > 1 && s1[i - 1].lowercaseChar() == s2[j - 2].lowercaseChar() && s1[i - 2].lowercaseChar() == s2[j - 1].lowercaseChar()) {
-                    dp[i][j] = minOf(dp[i][j], dp[i - 2][j - 2] + 0.4f)
-                }
-            }
-        }
-        return dp[n][m]
-    }
-
-    private fun getSubstitutionCost(c1: Char, c2: Char): Float {
-        if (c1 == c2) return 0f
-        val p1 = keyCoordinates[c1.lowercaseChar()]
-        val p2 = keyCoordinates[c2.lowercaseChar()]
-        if (p1 != null && p2 != null) {
-            // Adjust the physical key center p1 by the user's learned offset
-            val offset = mlPredictor.getTouchOffset(c1.lowercaseChar())
-            val adjustedX = p1.x + offset.x
-            val adjustedY = p1.y + offset.y
-
-            val dx = adjustedX - p2.x
-            val dy = adjustedY - p2.y
-            val dist = sqrt(dx * dx + dy * dy)
-            if (dist < 0.18f) {
-                // Continuous probability scaling for adjacent key mis-taps
-                return 0.25f + (dist / 0.18f) * 0.35f
-            }
-        }
-        return 1.0f
     }
 
     data class ResampledSwipe(
@@ -1693,22 +1435,9 @@ class DictionaryManager(private val context: Context) {
         return if (finalDist == Float.MAX_VALUE) 2.0f else finalDist / maxOf(n, m)
     }
 
-    fun isBigramFollower(prev: String, next: String): Boolean {
-        val p = prev.lowercase().trim()
-        val n = next.lowercase().trim()
-        if (p.isEmpty() || n.isEmpty()) return false
-        val preconfigured = bigrams[p]?.any { it.equals(n, ignoreCase = true) } == true
-        if (preconfigured) return true
-        val learned = personalizedBigrams[p]?.any { it.equals(n, ignoreCase = true) } == true
-        return learned
-    }
-
     private fun calculateSwipeMatchCost(
         word: String,
-        frequency: Int,
-        userSwipe: ResampledSwipe,
-        prevWord: String? = null,
-        mlMatchSimilarity: Float = 0f
+        userSwipe: ResampledSwipe
     ): Float {
         val cleanWord = word.lowercase().trim().filter { it.isLetter() }
         if (cleanWord.length < 2) return Float.MAX_VALUE
@@ -1808,13 +1537,7 @@ class DictionaryManager(private val context: Context) {
         val bonusMultiplier = (1.0f - minOf(0.20f, keyBonus)) * (1.0f - minOf(0.15f, maxOf(0f, -inflectionScore)))
         val rawCost = baseCost * bonusMultiplier
 
-        // 9. Language Model Priors & Context
-        val effectiveFreq = commonWordsFreqMap[cleanWord] ?: frequency
-        val freqFactor = 1.0f - minOf(0.20f, (effectiveFreq / 255f) * 0.18f)
-        val contextBonus = if (prevWord != null && isBigramFollower(prevWord, cleanWord)) 0.80f else 1.0f
-        val mlBonus = if (mlMatchSimilarity > 0.5f) (1.0f - (mlMatchSimilarity - 0.5f) * 0.25f) else 1.0f
-
-        return maxOf(0.001f, rawCost) * freqFactor * contextBonus * mlBonus
+        return maxOf(0.001f,rawCost)
     }
 
     /**
@@ -1822,7 +1545,7 @@ class DictionaryManager(private val context: Context) {
      * using continuous trajectory resampling, true DTW shape comparison, sequential key verification,
      * inflection & dwell pause analysis, and language model context priors.
      */
-    fun decodeSwipePath(path: List<PointF>, prevWord: String? = null): List<String> {
+    fun decodeSwipePath(path: List<PointF>, prevWord: String? = null, previousWords: List<String> = emptyList(), learningAllowed: Boolean = true): List<String> {
         if (path.size < 2) return emptyList()
 
         val userSwipe = preprocessSwipePath(path) ?: return emptyList()
@@ -1863,11 +1586,11 @@ class DictionaryManager(private val context: Context) {
         synchronized(swipeWordIndex) {
             for (s in startCandidates) {
                 for (e in endCandidates) {
-                    val list = swipeWordIndex[Pair(s, e)] ?: continue
-                    for (entry in list) {
-                        val existing = candidateMap[entry.first] ?: 0
-                        if (entry.second > existing) {
-                            candidateMap[entry.first] = entry.second
+                    val bucket = swipeWordIndex[Pair(s, e)] ?: continue
+                    for ((word,frequency) in bucket) {
+                        val existing = candidateMap[word] ?: 0
+                        if (frequency > existing) {
+                            candidateMap[word] = frequency
                         }
                     }
                 }
@@ -1898,11 +1621,29 @@ class DictionaryManager(private val context: Context) {
         }
 
         // 4. Query strictly confident ML template predictions if available
-        val mlSwipePredictions = mlPredictor.predictFromSwipePatterns(path, 0.03f)
+        val mlSwipePredictions = if(learningAllowed && settings.personalizedLearningEnabled) mlPredictor.predictFromSwipePatterns(path,0.03f) else emptyList()
 
         // 5. Score all candidate words
-        val scoredList = mutableListOf<Pair<String, Float>>()
-        for ((word, freq) in candidateMap) {
+        val scoredList = mutableListOf<SwipeProposal>()
+        // Bounded geometric beam, independent of word/context priors. Expensive
+        // trajectory matching only runs for plausible start/end/length proposals.
+        val probes=userSwipe.points.filterIndexed { index,_ -> index%4==0 }
+        val beam=candidateMap.keys.asSequence().filter { it.length in 2..maxWordLen && it.all { c -> c in 'a'..'z' || c in 'A'..'Z' } }
+            .sortedBy { word ->
+                val start=keyCoordinates[word.first().lowercaseChar()]; val end=keyCoordinates[word.last().lowercaseChar()]
+                if(start==null || end==null) Float.MAX_VALUE else {
+                    var coverage=0f; var lastIndex=0
+                    for(char in word) {
+                        val key=keyCoordinates[char.lowercaseChar()] ?: continue
+                        var best=Float.MAX_VALUE; var bestIndex=0
+                        probes.forEachIndexed { index,point -> val d=distance(key,point); if(d<best) { best=d; bestIndex=index } }
+                        coverage+=best+if(bestIndex<lastIndex-1) .15f else 0f
+                        lastIndex=bestIndex
+                    }
+                    distance(pStart,start)*2.2f+distance(pEnd,end)*2.5f+coverage/word.length*2f
+                }
+            }.take(192).toList()
+        for (word in beam) {
             val clean = word.lowercase().trim()
             if (clean.length < 2) continue
 
@@ -1911,22 +1652,16 @@ class DictionaryManager(private val context: Context) {
 
             val score = calculateSwipeMatchCost(
                 word = word,
-                frequency = freq,
-                userSwipe = userSwipe,
-                prevWord = prevWord,
-                mlMatchSimilarity = mlSim
+                userSwipe = userSwipe
             )
 
             if (score < 10.0f) {
-                scoredList.add(Pair(word, score))
+                scoredList.add(SwipeProposal(word,score,mlSim))
             }
         }
 
-        return scoredList
-            .sortedBy { it.second }
-            .map { it.first }
-            .distinct()
-            .take(5)
+        val context=previousWords.ifEmpty { listOfNotNull(prevWord) }
+        return correctionPipeline.rankSwipe(scoredList.sortedBy { it.geometry }.take(40),context,learningAllowed).map { it.word }
     }
 
     private fun distance(p1: PointF, p2: PointF): Float {
@@ -2044,7 +1779,6 @@ class DictionaryManager(private val context: Context) {
         if (w.isEmpty()) return false
         if (commonWordsSet.contains(w) || userWords.contains(w) || slangExpansions.containsKey(w) || recentlyAcceptedWords.contains(w)) return true
         if (w in corpus.canonical && !gboardEngine.isKnownTypo(w)) return true
-
 
         return false
     }

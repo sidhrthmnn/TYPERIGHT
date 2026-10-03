@@ -2,23 +2,10 @@ package com.example
 
 import android.graphics.PointF
 import android.graphics.RectF
-import kotlin.math.exp
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sqrt
 
-/**
- * 1. Spatial Key-Proximity Model
- *
- * Models the soft keyboard physical hitbox geometry and computes a probability distribution
- * over keys for each tap coordinate (x, y) rather than simple nearest-key discrete matching.
- *
- * Uses a bivariate Gaussian distribution with configurable touch radius / spatial falloff (sigmaX, sigmaY).
- */
-class SpatialKeyProximityModel(
-    private val sigmaX: Float = 0.075f,
-    private val sigmaY: Float = 0.090f
-) {
+/** QWERTY geometry and spatial edit evidence. OnlineTypingLearner owns calibrated tap likelihoods. */
+class SpatialKeyProximityModel {
 
     data class KeyHitbox(
         val char: Char,
@@ -83,36 +70,6 @@ class SpatialKeyProximityModel(
     fun getKeyCentroid(char: Char): PointF? = keyHitboxes[char.lowercaseChar()]?.centroid
 
     /**
-     * Computes the probability density P(char | tapX, tapY) using a 2D Gaussian touch falloff.
-     */
-    fun getKeyProbability(char: Char, tapX: Float, tapY: Float): Float {
-        val hitbox = keyHitboxes[char.lowercaseChar()] ?: return 0.001f
-        val dx = (tapX - hitbox.centroid.x) / sigmaX
-        val dy = (tapY - hitbox.centroid.y) / sigmaY
-        val exponent = -0.5f * (dx * dx + dy * dy)
-        return exp(exponent.coerceIn(-15f, 0f))
-    }
-
-    /**
-     * Computes a full probability distribution over all keys for a single tap coordinate.
-     * Normalized so that the sum of probabilities across the keyboard is 1.0.
-     */
-    fun getKeyDistribution(tapX: Float, tapY: Float): Map<Char, Float> {
-        val rawScores = HashMap<Char, Float>()
-        var sum = 0.0f
-        for ((ch, hitbox) in keyHitboxes) {
-            val dx = (tapX - hitbox.centroid.x) / sigmaX
-            val dy = (tapY - hitbox.centroid.y) / sigmaY
-            val prob = exp((-0.5f * (dx * dx + dy * dy)).coerceIn(-12f, 0f))
-            rawScores[ch] = prob
-            sum += prob
-        }
-
-        if (sum <= 0f) return rawScores
-        return rawScores.mapValues { it.value / sum }
-    }
-
-    /**
      * Calculates the physical Euclidean distance between two keys on the normalized keyboard.
      */
     fun getPhysicalKeyDistance(c1: Char, c2: Char): Float {
@@ -140,44 +97,6 @@ class SpatialKeyProximityModel(
         } else {
             1.0f // distant keys
         }
-    }
-
-    /**
-     * Computes the overall spatial likelihood P(TapSequence | CandidateWord) = Product P(tap_i | char_i).
-     * Returns a normalized probability score in [0.0, 1.0].
-     */
-    fun computeSpatialTouchLikelihood(candidateWord: String, tapPoints: List<PointF>?): Float {
-        val cleanCandidate = candidateWord.lowercase().replace("'", "").trim()
-        if (tapPoints == null || tapPoints.isEmpty()) {
-            return 0.70f // Calibrated baseline when tap coordinates are not recorded
-        }
-
-        if (tapPoints.size != cleanCandidate.length) {
-            val lengthDiff = kotlin.math.abs(tapPoints.size - cleanCandidate.length)
-            return (0.70f - lengthDiff * 0.15f).coerceAtLeast(0.20f)
-        }
-
-        var totalLogLikelihood = 0.0f
-        var validKeyCount = 0
-
-        for (i in cleanCandidate.indices) {
-            val char = cleanCandidate[i]
-            val tap = tapPoints[i]
-            val hitbox = keyHitboxes[char] ?: continue
-            val dx = (tap.x - hitbox.centroid.x) / sigmaX
-            val dy = (tap.y - hitbox.centroid.y) / sigmaY
-            val logLikelihood = -0.5f * (dx * dx + dy * dy)
-            totalLogLikelihood += logLikelihood.coerceIn(-10f, 0f)
-            validKeyCount++
-        }
-
-        if (validKeyCount == 0) return 0.70f
-        val avgLogLikelihood = totalLogLikelihood / validKeyCount
-        return exp(avgLogLikelihood.coerceIn(-8f, 0f))
-    }
-
-    fun computeSpatialLikelihood(candidateWord: String, tapPoints: List<PointF>?): Float {
-        return computeSpatialTouchLikelihood(candidateWord, tapPoints)
     }
 
     /**

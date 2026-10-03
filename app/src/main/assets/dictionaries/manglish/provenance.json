@@ -1,0 +1,43 @@
+{
+  "source": "https://storage.googleapis.com/gresearch/dakshina/dakshina_dataset_v1.0.tar",
+  "dataset": "Dakshina v1.0",
+  "license": "CC BY-SA 4.0",
+  "sources": [
+    {
+      "member": "ml/lexicons/ml.translit.sampled.train.tsv",
+      "sha256": "f674db775d570785ce9ca27b95738824cf86222822ed5b23f841976b0a638bb9",
+      "bytes": 2420030
+    },
+    {
+      "member": "ml/lexicons/ml.translit.sampled.dev.tsv",
+      "sha256": "0b0b2da1dc949bde42461265f47010c9c24ff81de61b89681e7fa383e19361b3",
+      "bytes": 219037
+    },
+    {
+      "member": "ml/lexicons/ml.translit.sampled.test.tsv",
+      "sha256": "ccc081c6211a9a5ade9527872f60fdf72703dea1fb6f6c80afbd2b9032a4ef55",
+      "bytes": 224042
+    }
+  ],
+  "words": 66439,
+  "nativeFamilies": 30112,
+  "characterModel": "Laplace-smoothed character 3/4-gram naive Bayes; equal language priors; training partitions only",
+  "characterGrams": 16384,
+  "characterTrainingEnglish": 47676,
+  "characterTrainingMalayalamPairs": 35033,
+  "usage": "Native-script frequency proxy and authored conversational priors, separately from romanization attestations",
+  "fixtureCounts": {
+    "ml-Latn/training": 896,
+    "ml-Latn/calibration": 895,
+    "ml-Latn/holdout": 2281,
+    "en/training": 900,
+    "en/calibration": 900,
+    "en/holdout": 900
+  },
+  "predictionCases": 103,
+  "artifacts": {
+    "lexicon.tsv": "1f184d1c788067c54b3df4da51d14e5895d84bb749ed76932993abac039b2488",
+    "character-language.tsv": "bbe9996e167b7ae2757386b06b038f27a3d1888641359cf595567b34f43a9210",
+    "context.tsv": "d7c246b3a8c91d54851ff42c1e985626c4ed6a0ead6036e4e182017d89137579"
+  }
+}

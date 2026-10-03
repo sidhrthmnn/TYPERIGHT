@@ -1,302 +1,302 @@
 {
   "partition": "calibration plus authored required-miss guards; no holdout access",
   "cases": 9867,
-  "sourceSHA256": "743c572d1683ff0b647cfa99a3aabefe5a3aa0f936c87b1aca46ecce56cff24a",
+  "sourceSHA256": "11846f535da17922c9e5f9376544fc5d97c8c060649cbc14465053cfaa34b8b9",
   "selectionRule": "precision>=.995, recall>=.90, required misses pass; maximize recall then temperature then threshold",
   "selected": {
     "temperature": 0.2,
-    "threshold": 0.99,
-    "precision": 0.9976878612716763,
-    "recall": 0.9998670035909031,
-    "changes": 7785,
+    "threshold": 0.995,
+    "precision": 0.9965744734838874,
+    "recall": 0.9990582537333512,
+    "changes": 7882,
     "requiredMissesPass": true
   },
   "sweep": [
     {
       "temperature": 0.1,
       "threshold": 0.985,
-      "precision": 0.9962121212121212,
-      "recall": 0.9998670035909031,
-      "changes": 7920,
+      "precision": 0.9952541526164606,
+      "recall": 0.9990582537333512,
+      "changes": 8007,
       "requiredMissesPass": true
     },
     {
       "temperature": 0.1,
       "threshold": 0.99,
-      "precision": 0.9963337547408344,
-      "recall": 0.9998670035909031,
-      "changes": 7910,
+      "precision": 0.995624453056632,
+      "recall": 0.9990582537333512,
+      "changes": 7999,
       "requiredMissesPass": true
     },
     {
       "temperature": 0.1,
       "threshold": 0.995,
-      "precision": 0.9964507542147294,
-      "recall": 0.9998670035909031,
-      "changes": 7889,
+      "precision": 0.9956129355728253,
+      "recall": 0.9990582537333512,
+      "changes": 7978,
       "requiredMissesPass": true
     },
     {
       "temperature": 0.1,
       "threshold": 0.999,
-      "precision": 0.9970674486803519,
-      "recall": 0.9998670035909031,
-      "changes": 7843,
+      "precision": 0.9962259403698579,
+      "recall": 0.9990582537333512,
+      "changes": 7949,
       "requiredMissesPass": true
     },
     {
       "temperature": 0.15,
       "threshold": 0.985,
-      "precision": 0.9969450101832994,
-      "recall": 0.9998670035909031,
-      "changes": 7856,
+      "precision": 0.9959804044718,
+      "recall": 0.9990582537333512,
+      "changes": 7961,
       "requiredMissesPass": true
     },
     {
       "temperature": 0.15,
       "threshold": 0.99,
-      "precision": 0.9970670747258352,
-      "recall": 0.9998670035909031,
-      "changes": 7842,
+      "precision": 0.9962259403698579,
+      "recall": 0.9990582537333512,
+      "changes": 7949,
       "requiredMissesPass": true
     },
     {
       "temperature": 0.15,
       "threshold": 0.995,
-      "precision": 0.9971870604781997,
-      "recall": 0.9998670035909031,
-      "changes": 7821,
+      "precision": 0.9963416172574745,
+      "recall": 0.9990582537333512,
+      "changes": 7927,
       "requiredMissesPass": true
     },
     {
       "temperature": 0.15,
       "threshold": 0.999,
-      "precision": 0.9978089960046398,
-      "recall": 0.9998670035909031,
-      "changes": 7759,
-      "requiredMissesPass": false
+      "precision": 0.9965762110068476,
+      "recall": 0.9990582537333512,
+      "changes": 7886,
+      "requiredMissesPass": true
     },
     {
       "temperature": 0.2,
       "threshold": 0.985,
-      "precision": 0.9971830985915493,
-      "recall": 0.9998670035909031,
-      "changes": 7810,
+      "precision": 0.9963379214547291,
+      "recall": 0.9990582537333512,
+      "changes": 7919,
       "requiredMissesPass": true
     },
     {
       "temperature": 0.2,
       "threshold": 0.99,
-      "precision": 0.9976878612716763,
-      "recall": 0.9998670035909031,
-      "changes": 7785,
+      "precision": 0.9964579380139152,
+      "recall": 0.9990582537333512,
+      "changes": 7905,
       "requiredMissesPass": true
     },
     {
       "temperature": 0.2,
       "threshold": 0.995,
-      "precision": 0.9979357502257773,
-      "recall": 0.9998670035909031,
-      "changes": 7751,
-      "requiredMissesPass": false
+      "precision": 0.9965744734838874,
+      "recall": 0.9990582537333512,
+      "changes": 7882,
+      "requiredMissesPass": true
     },
     {
       "temperature": 0.2,
       "threshold": 0.999,
-      "precision": 0.9986975774941391,
-      "recall": 0.9994680143636122,
-      "changes": 7678,
-      "requiredMissesPass": false
+      "precision": 0.9978260869565218,
+      "recall": 0.9986546481905019,
+      "changes": 7820,
+      "requiredMissesPass": true
     },
     {
       "temperature": 0.35,
       "threshold": 0.985,
-      "precision": 0.9986945169712794,
-      "recall": 0.9986700359090305,
-      "changes": 7660,
-      "requiredMissesPass": false
+      "precision": 0.9980766764969868,
+      "recall": 0.9983855778286022,
+      "changes": 7799,
+      "requiredMissesPass": true
     },
     {
       "temperature": 0.35,
       "threshold": 0.99,
-      "precision": 0.9986910994764397,
-      "recall": 0.9981380502726427,
-      "changes": 7640,
-      "requiredMissesPass": false
+      "precision": 0.9980712356949981,
+      "recall": 0.9983855778286022,
+      "changes": 7777,
+      "requiredMissesPass": true
     },
     {
       "temperature": 0.35,
       "threshold": 0.995,
-      "precision": 0.9990768825003297,
-      "recall": 0.9948131400452188,
-      "changes": 7583,
-      "requiredMissesPass": false
+      "precision": 0.9981877022653721,
+      "recall": 0.9979819722857527,
+      "changes": 7725,
+      "requiredMissesPass": true
     },
     {
       "temperature": 0.35,
       "threshold": 0.999,
-      "precision": 0.9995924466784404,
-      "recall": 0.9712727756350579,
-      "changes": 7361,
-      "requiredMissesPass": false
+      "precision": 0.9992112527934797,
+      "recall": 0.9950221983048567,
+      "changes": 7607,
+      "requiredMissesPass": true
     },
     {
       "temperature": 0.5,
       "threshold": 0.985,
-      "precision": 0.9994649545211343,
-      "recall": 0.9840404309083655,
-      "changes": 7476,
-      "requiredMissesPass": false
+      "precision": 0.9989567031820553,
+      "recall": 0.9965020852953047,
+      "changes": 7668,
+      "requiredMissesPass": true
     },
     {
       "temperature": 0.5,
       "threshold": 0.99,
-      "precision": 0.9994582148178247,
-      "recall": 0.9737997074079,
-      "changes": 7383,
-      "requiredMissesPass": false
+      "precision": 0.9992125984251968,
+      "recall": 0.9952912686667563,
+      "changes": 7620,
+      "requiredMissesPass": true
     },
     {
       "temperature": 0.5,
       "threshold": 0.995,
-      "precision": 0.9995824634655532,
-      "recall": 0.9495943609522542,
-      "changes": 7185,
-      "requiredMissesPass": false
+      "precision": 0.999202657807309,
+      "recall": 0.9899098614287636,
+      "changes": 7525,
+      "requiredMissesPass": true
     },
     {
       "temperature": 0.5,
       "threshold": 0.999,
-      "precision": 1.0,
-      "recall": 0.8498470541295385,
-      "changes": 6400,
+      "precision": 0.9995793606281548,
+      "recall": 0.9523745459437643,
+      "changes": 7132,
       "requiredMissesPass": false
     },
     {
       "temperature": 0.75,
       "threshold": 0.985,
-      "precision": 1.0,
-      "recall": 0.865673626812076,
-      "changes": 6525,
+      "precision": 0.9993024553571429,
+      "recall": 0.9546616440199112,
+      "changes": 7168,
       "requiredMissesPass": false
     },
     {
       "temperature": 0.75,
       "threshold": 0.99,
-      "precision": 1.0,
-      "recall": 0.8216518154009842,
-      "changes": 6185,
+      "precision": 0.999568655643422,
+      "recall": 0.9293690300013453,
+      "changes": 6955,
       "requiredMissesPass": false
     },
     {
       "temperature": 0.75,
       "threshold": 0.995,
-      "precision": 1.0,
-      "recall": 0.7461098550339141,
-      "changes": 5613,
+      "precision": 0.9996966019417476,
+      "recall": 0.8832234629355576,
+      "changes": 6592,
       "requiredMissesPass": false
     },
     {
       "temperature": 0.75,
       "threshold": 0.999,
-      "precision": 1.0,
-      "recall": 0.5377044819789866,
-      "changes": 4044,
+      "precision": 0.9998139534883721,
+      "recall": 0.7217812457957756,
+      "changes": 5375,
       "requiredMissesPass": false
     },
     {
       "temperature": 1.0,
       "threshold": 0.985,
-      "precision": 1.0,
-      "recall": 0.6669769916212263,
-      "changes": 5017,
+      "precision": 0.999672828398495,
+      "recall": 0.8193192519843939,
+      "changes": 6113,
       "requiredMissesPass": false
     },
     {
       "temperature": 1.0,
       "threshold": 0.99,
-      "precision": 1.0,
-      "recall": 0.5984838409362947,
-      "changes": 4501,
+      "precision": 0.9998243765367053,
+      "recall": 0.7641598277949684,
+      "changes": 5694,
       "requiredMissesPass": false
     },
     {
       "temperature": 1.0,
       "threshold": 0.995,
-      "precision": 1.0,
-      "recall": 0.48317595424923526,
-      "changes": 3634,
+      "precision": 0.9997962510187449,
+      "recall": 0.65922238665411,
+      "changes": 4908,
       "requiredMissesPass": false
     },
     {
       "temperature": 1.0,
       "threshold": 0.999,
-      "precision": 1.0,
-      "recall": 0.2699827104668174,
-      "changes": 2031,
+      "precision": 0.9996395097332372,
+      "recall": 0.3725279160500471,
+      "changes": 2774,
       "requiredMissesPass": false
     },
     {
       "temperature": 1.5,
       "threshold": 0.985,
-      "precision": 1.0,
-      "recall": 0.2985769384226626,
-      "changes": 2246,
+      "precision": 0.9996644295302013,
+      "recall": 0.40024216332570967,
+      "changes": 2980,
       "requiredMissesPass": false
     },
     {
       "temperature": 1.5,
       "threshold": 0.99,
-      "precision": 1.0,
-      "recall": 0.24098949328368133,
-      "changes": 1813,
+      "precision": 0.9995750106247344,
+      "recall": 0.31588860487017356,
+      "changes": 2353,
       "requiredMissesPass": false
     },
     {
       "temperature": 1.5,
       "threshold": 0.995,
-      "precision": 1.0,
-      "recall": 0.1822050804628275,
-      "changes": 1370,
+      "precision": 0.9992795389048992,
+      "recall": 0.18619669043454865,
+      "changes": 1388,
       "requiredMissesPass": false
     },
     {
       "temperature": 1.5,
       "threshold": 0.999,
       "precision": 1.0,
-      "recall": 0.010772709136853305,
-      "changes": 81,
+      "recall": 0.012242701466433472,
+      "changes": 92,
       "requiredMissesPass": false
     },
     {
       "temperature": 2.0,
       "threshold": 0.985,
       "precision": 1.0,
-      "recall": 0.13445936959702087,
-      "changes": 1011,
+      "recall": 0.1142203686263958,
+      "changes": 851,
       "requiredMissesPass": false
     },
     {
       "temperature": 2.0,
       "threshold": 0.99,
       "precision": 1.0,
-      "recall": 0.05399654209336348,
-      "changes": 406,
+      "recall": 0.04291672272299206,
+      "changes": 320,
       "requiredMissesPass": false
     },
     {
       "temperature": 2.0,
       "threshold": 0.995,
       "precision": 1.0,
-      "recall": 0.007048809682138582,
-      "changes": 53,
+      "recall": 0.006054083142741827,
+      "changes": 46,
       "requiredMissesPass": false
     },
     {
       "temperature": 2.0,
       "threshold": 0.999,
       "precision": 1.0,
-      "recall": 0.00039898922729086314,
+      "recall": 0.00040360554284945513,
       "changes": 3,
       "requiredMissesPass": false
     }

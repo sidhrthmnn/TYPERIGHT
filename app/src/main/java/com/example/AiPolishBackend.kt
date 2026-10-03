@@ -3,7 +3,6 @@ package com.example
 import android.app.Application
 import android.content.Context
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 
 class TypeRightApplication : Application() {
@@ -22,12 +21,6 @@ object AiPolishBackend {
         appContext = context.applicationContext
     }
 
-    fun ensureInitialized(context: Context) {
-        if (appContext == null) {
-            appContext = context.applicationContext
-        }
-    }
-
     val context: Context? get() = appContext
 
     val engine: ActiveAiEngine get() {
@@ -38,8 +31,6 @@ object AiPolishBackend {
     val label: String get() = appContext?.let { if (engine == ActiveAiEngine.OFFLINE) LocalGgufModel.label(it) else engine.title } ?: engine.title
 
     val isCloudActive: Boolean get() = engine == ActiveAiEngine.ONLINE
-
-    fun isGeminiConfigured(): Boolean = appContext?.let(CloudPolishEngine::isConfigured) ?: false
 
     val timeoutMillis: Long get() = if (appContext?.let { KeyboardSettings(it).cloudFallbackEnabled } == true) 240_000L else 185_000L
 

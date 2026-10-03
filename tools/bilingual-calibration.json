@@ -1,0 +1,219 @@
+{
+  "partition": "calibration only; word-family disjoint; holdout never accessed",
+  "selectionRule": "precision>=99.5%; maximize recall, then stricter threshold, then temperature",
+  "sourceSHA256": "c343c07c20619b0613934e8af5d4c387d3c4f928089be827aefb324fcf903a6f",
+  "cases": 895,
+  "en": {
+    "temperature": 0.2,
+    "threshold": 0.995,
+    "precision": 0.9965744734838874,
+    "recall": 0.9990582537333512,
+    "changes": 7882,
+    "requiredMissesPass": true
+  },
+  "ml-Latn": {
+    "temperature": 0.2,
+    "threshold": 0.99,
+    "precision": 0.9957865168539326,
+    "recall": 0.7921787709497207,
+    "changes": 712
+  },
+  "sweep": [
+    {
+      "temperature": 0.1,
+      "threshold": 0.985,
+      "precision": 0.9917469050894085,
+      "recall": 0.8055865921787709,
+      "changes": 727
+    },
+    {
+      "temperature": 0.1,
+      "threshold": 0.99,
+      "precision": 0.9931129476584022,
+      "recall": 0.8055865921787709,
+      "changes": 726
+    },
+    {
+      "temperature": 0.1,
+      "threshold": 0.995,
+      "precision": 0.9944827586206897,
+      "recall": 0.8055865921787709,
+      "changes": 725
+    },
+    {
+      "temperature": 0.1,
+      "threshold": 0.999,
+      "precision": 0.9944289693593314,
+      "recall": 0.7977653631284917,
+      "changes": 718
+    },
+    {
+      "temperature": 0.15,
+      "threshold": 0.985,
+      "precision": 0.9944598337950139,
+      "recall": 0.8022346368715084,
+      "changes": 722
+    },
+    {
+      "temperature": 0.15,
+      "threshold": 0.99,
+      "precision": 0.9944289693593314,
+      "recall": 0.7977653631284917,
+      "changes": 718
+    },
+    {
+      "temperature": 0.15,
+      "threshold": 0.995,
+      "precision": 0.9943977591036415,
+      "recall": 0.7932960893854749,
+      "changes": 714
+    },
+    {
+      "temperature": 0.15,
+      "threshold": 0.999,
+      "precision": 0.995768688293371,
+      "recall": 0.788826815642458,
+      "changes": 709
+    },
+    {
+      "temperature": 0.2,
+      "threshold": 0.985,
+      "precision": 0.9943899018232819,
+      "recall": 0.7921787709497207,
+      "changes": 713
+    },
+    {
+      "temperature": 0.2,
+      "threshold": 0.99,
+      "precision": 0.9957865168539326,
+      "recall": 0.7921787709497207,
+      "changes": 712
+    },
+    {
+      "temperature": 0.2,
+      "threshold": 0.995,
+      "precision": 0.9957627118644068,
+      "recall": 0.7877094972067039,
+      "changes": 708
+    },
+    {
+      "temperature": 0.2,
+      "threshold": 0.999,
+      "precision": 0.998567335243553,
+      "recall": 0.7787709497206704,
+      "changes": 698
+    },
+    {
+      "temperature": 0.35,
+      "threshold": 0.985,
+      "precision": 0.9985569985569985,
+      "recall": 0.7731843575418994,
+      "changes": 693
+    },
+    {
+      "temperature": 0.35,
+      "threshold": 0.99,
+      "precision": 0.9985486211901307,
+      "recall": 0.7687150837988826,
+      "changes": 689
+    },
+    {
+      "temperature": 0.35,
+      "threshold": 0.995,
+      "precision": 0.9985358711566618,
+      "recall": 0.7620111731843575,
+      "changes": 683
+    },
+    {
+      "temperature": 0.35,
+      "threshold": 0.999,
+      "precision": 1.0,
+      "recall": 0.740782122905028,
+      "changes": 663
+    },
+    {
+      "temperature": 0.5,
+      "threshold": 0.985,
+      "precision": 1.0,
+      "recall": 0.7508379888268156,
+      "changes": 672
+    },
+    {
+      "temperature": 0.5,
+      "threshold": 0.99,
+      "precision": 1.0,
+      "recall": 0.7452513966480447,
+      "changes": 667
+    },
+    {
+      "temperature": 0.5,
+      "threshold": 0.995,
+      "precision": 1.0,
+      "recall": 0.7284916201117319,
+      "changes": 652
+    },
+    {
+      "temperature": 0.5,
+      "threshold": 0.999,
+      "precision": 1.0,
+      "recall": 0.6871508379888268,
+      "changes": 615
+    },
+    {
+      "temperature": 0.75,
+      "threshold": 0.985,
+      "precision": 1.0,
+      "recall": 0.6972067039106146,
+      "changes": 624
+    },
+    {
+      "temperature": 0.75,
+      "threshold": 0.99,
+      "precision": 1.0,
+      "recall": 0.6793296089385474,
+      "changes": 608
+    },
+    {
+      "temperature": 0.75,
+      "threshold": 0.995,
+      "precision": 1.0,
+      "recall": 0.6536312849162011,
+      "changes": 585
+    },
+    {
+      "temperature": 0.75,
+      "threshold": 0.999,
+      "precision": 1.0,
+      "recall": 0.5620111731843576,
+      "changes": 503
+    },
+    {
+      "temperature": 1.0,
+      "threshold": 0.985,
+      "precision": 1.0,
+      "recall": 0.6312849162011173,
+      "changes": 565
+    },
+    {
+      "temperature": 1.0,
+      "threshold": 0.99,
+      "precision": 1.0,
+      "recall": 0.6033519553072626,
+      "changes": 540
+    },
+    {
+      "temperature": 1.0,
+      "threshold": 0.995,
+      "precision": 1.0,
+      "recall": 0.4849162011173184,
+      "changes": 434
+    },
+    {
+      "temperature": 1.0,
+      "threshold": 0.999,
+      "precision": 1.0,
+      "recall": 0.1430167597765363,
+      "changes": 128
+    }
+  ]
+}

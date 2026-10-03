@@ -153,13 +153,16 @@ class CandidatePipelineTest {
         profile.reject("mesage", "message")
         assertNull(ranker.rank("mesage").automatic)
         profile.acceptPolish("mesage", "message", dictionary::isRecognizedInAnyLanguage)
-        assertEquals("message", ranker.rank("mesage").automatic)
-        assertEquals("message", ranker.cached("mesage", emptyList(), null)?.automatic)
+        assertEquals("message",ranker.rank("mesage").automatic)
+        // An accepted English spelling does not force that loanword correction
+        // onto a Malayalam span where the romanization is already valid.
+        assertNull(ranker.rank("mesage",listOf("njan","innu")).automatic)
         dictionary.learnWord("mesage", explicit = true)
         repeat(3) { profile.acceptPolish("send the mesage", "send the message", dictionary::isRecognizedInAnyLanguage) }
         assertEquals("message", ranker.rank("mesage", listOf("send", "the")).automatic)
         assertEquals("message", ranker.cached("mesage", listOf("send", "the"), null)?.automatic)
-        assertTrue(ranker.rank("fone").candidates.any { it.word == "phone" && CandidateOrigin.PHONETIC in it.origins })
+        assertTrue(dictionary.phoneticCandidates("nife").any { it == "knife" })
+        assertNull(ranker.rank("fone",listOf("njan","ente")).automatic)
         assertTrue(ranker.nextWords(listOf("Njan", "nale")).any { it in MultilingualLexicon.romanizedMalayalam })
         assertTrue(ranker.nextWords(listOf("mujhe", "kal")).any { it in MultilingualLexicon.romanizedHindi })
     }

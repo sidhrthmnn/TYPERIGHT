@@ -4,18 +4,13 @@ import android.content.Context
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Build
-import android.os.Bundle
 import android.os.SystemClock
-import android.os.VibrationEffect
-import android.os.Vibrator
 import android.text.InputType
-import android.util.Log
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
-import android.view.inputmethod.InputMethodManager
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -426,13 +421,6 @@ abstract class KeyboardService : InputMethodService() {
     }
 
     /**
-     * Sets composing text (underlined / active editing state) on the active InputConnection.
-     */
-    open fun setComposingTextToInput(text: CharSequence, newCursorPosition: Int = 1) {
-        safeInputConnection?.setComposingText(text, newCursorPosition)
-    }
-
-    /**
      * Finishes composing text on the active InputConnection.
      */
     open fun finishComposingText() {
@@ -586,34 +574,6 @@ abstract class KeyboardService : InputMethodService() {
     }
 
     /**
-     * Executes the default IME action configured in EditorInfo.
-     */
-    fun performDefaultEditorAction() {
-        val action = getImeAction()
-        if (action != EditorInfo.IME_ACTION_NONE && action != EditorInfo.IME_ACTION_UNSPECIFIED) {
-            safeInputConnection?.performEditorAction(action)
-        }
-    }
-
-    /**
-     * Adjusts the cursor position by an offset relative to current position.
-     */
-    fun moveCursor(offset: Int) {
-        val ic = safeInputConnection ?: return
-        if (offset == 0) return
-        val current = currentCursorPosition
-        val target = (current + offset).coerceAtLeast(0)
-        ic.setSelection(target, target)
-    }
-
-    /**
-     * Sets selection range between start and end.
-     */
-    fun setSelectionRange(start: Int, end: Int) {
-        safeInputConnection?.setSelection(start, end)
-    }
-
-    /**
      * Selects all text in the active input field.
      */
     fun selectAllText() {
@@ -660,19 +620,6 @@ abstract class KeyboardService : InputMethodService() {
      */
     fun getSelectedText(): String? {
         return safeInputConnection?.getSelectedText(0)?.toString()
-    }
-
-    /**
-     * Wraps multiple input connection calls in a batch edit.
-     */
-    inline fun executeBatchEdit(action: (InputConnection) -> Unit) {
-        val ic = safeInputConnection ?: return
-        ic.beginBatchEdit()
-        try {
-            action(ic)
-        } finally {
-            ic.endBatchEdit()
-        }
     }
 
     // =========================================================================
@@ -770,51 +717,5 @@ abstract class KeyboardService : InputMethodService() {
         requestHideSelf(0)
     }
 
-    /**
-     * Switches to the next enabled Input Method (keyboard).
-     */
-    fun switchToNextKeyboard() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            switchToNextInputMethod(false)
-        } else {
-            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            imm?.showInputMethodPicker()
-        }
-    }
-
-    /**
-     * Performs tactile haptic feedback vibration for key taps.
-     */
-    fun triggerHapticFeedback(durationMs: Long = 10L) {
-        try {
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-            if (vibrator != null && vibrator.hasVibrator()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(
-                        VibrationEffect.createOneShot(
-                            durationMs,
-                            VibrationEffect.DEFAULT_AMPLITUDE
-                        )
-                    )
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator.vibrate(durationMs)
-                }
-            }
-        } catch (_: Exception) {
-            // Ignore if vibration permissions or hardware unavailable
-        }
-    }
-
-    /**
-     * Plays standard keyboard click audio effect.
-     */
-    fun playClickFeedback(soundEffect: Int = AudioManager.FX_KEYPRESS_STANDARD) {
-        try {
-            audioManager?.playSoundEffect(soundEffect)
-        } catch (_: Exception) {
-            // Ignore if audio manager unavailable
-        }
-    }
 }
 

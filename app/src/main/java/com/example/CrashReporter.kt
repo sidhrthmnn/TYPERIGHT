@@ -230,10 +230,4 @@ object CrashReporter {
         }
     }
 
-    /**
-     * Throw a test exception to verify crash logging.
-     */
-    fun triggerSimulatedCrash() {
-        throw RuntimeException("Simulated Diagnostic Crash: Verify that CrashReporter captures this correctly.")
-    }
 }

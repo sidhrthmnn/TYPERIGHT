@@ -32,7 +32,6 @@ class EnglishFrequencyLexicon private constructor(context: Context) {
     }
     fun phoneticCandidates(word: String): List<String> = phonetics[soundKey(word)].orEmpty().filter { kotlin.math.abs(it.length - word.length) <= 2 }.take(8)
 
-
     fun frequency(word: String): Int = frequencies[word.lowercase(Locale.ROOT)] ?: 0
 
     fun prefix(prefix: String, limit: Int): List<String> {
@@ -60,6 +59,7 @@ class EnglishFrequencyLexicon private constructor(context: Context) {
     companion object {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         @Volatile private var instance: EnglishFrequencyLexicon? = null
+        internal fun recognizes(word: String) = instance?.canonical?.contains(word.lowercase(Locale.ROOT)) == true
         internal fun soundKey(word: String): String {
             val normalized = word.lowercase(Locale.ROOT).replace("ph", "f").replace("ght", "t")
             val clean = if (normalized.startsWith("kn")) normalized.drop(1) else normalized
@@ -75,27 +75,26 @@ class EnglishFrequencyLexicon private constructor(context: Context) {
     }
 }
 
-/** Immutable prefix-delete index. Primitive word IDs avoid a map and set per spelling variant. */
+/** Immutable prefix-delete postings packed into primitive longs (fingerprint + word ID).
+ * Hash collisions only retrieve extra proposals: exact weighted edit distance always
+ * validates them. No per-deletion strings, map nodes or boxed ID collections survive startup.
+ */
 internal class CompactCorrectionIndex(
     private val words: List<String>,
     private val frequencies: Map<String, Int>
 ) {
-    private class WordIds {
-        var values = IntArray(2)
-        var size = 0
-        fun add(id: Int) {
-            if (size == values.size) values = values.copyOf(size * 2)
-            values[size++] = id
-        }
-    }
     private val scorer = SymSpellCorrectionEngine()
-    private val deletes = HashMap<String, WordIds>()
+    private val deletes: LongArray
     init {
+        var postings=LongArray(maxOf(16,words.size*24)); var count=0
         words.forEachIndexed { id, word ->
             scorer.getDeletes(word.take(7), 2).forEach { variant ->
-                deletes.getOrPut(variant) { WordIds() }.add(id)
+                if(count==postings.size) postings=postings.copyOf(postings.size+postings.size/2)
+                postings[count++]=(variant.hashCode().toLong() shl 32) or id.toLong()
             }
         }
+        deletes=postings.copyOf(count)
+        java.util.Arrays.sort(deletes)
     }
     fun lookup(input: String, maxDistance: Float, maxResults: Int): List<SymSpellCorrectionEngine.SuggestionItem> {
         val clean = input.lowercase(Locale.ROOT).trim()
@@ -105,9 +104,11 @@ internal class CompactCorrectionIndex(
             .thenByDescending { it.frequency }.thenBy { it.term }
         val best = PriorityQueue(order.reversed())
         scorer.getDeletes(clean.take(7), if (maxDistance <= 1f) 1 else 2).forEach { variant ->
-            val ids = deletes[variant] ?: return@forEach
-            for (i in 0 until ids.size) {
-                val id = ids.values[i]
+            val hash=variant.hashCode()
+            val position=deletes.binarySearch(hash.toLong() shl 32).let { if(it<0) -it-1 else it }
+            var cursor=position
+            while(cursor<deletes.size && (deletes[cursor] shr 32).toInt()==hash) {
+                val id = deletes[cursor++].toInt()
                 if (seen[id]) continue
                 seen.set(id)
                 val word = words[id]
