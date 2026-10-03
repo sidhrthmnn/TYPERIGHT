@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.dp
 internal fun AppPreferencesScreen(settings: KeyboardSettings, onOpenTyping: () -> Unit, onOpenAi: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var learning by remember { mutableStateOf(settings.personalizedLearningEnabled) }
+    val contactsLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        DictionaryManager.getInstance(context).refreshContactWords()
+    }
     var clipboard by remember { mutableStateOf(settings.clipboardEnabled) }
     var clearLearning by remember { mutableStateOf(false) }
     var photoAccess by remember { mutableStateOf(SmartClipboardPolicy.hasPhotoAccess(context)) }
@@ -55,7 +58,7 @@ internal fun AppPreferencesScreen(settings: KeyboardSettings, onOpenTyping: () -
     var theme by remember(prefs) { mutableStateOf(settings.theme) }
     fun matches(vararg terms: String) = query.isBlank() || terms.any { it.contains(query.trim(), ignoreCase = true) }
     val typing = matches("typing", "auto-correct", "autocorrect", "correction sensitivity", "mild balanced strong aggressive", "number row digits")
-    val intelligence = matches("learning personal typing patterns accepted polish typos", "smart clipboard screenshot OTP code photo access")
+    val intelligence = matches("learning personal typing patterns accepted rejected polish typos contacts names", "smart clipboard screenshot OTP code photo access")
     val feedback = matches("touch feedback", "haptic vibration", "keypress sound audio")
     val appearance = matches("appearance theme", "light dark midnight night color")
     val more = matches("dictionary words shortcuts predictions", "AI polish languages Gemma model")
@@ -117,8 +120,10 @@ internal fun AppPreferencesScreen(settings: KeyboardSettings, onOpenTyping: () -
             AppSettingsCard {
                 AppSwitchRow("Learn from my typing", "Remember accepted typo fixes and frequently used words", learning,
                     { learning = it; settings.personalizedLearningEnabled = it }, "pref_learning_switch", Icons.Default.Psychology)
-                AppLinkRow("Clear adaptive profile", "Reset accepted fixes and word-use ranking", Icons.Default.RestartAlt,
+                AppLinkRow("Clear adaptive profile", "Reset accepted and rejected fixes and word-use ranking", Icons.Default.RestartAlt,
                     "pref_clear_learning", { clearLearning = true })
+                AppLinkRow("Protect contact names", "Allow contacts access to preserve names while typing", Icons.Default.Contacts,
+                    "pref_contacts_access", { contactsLauncher.launch(android.Manifest.permission.READ_CONTACTS) })
                 SettingsDivider()
                 AppSwitchRow("Smart clipboard", "Suggest copied codes and recent screenshots; tap × to dismiss", clipboard,
                     { clipboard = it; settings.clipboardEnabled = it }, "pref_clipboard_switch", Icons.Default.ContentPaste)

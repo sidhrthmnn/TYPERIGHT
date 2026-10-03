@@ -35,12 +35,19 @@ internal object GgufNative {
         }
     }
 
+    private external fun release(path: ByteArray)
+    fun releaseIfLoaded(path: ByteArray) { if (isLoaded) release(path) }
+
     external fun generate(path: ByteArray, prompt: ByteArray, cancellation: GgufCancellation): ByteArray
 }
 
 object GgufPolishEngine {
     private val mutex = Mutex()
     fun isSupported(): Boolean = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" || it == "x86_64" }
+
+    internal suspend fun releaseModel(path: String) = withContext(Dispatchers.Default) {
+        mutex.withLock { GgufNative.releaseIfLoaded(path.toByteArray(Charsets.UTF_8)) }
+    }
 
     internal fun prompt(input: String, mode: PolishMode, languageGuidance: String = "",
                         format: String = "gemma4", context: TextContext? = null): String =
@@ -57,6 +64,13 @@ object GgufPolishEngine {
             check(settings.getSelectedAiLanguageCodes().all { it == "en" }) {
                 "GRMR is trained for English. Choose a multilingual model for the selected languages."
             }
+        }
+        if (model.languages == "English") {
+            val tokens = Regex("[\\p{L}\\p{M}]+").findAll(input).map { MultilingualLexicon.normalize(it.value) }.toList()
+            val nonLatin = input.any { it.isLetter() && Character.UnicodeScript.of(it.code) != Character.UnicodeScript.LATIN }
+            val manglish = tokens.any { it in MultilingualLexicon.romanizedMalayalam }
+            val hinglish = tokens.count { it in MultilingualLexicon.romanizedHindi && it !in setOf("main", "hi", "par", "se", "fir", "bas") } >= 2
+            check(!nonLatin && !manglish && !hinglish) { "Choose a multilingual Qwen or Gemma model to preserve this language and code switching" }
         }
         val languageGuidance = if (model.languages == "English") "Correct English without translating names or quoted text." else settings.getActiveAiLanguagePromptGuidance()
         mutex.withLock {

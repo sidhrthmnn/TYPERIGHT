@@ -1,0 +1,6 @@
+Multilingual frequency dictionaries derived from OpenSubtitles 2018 via hermitdave/FrequencyWords.
+Corpus license: CC-BY-SA-4.0. FrequencyWords code: MIT.
+These trimmed, normalized tables are adaptations distributed under CC-BY-SA-4.0.
+https://creativecommons.org/licenses/by-sa/4.0/
+https://github.com/hermitdave/FrequencyWords
+Each source revision, source checksum and adapted checksum is recorded in provenance.json.

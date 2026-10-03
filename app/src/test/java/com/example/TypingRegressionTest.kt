@@ -18,6 +18,8 @@ class TypingRegressionTest {
     @Before fun setup() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("typeright_dictionary", Context.MODE_PRIVATE).edit().clear().commit()
+        PersonalTypingProfile.get(context).clear()
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) { AppDatabase.getDatabase(context).clearAllTables() }
         settings = KeyboardSettings(context)
         settings.autocorrectEnabled = true
         dictionary = DictionaryManager(context)
@@ -193,14 +195,14 @@ class TypingRegressionTest {
 
     @Test fun contextualAmbiguityIsResolvedWithPriorWord() {
         val withContext = predict("ill", listOf("I"))
-        assertTrue("Expected contextual autocorrect for 'ill' after 'I'", withContext.isCenterAutocorrecting)
+        assertFalse("Real-word ambiguity stays reviewable", withContext.isCenterAutocorrecting)
         assertEquals("I'll", withContext.centerCandidate)
 
         val withoutContext = predict("ill", emptyList())
         assertFalse("Must not autocorrect 'ill' without context", withoutContext.isCenterAutocorrecting)
 
         val weWell = predict("well", listOf("we"))
-        assertTrue("Expected contextual autocorrect for 'well' after 'we'", weWell.isCenterAutocorrecting)
+        assertFalse("Real-word ambiguity stays reviewable", weWell.isCenterAutocorrecting)
         assertEquals("we'll", weWell.centerCandidate)
     }
 

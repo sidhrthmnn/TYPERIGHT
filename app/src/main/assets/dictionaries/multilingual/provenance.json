@@ -1,0 +1,422 @@
+{
+  "repository": "https://github.com/hermitdave/FrequencyWords",
+  "revision": "525f9b560de45753a5ea01069454e72e9aa541c6",
+  "license": "CC-BY-SA-4.0",
+  "corpus": "OpenSubtitles 2018",
+  "languages": [
+    {
+      "language": "af",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/af/af_full.txt",
+      "sourceSha256": "c3c0a0a2f3935deb9d2d418e9c94a4edc6a5ce96c668d80d14a133b75631cff9",
+      "assetSha256": "d2b3acf58e648971ca8dbc41a86f2f083143d65d0a657d92c67a8d5b39eb18ab"
+    },
+    {
+      "language": "ar",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ar/ar_50k.txt",
+      "sourceSha256": "bbe98b4b92902b392bdefa2e555a108fdb42a5dd79d261674be5ab666229e19f",
+      "assetSha256": "cfc693a4cf0374241ac0661dbb573720befafd894caa5fa8e2bc795fcbf1c228"
+    },
+    {
+      "language": "bg",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/bg/bg_50k.txt",
+      "sourceSha256": "b0faf13173216e0006ba548d57a621ae1df0fb3e888738df1b9ec09d210903c9",
+      "assetSha256": "b049b88a7d1320a600ebe93eeb56d729352fa55fede7509ec5de2cd456248269"
+    },
+    {
+      "language": "bn",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/bn/bn_50k.txt",
+      "sourceSha256": "2fd6c08f29335f26af983c26821537e5ed5e42dfdf43275a0c646a15d18d636e",
+      "assetSha256": "231d053f6407a7987f959f02b89ec978ae4fb06b6e73b0d709b45ceb8966005a"
+    },
+    {
+      "language": "br",
+      "words": 7034,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/br/br_full.txt",
+      "sourceSha256": "2aaf1032f552fb254709ae34d9573848571f06a62a1b9b209165cd18429143aa",
+      "assetSha256": "0b365af041226c2a56b62c156a11ccc96a168f39d219a5d96f73273fc36c390c"
+    },
+    {
+      "language": "bs",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/bs/bs_50k.txt",
+      "sourceSha256": "7c23c9ad4fb48ebbcbaac239e8443f68b488d8cac85faf52377dd8deabb448d0",
+      "assetSha256": "96647be4c664dfc6a29dd88eb6771ffade7a639c8e4a62ab7bb1da19f4771ae4"
+    },
+    {
+      "language": "ca",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ca/ca_50k.txt",
+      "sourceSha256": "3140bdce43ae1cd40b2dfa2ec1291f4917f477ff7d0573e4b77c6f1bc1d3ffad",
+      "assetSha256": "1df46f570838f89670d1be2144ce9db4e4c44bf5321fca76712285a04b64ce01"
+    },
+    {
+      "language": "cs",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/cs/cs_50k.txt",
+      "sourceSha256": "1fb0576ef07cf5a543789d394cde1168573fc9e7adf427fd143249fd5547458d",
+      "assetSha256": "91506c7d19375de1b4d033f381fa7538596f46e5c5c52de42f786ee7457e8da1"
+    },
+    {
+      "language": "da",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/da/da_50k.txt",
+      "sourceSha256": "6a83e4deb5e38d873b1ccfb4be4fb25903878c07c8522af708027ac8b540c6b1",
+      "assetSha256": "8e3970ba87d57b546e67b10785c8b32d75d06e1d0b818566431fa27cb082af1e"
+    },
+    {
+      "language": "de",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/de/de_50k.txt",
+      "sourceSha256": "d9e50546fd7e8b6fe6542a2b33c51d1331092b2a3916ec09f80d97856068705b",
+      "assetSha256": "dd4395d0e9fd05a6817f7c36c67a2639397b6557184cf087b69e5284a8b403f1"
+    },
+    {
+      "language": "el",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/el/el_50k.txt",
+      "sourceSha256": "7ec8f6de52c38f36a04add5d1613b116aed576e10c5e3b40d0001e8572de978c",
+      "assetSha256": "6f79602dea828702568c100f5e10a694f428c34bc7b4f474e95ac671236a679d"
+    },
+    {
+      "language": "eo",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/eo/eo_full.txt",
+      "sourceSha256": "2e5eb94fd99d6778ceadf238d7edffa5c90dae218179b1d7c3b6e9189f9ac369",
+      "assetSha256": "efca7c82364f1361102f1383390db3585ab5b72a2df31640243381e16b278c29"
+    },
+    {
+      "language": "es",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/es/es_50k.txt",
+      "sourceSha256": "dcff3ad4316192f4dc4ff7d26e637c6ff314ef1ca0f3f720c5649018a71056c0",
+      "assetSha256": "c3a15933f57f42a325cdee0fd7cc74a9bb3147f4db7668dfeaf106c1761f805f"
+    },
+    {
+      "language": "et",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/et/et_50k.txt",
+      "sourceSha256": "ede602b6d0569606692e91bdf8fd5fe66cf281547d21640d92b2ed2ef73c4270",
+      "assetSha256": "2221187dc7fd39a3377cb009b3abf97223db9ca4f5af3d57d85ae8fdef8bc572"
+    },
+    {
+      "language": "eu",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/eu/eu_50k.txt",
+      "sourceSha256": "f4cce0f8567e877e108e8bdd18c74e9b23bff2d5f418ac04306ae003b025baf2",
+      "assetSha256": "de7819c84e89a150dff31fdb5447504004fb85e3dd607a3c5bc799dc6287a290"
+    },
+    {
+      "language": "fa",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/fa/fa_50k.txt",
+      "sourceSha256": "96ea178f77022cdb2d358feb75a4fc474754daa224a4beba296ad777a514bdf7",
+      "assetSha256": "09a31db921a0a1de6e283ed7afd8b160cce22beb54468a431b6d864781f2258a"
+    },
+    {
+      "language": "fi",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/fi/fi_50k.txt",
+      "sourceSha256": "8bc1d43dd54ea0c4432b1f6ae497759a332e984224819cf8a4f2337681c803b4",
+      "assetSha256": "c1d8825689c65648f70cedf0333eca403155a08569173d7de991b0615260f1c6"
+    },
+    {
+      "language": "fr",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/fr/fr_50k.txt",
+      "sourceSha256": "f81f7c570b6433764da99aa30f4dfb08d81c5926301377b709af23a13b1f9596",
+      "assetSha256": "939b98a43da45cc0a09ac9eb784c8d936fca5206666a4567ce40df92fa9341e2"
+    },
+    {
+      "language": "gl",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/gl/gl_50k.txt",
+      "sourceSha256": "24a826d083790c21c7e78d046ed8393ed1b783e39ef0ec5a953cd721f0069e61",
+      "assetSha256": "2b1ad137e38f22301b3697c9c337efac0b975042add1cb25afa0707fb90f63a6"
+    },
+    {
+      "language": "he",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/he/he_50k.txt",
+      "sourceSha256": "0069e931eb1ca0aaf638ea806b0d9d5810d787c51ada944da564a2fb213af41d",
+      "assetSha256": "688bc966a260ed1de5fcdc3d74768a7757ac04a10d044c7ab5b80d007874cdac"
+    },
+    {
+      "language": "hi",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/hi/hi_full.txt",
+      "sourceSha256": "7ea1238ba983a3aae456c73d14e5f031ec59a1316d665af9b120d0c0fee61a8c",
+      "assetSha256": "7dcc53df53467684ed7fdc16ba33708fa9e5ca5933ba67a6f7bc011c86168539"
+    },
+    {
+      "language": "hr",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/hr/hr_50k.txt",
+      "sourceSha256": "725f57e0bd122f46d8e358c3542a4e1d126e468075c5e4d6644fd0d21c47bbc3",
+      "assetSha256": "6ca9523c790d71f2265d0738fea0ef44812d54fd99cb5b7339233b4eee409b65"
+    },
+    {
+      "language": "hu",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/hu/hu_50k.txt",
+      "sourceSha256": "b765780a1277c3b1e326205c972b1ea1631732ec54ab489d13d21618ceab4fec",
+      "assetSha256": "4c7dd7552c131c97e6d95714bf500b394a3ccb6b24d06ca091122e31c31f3f20"
+    },
+    {
+      "language": "hy",
+      "words": 6844,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/hy/hy_full.txt",
+      "sourceSha256": "e06881b1d30ce25498a39def89e092f799db7abca9dca74c50363dd63551713b",
+      "assetSha256": "bec5511476724de4e987dd1421d7d73bd12b768c44231e35e9f6d521f943933f"
+    },
+    {
+      "language": "id",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/id/id_50k.txt",
+      "sourceSha256": "f2eea0da9735b7040efbfa813f5f875ec931de5a0ec70a6f28213ea60a87bb38",
+      "assetSha256": "c30b5df6c16afb76c34c186da6a3a00983f564652aac291f08976e126c0a1b1e"
+    },
+    {
+      "language": "is",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/is/is_50k.txt",
+      "sourceSha256": "8c47a7795970edb55178a84d16a568422186c2299024b12a2fc4a0df85ef4e27",
+      "assetSha256": "7b3827349e5502201c713ba9fe23854b05ae7a3aec4eeead36f4b42107b33607"
+    },
+    {
+      "language": "it",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/it/it_50k.txt",
+      "sourceSha256": "bb96cdcb56d28342c1e909db6b2525448b7767136b7e86a2ccc649a1be66fc19",
+      "assetSha256": "cc93c095a79ee12030aab209febec4192d645a92860a68169cd08727d8891862"
+    },
+    {
+      "language": "ja",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ja/ja_full.txt",
+      "sourceSha256": "581dd106a134ff9f2706e23cde9fe95cd24d96ead6357cd3bd3bba9e166a764e",
+      "assetSha256": "52e8d44d06d02fa8e4e795bb36d67f2b0f361dd4e0c93dd7f6de77bee7417b89"
+    },
+    {
+      "language": "ka",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ka/ka_50k.txt",
+      "sourceSha256": "183e388f9d40a51f1125a294df539303e1320fa1d4519d095276bfd637dba2e5",
+      "assetSha256": "0b32b363c3e38ad4cea7295bd09a18a4448473d95e841200fe133805122d1bcd"
+    },
+    {
+      "language": "kk",
+      "words": 4665,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/kk/kk_full.txt",
+      "sourceSha256": "06a471e2fc533efdd73547086fea831c508c630bb90e1a0a366de98db7ee6c6a",
+      "assetSha256": "401781392bc4b376c0ea7de914e8e7003ea894ccf1ba156c5d727ae33f8a13ee"
+    },
+    {
+      "language": "ko",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ko/ko_50k.txt",
+      "sourceSha256": "8d00401b6728c8d6feeaa5455583c1a33408dd020aae4aa55609b25004d1d99d",
+      "assetSha256": "12901a083bfa70b427c7fc047115f3dd689eef32628e5b13d395d98c58f1c238"
+    },
+    {
+      "language": "lt",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/lt/lt_50k.txt",
+      "sourceSha256": "e953d15442ceb0a2eefd2910ca1e01e1bbf5cb261dc8ac905c918c8ae3edfe31",
+      "assetSha256": "1d48b0f2d47d8860ec51f649c7df8179e836d23ba3a987bd9e629b807b91740e"
+    },
+    {
+      "language": "lv",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/lv/lv_50k.txt",
+      "sourceSha256": "22ed7023c0d49d1a79a1ff81ccaec8aeca224cb75f49b43bfb8f89b162f93ad0",
+      "assetSha256": "232a1d0eab3d37dc0930d21bea38b1f68c83979cd7e097edd8fbe8114cb8e05b"
+    },
+    {
+      "language": "mk",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/mk/mk_50k.txt",
+      "sourceSha256": "85febe3efafed0d6e3b99287a1268815a938ff9fba3b940c6e9605b393a0f760",
+      "assetSha256": "58cdc522d42137da6cfc5e9a1c26e670cc41b52cc44ead172ede4dcdc429eddb"
+    },
+    {
+      "language": "ml",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ml/ml_50k.txt",
+      "sourceSha256": "da3be7b22ee5c9f5456723b5f87bc0fd99dae875efef19a13df5464a0e201882",
+      "assetSha256": "3ea832ceb4d4ca5558bb7cf2dd43eed7c72e18817eaaf55c9ca55901c9586b8a"
+    },
+    {
+      "language": "ms",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ms/ms_50k.txt",
+      "sourceSha256": "908558d74db18b486239a557ff7a692178b7ac8555cab04ac3ea8326e6129675",
+      "assetSha256": "0b57da6f581d3ad2b80ab4a167ae3979f197837ef18104dbc74eff75c7fba9d6"
+    },
+    {
+      "language": "nl",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/nl/nl_50k.txt",
+      "sourceSha256": "099bd0c27b514d54284360ad9ce2b4ef7b6903b22e848b67ab10f6aa2adb4baa",
+      "assetSha256": "b73e6738fe58b6594ac3b0b5ce88b12c7b3f0bb237b3900c305b87b553b1687d"
+    },
+    {
+      "language": "no",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/no/no_50k.txt",
+      "sourceSha256": "d5808d8ec04603b765c09c06a03f0273ccf36bb35a3902287e56b7e7d872ca92",
+      "assetSha256": "d5b30a5d561eb25aec69abf930d2a326aed0eb6f05416840e10ca35f2568da99"
+    },
+    {
+      "language": "pl",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/pl/pl_50k.txt",
+      "sourceSha256": "50bf8d30d1ed4f5cedceb3e40e74d793ec6bec0f16d9f3dd0a2c9e313402e10f",
+      "assetSha256": "457576584ce531b3e6d5bde8e4538ab980c097a34ed4471de475284652c3345a"
+    },
+    {
+      "language": "pt",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/pt/pt_50k.txt",
+      "sourceSha256": "f97704382f97273ff59488b1885e7ac90d20f81fd92e5fbad3e3ce43633f495c",
+      "assetSha256": "066ab0ae11daadb68b6cbe57d2be3a02fcddd78c07e685aa569cde5144b678dc"
+    },
+    {
+      "language": "pt_br",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/pt_br/pt_br_50k.txt",
+      "sourceSha256": "a61d6f2ede97c5daad5fb3907b72a228f0aff12668be6d24da590d20804fa611",
+      "assetSha256": "384f72c8aa425cbc6bfc250fc7edc11a065f3079c8ace2ce2df50cd0fd0e51b0"
+    },
+    {
+      "language": "ro",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ro/ro_50k.txt",
+      "sourceSha256": "af4d7d1fc980ee7f988a5114dd34478dd5c7abd1e66a45c25a5da330f06faba5",
+      "assetSha256": "4dd845135d44d912affcd26ae4515183d71425860da3a111de55bbfb1f0223bd"
+    },
+    {
+      "language": "ru",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ru/ru_50k.txt",
+      "sourceSha256": "6095f507cc167488ec66ada5a85ac50433503a08ad24a07c6eabdf54352c4e7f",
+      "assetSha256": "0233e240866b302577e37b9410a563882c24ef72422f366d44d60984ebabd261"
+    },
+    {
+      "language": "si",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/si/si_full.txt",
+      "sourceSha256": "70b9a5fba04720c209f55dfc5a67b7d3031b0ea4e71597865c7b003318af3228",
+      "assetSha256": "b936f47295621e6afd5e515c9ce7d46a1f880d78cebc46746f02c4a083340444"
+    },
+    {
+      "language": "sk",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/sk/sk_50k.txt",
+      "sourceSha256": "10eddbcd086ff26a814a140e1d5b20a1ba0ee8b0870be1a9a09268ba7aeaa094",
+      "assetSha256": "abfefab0ec029de93c223e570a7948f012aebe1653f08ccc194f24cd21ac5d53"
+    },
+    {
+      "language": "sl",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/sl/sl_50k.txt",
+      "sourceSha256": "00d9dc7a50726e99ab4d5bb50ce8087ce709a1416afad65a9dec0821c03ba442",
+      "assetSha256": "96ed5320f29d9514ec4459340abb18b894c8dd78d088f66eea9e56141f771749"
+    },
+    {
+      "language": "sq",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/sq/sq_50k.txt",
+      "sourceSha256": "5a6d41243584b9c594b35191e9b5851ff8f9d3571e4ca71efde557a7af8f56b2",
+      "assetSha256": "44355547de7e6fee7387bb5d18fd141b1449ec40fb73cb4cd4f2aac9bf7108bd"
+    },
+    {
+      "language": "sr",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/sr/sr_50k.txt",
+      "sourceSha256": "c84eaf5e324fe5deb0aa491935bff5e9338b6cd687f6f7aacc56988594a39859",
+      "assetSha256": "7d1bb68332d28ba0901a528d0a00f7d630ff3ddf54644cef55574b3bc932329d"
+    },
+    {
+      "language": "sv",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/sv/sv_50k.txt",
+      "sourceSha256": "566d0614a54f3c243bca4097c9bb824d46275abff31582157e73c166b7089500",
+      "assetSha256": "14698996e534f254aa2dfdf939741af915646d5c08933dc6990a44863064fccc"
+    },
+    {
+      "language": "ta",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ta/ta_full.txt",
+      "sourceSha256": "62105bea7448f5243dc4bfbed5311dd607f08af21fa026c776d2a373c10a24f8",
+      "assetSha256": "ef7a88ad3c32b296b9f24f06f1a4858bca4fb3602ef59194c0d2aeb9a1b9a07b"
+    },
+    {
+      "language": "te",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/te/te_full.txt",
+      "sourceSha256": "fdc46467588bdbf1963e37b4f1b3d87a9a9848b860a31117437b435854c63300",
+      "assetSha256": "c76543c9a4d3bf98c2451f16ef8f9099f271051bf395820d4b342a0fedd7ec12"
+    },
+    {
+      "language": "th",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/th/th_50k.txt",
+      "sourceSha256": "20e7052f2d64222e1420c5d0b4ed6b68cd6290f0cf8b908d8bc6b0af781b6083",
+      "assetSha256": "4529784eeffa17711cb2dff2b72a4ee7f517d35c13b698761472b7cddf82eacd"
+    },
+    {
+      "language": "tl",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/tl/tl_full.txt",
+      "sourceSha256": "83defa364a79c87e6f4e18f6589a4b4a5e1fe5722d5afe9792cd9ee3aec509f8",
+      "assetSha256": "05069f8fb31fd3bd43c576aa73a6a08bf44213582c4098faaba4ae3683de8e50"
+    },
+    {
+      "language": "tr",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/tr/tr_50k.txt",
+      "sourceSha256": "480192844e7fdfe9591bbf0b9cfbb96ed5751cfbba7024fd45d8cb7508e07d5c",
+      "assetSha256": "9a129935c5d8c4ac157b1d0e343e3bbc133bfd227935bcfb407f01d494c66718"
+    },
+    {
+      "language": "uk",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/uk/uk_50k.txt",
+      "sourceSha256": "881686fe66a168b79f6a9ee2f6cbbf944cfb12bfb7040913ef535cb29bd86ec9",
+      "assetSha256": "69a0141b3f526a1bef5f5e067719993295f779048b592801e99683089bc4a30b"
+    },
+    {
+      "language": "ur",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/ur/ur_full.txt",
+      "sourceSha256": "b148f7f3e2b937e01fc4968ef00c4cc5f53b400ac714d362f41dee09fd083154",
+      "assetSha256": "4ba1d796a498c7ba21ab2df5b0d14a62a43757793c9f963e50884d2e1f71100b"
+    },
+    {
+      "language": "vi",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/vi/vi_50k.txt",
+      "sourceSha256": "3f5b112e4324136c2ba82d3151038607e3dd1dfa0911c226929d7544cc11adf3",
+      "assetSha256": "63ea5e188196b267dba213052f51a9c92b06e3e8d645c7a40a956865a9d8dd71"
+    },
+    {
+      "language": "zh_cn",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/zh_cn/zh_cn_50k.txt",
+      "sourceSha256": "25599e00347b893e55c3058a748819b3fe19403291cd12f7c03af128e7f3fe45",
+      "assetSha256": "69cb449f3c941287d6d605e844e663570b7892672beba3a8aa27172ea41ea8ac"
+    },
+    {
+      "language": "zh_tw",
+      "words": 8000,
+      "source": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/525f9b560de45753a5ea01069454e72e9aa541c6/content/2018/zh_tw/zh_tw_50k.txt",
+      "sourceSha256": "b3bfa426ebd05225b1963cd557ce844d52912c5534c08b40ebeaec8768f36034",
+      "assetSha256": "d78cc6cd38d9c5207ce6c009d70de8ac53f0db161e2acab969c5762de930f7e3"
+    }
+  ],
+  "adaptation": "First 8000 source rows with NFC casefolded words, curly apostrophes normalized, 2-32 code points, Unicode letters/marks/apostrophes only. Raw occurrence counts retained; duplicate normalized forms retained in source order."
+}

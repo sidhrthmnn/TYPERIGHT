@@ -114,6 +114,7 @@ class SymSpellCorrectionEngine(
         // 3. Score candidates with weighted spatial Damerau-Levenshtein distance
         val scoredList = mutableListOf<SuggestionItem>()
         for (candidate in candidates) {
+            if (kotlin.math.abs(candidate.length - lower.length) * .95f > maxDistance + .35f) continue
             val dist = computeWeightedDamerauLevenshtein(lower, candidate)
             if (dist <= maxDistance + 0.35f) {
                 val freq = wordFrequencyMap[candidate] ?: 1
@@ -131,41 +132,7 @@ class SymSpellCorrectionEngine(
     /**
      * Calculates bounded Damerau-Levenshtein distance weighted by physical key proximity.
      */
-    fun computeWeightedDamerauLevenshtein(s1: String, s2: String): Float {
-        val w1 = s1.lowercase().replace("'", "")
-        val w2 = s2.lowercase().replace("'", "")
-        if (w1 == w2) return 0.0f
-
-        val n = w1.length
-        val m = w2.length
-        val dp = Array(n + 1) { FloatArray(m + 1) }
-
-        for (i in 0..n) dp[i][0] = i * 0.95f
-        for (j in 0..m) dp[0][j] = j * 0.95f
-
-        for (i in 1..n) {
-            for (j in 1..m) {
-                val subCost = if (w1[i - 1] == w2[j - 1]) {
-                    0.0f
-                } else {
-                    spatialModel.getWeightedSubstitutionCost(w1[i - 1], w2[j - 1])
-                }
-
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 0.95f,       // deletion
-                    dp[i][j - 1] + 0.95f,       // insertion
-                    dp[i - 1][j - 1] + subCost  // weighted substitution
-                )
-
-                // Transposition check (e.g. teh -> the, adn -> and)
-                if (i > 1 && j > 1 && w1[i - 1] == w2[j - 2] && w1[i - 2] == w2[j - 1]) {
-                    dp[i][j] = minOf(dp[i][j], dp[i - 2][j - 2] + 0.25f)
-                }
-            }
-        }
-
-        return dp[n][m]
-    }
+    fun computeWeightedDamerauLevenshtein(s1: String, s2: String): Float = spatialModel.weightedEditDistance(s1, s2)
 
     /**
      * Checks if a word is in the dictionary.

@@ -17,7 +17,7 @@ import android.graphics.PointF
  */
 class LocalGrammarSpellPredictor(private val context: Context) {
 
-    private val dictionaryManager by lazy { DictionaryManager(context) }
+    private val dictionaryManager by lazy { DictionaryManager.getInstance(context) }
     val wordTrie = WordTrie()
 
     init {
@@ -46,7 +46,7 @@ class LocalGrammarSpellPredictor(private val context: Context) {
         val correctedWord: String,
         val tokensToReplaceCount: Int = 1, // 1 = replace current token; 2 = replace previous + current
         val ruleCategory: String = "Grammar",
-        val confidence: Float = 0.95f
+        val confidence: Float = 0f
     )
 
     data class LocalAnalysisResult(
@@ -71,34 +71,12 @@ class LocalGrammarSpellPredictor(private val context: Context) {
         val prevWord = previousWords.lastOrNull()
         val prevWord2 = if (previousWords.size >= 2) previousWords[previousWords.size - 2] else null
 
-        // 1. On-Device Local Grammar Check
+        val ranked = dictionaryManager.correctionPipeline.rank(cleanWord, previousWords, tapCoords, CorrectionPhase.KEYSTROKE)
         val grammarCorrection = checkGrammarDetailed(cleanWord, previousWords, sentenceContext)
         val grammarFix = grammarCorrection?.correctedWord
-
-        // 2. On-Device Local Spell Check
-        var correctedSpelling: String? = null
-        if (cleanWord.isNotEmpty() && grammarFix == null) {
-            val corrections = dictionaryManager.getSpellingCorrections(
-                word = cleanWord,
-                prevWord = prevWord,
-                prevWord2 = prevWord2,
-                tapCoords = tapCoords
-            )
-            if (corrections.isNotEmpty()) {
-                correctedSpelling = corrections.first()
-            }
-        }
-
-        // 3. On-Device Local Predictions
-        val predictions = dictionaryManager.getSuggestionsForPrefix(
-            prefix = cleanWord,
-            prevWord = prevWord,
-            prevWord2 = prevWord2,
-            tapCoords = tapCoords,
-            previousWords = previousWords
-        )
-
-        val center = grammarFix ?: correctedSpelling ?: (if (predictions.size > 1) predictions[1] else predictions.firstOrNull() ?: cleanWord)
+        val correctedSpelling = ranked.suggestion.takeIf { it != cleanWord && grammarFix == null }
+        val predictions = ranked.candidates.map { it.word }.take(3)
+        val center = ranked.suggestion
 
         return LocalAnalysisResult(
             originalWord = typedWord,
@@ -124,311 +102,30 @@ class LocalGrammarSpellPredictor(private val context: Context) {
     /**
      * Deep rule-based & statistical on-device grammar validator.
      */
-    fun checkGrammarDetailed(
-        word: String,
-        previousWords: List<String>,
-        sentenceContext: String = ""
-    ): GrammarCorrection? {
-        val lower = word.lowercase().trim()
-        if (lower.isEmpty()) return null
-
-        val prev1 = previousWords.lastOrNull()?.lowercase()?.trim() ?: ""
-        val prev2 = if (previousWords.size >= 2) previousWords[previousWords.size - 2].lowercase().trim() else ""
-
-        // -------------------------------------------------------------
-        // 1. Pronoun Capitalization & Common Contraction Restoration
-        // -------------------------------------------------------------
-        if (lower == "i") return GrammarCorrection("I", 1, "Capitalization")
-        if (lower == "im") return GrammarCorrection("I'm", 1, "Contraction")
-        if (lower == "ive") return GrammarCorrection("I've", 1, "Contraction")
-        if (lower == "ill") return GrammarCorrection("I'll", 1, "Contraction")
-        if (lower == "id") return GrammarCorrection("I'd", 1, "Contraction")
-
-        val standardContractionMap = mapOf(
-            "dont" to "don't", "cant" to "can't", "wont" to "won't",
-            "youre" to "you're", "theyre" to "they're", "weve" to "we've",
-            "isnt" to "isn't", "arent" to "aren't", "wasnt" to "wasn't", "werent" to "weren't",
-            "couldnt" to "couldn't", "shouldnt" to "shouldn't", "wouldnt" to "wouldn't",
-            "lets" to "let's", "thats" to "that's", "whats" to "what's", "theres" to "there's",
-            "heres" to "here's", "wheres" to "where's", "hes" to "he's", "shes" to "she's",
-            "havent" to "haven't", "hasnt" to "hasn't", "hadnt" to "hadn't",
-            "doesnt" to "doesn't", "didnt" to "didn't", "mustnt" to "mustn't",
-            "youve" to "you've", "youll" to "you'll", "youd" to "you'd",
-            "theyve" to "they've", "theyll" to "they'll", "theyd" to "they'd",
-            "well" to if (prev1 in setOf("i", "we", "they", "you", "he", "she")) "we'll" else "well"
-        )
-        if (standardContractionMap.containsKey(lower)) {
-            val rep = standardContractionMap[lower]
-            if (rep != null && rep != lower) {
-                return GrammarCorrection(rep, 1, "Contraction")
-            }
-        }
-
-        // -------------------------------------------------------------
-        // 2. Multi-Word Run-on Segmentation (e.g. alot -> a lot)
-        // -------------------------------------------------------------
-        val runOnMap = mapOf(
-            "alot" to "a lot", "infront" to "in front", "atleast" to "at least",
-            "goodmorning" to "good morning", "goodnight" to "good night",
-            "thankyou" to "thank you", "aswell" to "as well", "eachother" to "each other",
-            "nevermind" to "never mind", "allright" to "all right", "everytime" to "every time",
-            "howareyou" to "how are you", "seeyou" to "see you", "loveyou" to "love you",
-            "letsgo" to "let's go", "dontknow" to "don't know", "goingto" to "going to",
-            "wantto" to "want to", "thanksalot" to "thanks a lot"
-        )
-        if (runOnMap.containsKey(lower)) {
-            return GrammarCorrection(runOnMap[lower]!!, 1, "Run-on Separation")
-        }
-
-        // -------------------------------------------------------------
-        // 3. Modal / Auxiliary Verb Agreement & "could of" Error
-        // -------------------------------------------------------------
-        if (prev1 in setOf("could", "should", "would", "must", "might") && lower == "of") {
-            return GrammarCorrection("${prev1} have", 2, "Modal Agreement", 0.99f)
-        }
-
-        // Modals followed by past-tense verbs (e.g. "will went" -> "will go", "can did" -> "can do")
-        if (prev1 in setOf("can", "could", "will", "would", "should", "might", "must", "shall", "may", "to", "did", "didn't", "does", "doesn't", "do", "don't")) {
-            val pastToPresentBase = mapOf(
-                "went" to "go", "saw" to "see", "did" to "do", "had" to "have", "has" to "have",
-                "came" to "come", "knew" to "know", "took" to "take", "gave" to "give",
-                "said" to "say", "thought" to "think", "made" to "make", "found" to "find",
-                "told" to "tell", "felt" to "feel", "left" to "leave", "brought" to "bring",
-                "began" to "begin", "kept" to "keep", "wrote" to "write", "stood" to "stand",
-                "heard" to "hear", "meant" to "mean", "ran" to "run", "paid" to "pay",
-                "sat" to "sit", "spoke" to "speak", "grew" to "grow", "lost" to "lose",
-                "fell" to "fall", "sent" to "send", "built" to "build", "drew" to "draw",
-                "broke" to "break", "spent" to "spend", "drove" to "drive", "bought" to "buy",
-                "wore" to "wear", "chose" to "choose", "ate" to "eat", "drank" to "drink"
-            )
-            if (pastToPresentBase.containsKey(lower)) {
-                return GrammarCorrection(pastToPresentBase[lower]!!, 1, "Infinitive Verb Agreement")
-            }
-        }
-
-        // -------------------------------------------------------------
-        // 4. Indefinite Article Agreement ("a" vs "an")
-        // -------------------------------------------------------------
-        if (prev1 == "a") {
-            if (isVowelSoundBeginning(lower)) {
-                return GrammarCorrection("an $word", 2, "Article Agreement", 0.98f)
-            }
-        } else if (prev1 == "an") {
-            if (!isVowelSoundBeginning(lower)) {
-                return GrammarCorrection("a $word", 2, "Article Agreement", 0.98f)
-            }
-        }
-
-        // -------------------------------------------------------------
-        // 5. Homophone & Confusion Set Disambiguation
-        // -------------------------------------------------------------
-
-        // your vs. you're
-        if (prev1 == "your") {
-            val adjectiveOrVerb = setOf(
-                "welcome", "doing", "going", "here", "there", "late", "right", "awesome",
-                "great", "amazing", "funny", "crazy", "nice", "good", "ready", "invited",
-                "coming", "beautiful", "smart", "done", "looking", "making", "thinking",
-                "correct", "wrong", "safe", "fine", "cool", "helpful", "sweet", "kind"
-            )
-            if (adjectiveOrVerb.contains(lower)) {
-                return GrammarCorrection("you're $word", 2, "Homophone Disambiguation", 0.99f)
-            }
-        } else if (prev1 == "you're") {
-            val possessiveNouns = setOf(
-                "car", "house", "phone", "name", "email", "job", "friend", "family", "idea",
-                "time", "brother", "sister", "number", "message", "place", "home", "order",
-                "account", "turn", "wallet", "bag", "laptop", "address", "card", "password"
-            )
-            if (possessiveNouns.contains(lower)) {
-                return GrammarCorrection("your $word", 2, "Homophone Disambiguation", 0.99f)
-            }
-        } else if (lower == "your" && prev1 in setOf("if", "when", "hope", "glad", "know", "think")) {
-            // "if your ready" -> "if you're ready"
-            return GrammarCorrection("you're", 1, "Homophone Disambiguation")
-        }
-
-        // their vs. there vs. they're
-        if (prev1 == "their") {
-            val verbOrAdj = setOf(
-                "going", "coming", "doing", "here", "there", "awesome", "great", "nice",
-                "ready", "playing", "working", "invited", "excited", "looking", "trying",
-                "waiting", "planning", "moving", "happy", "late", "leaving"
-            )
-            if (verbOrAdj.contains(lower)) {
-                return GrammarCorrection("they're $word", 2, "Homophone Disambiguation", 0.99f)
-            }
-        } else if (prev1 == "they're") {
-            val possessiveNouns = setOf(
-                "house", "car", "dog", "parent", "parents", "friend", "friends", "money",
-                "books", "family", "job", "time", "stuff", "team", "place", "home", "ideas",
-                "room", "office", "names"
-            )
-            if (possessiveNouns.contains(lower)) {
-                return GrammarCorrection("their $word", 2, "Homophone Disambiguation", 0.99f)
-            }
-        } else if (lower == "their" && prev1 in setOf("is", "are", "was", "were", "over", "out", "in", "up", "down", "right", "hello", "hi", "hey", "been")) {
-            // "is their" -> "is there", "over their" -> "over there"
-            return GrammarCorrection("there", 1, "Homophone Disambiguation", 0.98f)
-        } else if (lower == "there" && prev1 in setOf("in", "with", "for", "from", "of", "to") && prev2 in setOf("meet", "see", "help", "visit", "love")) {
-            // "meet with there parents" -> "their parents"
-            // handled contextually
-        }
-
-        // its vs. it's
-        if (prev1 == "its") {
-            val predicateWords = setOf(
-                "good", "great", "nice", "ok", "okay", "a", "an", "the", "going", "working",
-                "done", "not", "too", "very", "so", "fine", "cool", "hard", "easy", "time",
-                "been", "fun", "ready", "mine", "yours", "worth", "clear", "open", "closed"
-            )
-            if (predicateWords.contains(lower)) {
-                return GrammarCorrection("it's $word", 2, "Homophone Disambiguation", 0.99f)
-            }
-        } else if (prev1 == "it's") {
-            val possessiveNouns = setOf(
-                "color", "price", "size", "weight", "battery", "features", "design",
-                "screen", "camera", "engine", "status", "owner", "wheels", "doors"
-            )
-            if (possessiveNouns.contains(lower)) {
-                return GrammarCorrection("its $word", 2, "Homophone Disambiguation", 0.99f)
-            }
-        }
-
-        // then vs. than
-        if (lower == "then") {
-            val comparativePreceding = setOf(
-                "better", "more", "less", "faster", "slower", "bigger", "smaller", "easier",
-                "harder", "rather", "earlier", "later", "taller", "shorter", "higher", "lower",
-                "older", "younger", "wider", "longer", "cheaper", "stronger", "further", "worse",
-                "quicker", "simpler", "greater", "smoother", "closer", "brighter", "darker"
-            )
-            if (comparativePreceding.contains(prev1)) {
-                return GrammarCorrection("than", 1, "Comparative Agreement", 0.98f)
-            }
-        } else if (lower == "than") {
-            val temporalPreceding = setOf(
-                "and", "since", "until", "back", "just", "if", "now", "see", "ok", "okay"
-            )
-            if (temporalPreceding.contains(prev1)) {
-                return GrammarCorrection("then", 1, "Temporal Adverb Agreement", 0.98f)
-            }
-        }
-
-        // to vs. too
-        if (lower == "to") {
-            val intensifierPreceding = setOf(
-                "much", "late", "many", "fast", "far", "soon", "good", "bad", "hot",
-                "cold", "hard", "easy", "expensive", "cheap", "heavy", "light", "me", "you"
-            )
-            if (prev1 in setOf("me", "you") || (prev1 in intensifierPreceding && prev2 in setOf("is", "was", "are", "were", "too", "so"))) {
-                return GrammarCorrection("too", 1, "Adverb Modifier Agreement", 0.95f)
-            }
-        }
-
-        // lose vs. loose
-        if (lower == "loose" && prev1 in setOf("to", "will", "don't", "gonna", "might", "did", "didn't", "cannot", "can't", "could", "never", "won't")) {
-            return GrammarCorrection("lose", 1, "Spelling & Grammar Agreement", 0.97f)
-        }
-
-        // accept vs. except
-        if (lower == "except" && prev1 in setOf("will", "can", "please", "to", "must", "did", "didn't", "could", "would", "should", "I", "we", "they", "you")) {
-            return GrammarCorrection("accept", 1, "Verb Agreement", 0.96f)
-        } else if (lower == "accept" && prev1 in setOf("all", "everyone", "everything", "anybody", "nothing", "nobody", "everywhere")) {
-            return GrammarCorrection("except", 1, "Preposition Agreement", 0.96f)
-        }
-
-        // -------------------------------------------------------------
-        // 6. Subject-Verb Number & Person Agreement
-        // -------------------------------------------------------------
-        val thirdPersonSingular = setOf("he", "she", "it", "someone", "everyone", "everybody", "nobody", "anyone", "somebody", "this", "that")
-        if (thirdPersonSingular.contains(prev1)) {
-            val singularVerbs = mapOf(
-                "go" to "goes", "have" to "has", "do" to "does", "are" to "is", "were" to "was",
-                "want" to "wants", "like" to "likes", "know" to "knows", "think" to "thinks",
-                "say" to "says", "see" to "sees", "need" to "needs", "make" to "makes",
-                "come" to "comes", "look" to "looks", "work" to "works", "feel" to "feels",
-                "try" to "tries", "give" to "gives", "help" to "helps", "seem" to "seems",
-                "tell" to "tells", "ask" to "asks", "call" to "calls", "mean" to "means",
-                "leave" to "leaves", "keep" to "keeps", "run" to "runs", "bring" to "brings",
-                "begin" to "begins", "start" to "starts", "show" to "shows", "hear" to "hears",
-                "play" to "plays", "move" to "moves", "live" to "lives", "believe" to "believes",
-                "happen" to "happens", "write" to "writes", "provide" to "provides", "sit" to "sits",
-                "stand" to "stands", "lose" to "loses", "pay" to "pays", "meet" to "meets",
-                "understand" to "understands", "watch" to "watches", "follow" to "follows",
-                "stop" to "stops", "create" to "creates", "speak" to "speaks", "read" to "reads",
-                "allow" to "allows", "add" to "adds", "spend" to "spends", "grow" to "grows",
-                "open" to "opens", "walk" to "walks", "win" to "wins", "offer" to "offers",
-                "remember" to "remembers", "love" to "loves", "buy" to "buys", "wait" to "waits",
-                "send" to "sends", "expect" to "expects", "build" to "builds", "stay" to "stays"
-            )
-            if (singularVerbs.containsKey(lower)) {
-                return GrammarCorrection(singularVerbs[lower]!!, 1, "Subject-Verb Agreement")
-            }
-        }
-
-        val pluralSubjects = setOf("they", "we", "you", "these", "those")
-        if (pluralSubjects.contains(prev1)) {
-            val pluralVerbs = mapOf(
-                "is" to "are", "was" to "were", "has" to "have", "does" to "do", "goes" to "go",
-                "wants" to "want", "needs" to "need", "makes" to "make", "likes" to "like",
-                "says" to "say", "thinks" to "think", "knows" to "know", "comes" to "come",
-                "looks" to "look", "works" to "work", "feels" to "feel", "tries" to "try"
-            )
-            if (pluralVerbs.containsKey(lower)) {
-                return GrammarCorrection(pluralVerbs[lower]!!, 1, "Subject-Verb Agreement")
-            }
-        }
-
-        if (prev1 == "i") {
-            val firstPersonVerbs = mapOf(
-                "is" to "am", "are" to "am", "has" to "have", "does" to "do", "goes" to "go",
-                "wants" to "want", "needs" to "need", "makes" to "make", "likes" to "like",
-                "says" to "say", "thinks" to "think", "knows" to "know"
-            )
-            if (firstPersonVerbs.containsKey(lower)) {
-                return GrammarCorrection(firstPersonVerbs[lower]!!, 1, "First-Person Agreement")
-            }
-        }
-
-        // -------------------------------------------------------------
-        // 7. Common Phrasal Idioms & Preposition Agreements
-        // -------------------------------------------------------------
-        if (prev2 == "look" && prev1 == "forward") {
-            if (lower == "to") {
-                return null
-            }
-        }
-        if (prev2 == "forward" && prev1 == "to") {
-            val gerundMap = mapOf(
-                "meet" to "meeting", "hear" to "hearing", "see" to "seeing",
-                "work" to "working", "receive" to "receiving", "talk" to "talking"
-            )
-            if (gerundMap.containsKey(lower)) {
-                return GrammarCorrection(gerundMap[lower]!!, 1, "Gerund Phrasal Agreement")
-            }
-        }
-
-        if (prev1 in setOf("take", "taken", "takes", "taking") && lower == "for") {
-            return null
-        }
-        if (prev2 == "for" && prev1 in setOf("granite", "granted") && lower == "granted") {
-            return null
-        }
-        if (prev1 == "for" && lower == "granite") {
-            return GrammarCorrection("granted", 1, "Idiom Correction", 0.99f)
-        }
-
-        if (lower == "suppose" && prev1 in setOf("is", "are", "was", "were", "be", "been", "am", "i'm", "you're", "he's", "she's", "they're", "we're")) {
-            return GrammarCorrection("supposed", 1, "Participle Agreement")
-        }
-
-        return null
+    fun checkGrammarDetailed(word: String, previousWords: List<String>, sentenceContext: String = ""): GrammarCorrection? {
+        val ranked = dictionaryManager.correctionPipeline.rank(word, previousWords)
+        val best = ranked.best ?: return null
+        if (ranked.tier == ConfidenceTier.LOW || CandidateOrigin.CONTEXT !in best.origins) return null
+        return GrammarCorrection(best.word, 1, "Ranked context", ranked.confidence)
     }
 
-    // =========================================================================
-    // MULTI-WORD PHRASE COMPLETION ENGINE (BASED ON PRECEDING THREE WORDS)
-    // =========================================================================
+    companion object {
+        fun contextCandidates(word: String, previous: List<String>): List<String> {
+            val last = previous.lastOrNull().orEmpty()
+            return when {
+                word == "ill" && last == "i" -> listOf("I'll")
+                word == "well" && last == "we" -> listOf("we'll")
+                word == "sea" && last in setOf("will", "can", "to", "would", "could", "should") -> listOf("see")
+                word == "their" && last in setOf("over", "from", "right", "go", "going", "was", "is", "are") -> listOf("there")
+                word == "there" && last in setOf("with", "in", "at", "of", "for") -> listOf("their")
+                word == "has" && last in setOf("i", "you", "we", "they") -> listOf("have")
+                word == "have" && last in setOf("he", "she", "it") -> listOf("has")
+                word == "was" && last in setOf("you", "we", "they") -> listOf("were")
+                word == "were" && last in setOf("i", "he", "she", "it") -> listOf("was")
+                else -> emptyList()
+            }
+        }
+    }
 
     private val trigramPhraseMap: Map<String, List<String>> = mapOf(
         // "let me know"
@@ -545,15 +242,6 @@ class LocalGrammarSpellPredictor(private val context: Context) {
         "could:you" to listOf("please send over the file", "let me know if this works", "provide more details")
     )
 
-    /**
-     * Suggests entire phrase completions based on the preceding three words in the sentence.
-     * Uses 3-word phrase trigger matching with 2-word backoff and prefix filtering.
-     *
-     * @param previousWords Chronological list of preceding context words
-     * @param prefix Any current word prefix being typed
-     * @param maxResults Maximum phrase candidates to return
-     * @return Ranked list of whole phrase completions
-     */
     fun predictPhraseCompletions(
         previousWords: List<String>,
         prefix: String = "",
@@ -596,46 +284,9 @@ class LocalGrammarSpellPredictor(private val context: Context) {
             }
         }
 
-        return results.take(maxResults).toList()
+        return (results + dictionaryManager.nGramModel.predictNextPhrases(previousWords.takeLast(5), maxResults)).distinct().filter { it.startsWith(cleanPrefix) }.take(maxResults)
     }
 
-
-    /**
-     * Determines whether an English word begins with a vowel sound (for "a" vs "an" determination).
-     * Accounts for phonetic exceptions (e.g. "hour" vs "university", "user", "European").
-     */
-    private fun isVowelSoundBeginning(word: String): Boolean {
-        val clean = word.lowercase().trim()
-        if (clean.isEmpty()) return false
-
-        // Special exceptions starting with consonant letters but vowel sounds (silent 'h')
-        val silentHWords = setOf(
-            "hour", "hours", "hourly", "honor", "honors", "honorable", "honorary",
-            "honest", "honesty", "honestly", "heir", "heirs", "heiress"
-        )
-        if (silentHWords.contains(clean) || silentHWords.any { clean.startsWith(it) }) {
-            return true
-        }
-
-        // Special exceptions starting with vowel letters but consonant sounds ('y' or 'w' consonant glides)
-        val consonantGlideWords = setOf(
-            "user", "users", "use", "useful", "useless", "utility", "unique", "unit", "units",
-            "united", "union", "unions", "university", "universities", "universal", "universe",
-            "uniform", "uniforms", "unicorn", "unicycle", "unilateral", "uranium", "ukulele",
-            "european", "europe", "euphemism", "euphoria", "eucalyptus", "one", "once", "oneself"
-        )
-        if (consonantGlideWords.contains(clean) || consonantGlideWords.any { clean.startsWith(it) }) {
-            return false
-        }
-
-        // Standard vowels
-        val firstChar = clean[0]
-        return firstChar in "aeiou"
-    }
-
-    /**
-     * Local sentence grammar and spell polish before calling cloud AI.
-     */
     fun polishSentenceLocally(sentence: String): String {
         if (sentence.isBlank()) return sentence
         if (sentence.contains("\n")) {
@@ -650,69 +301,10 @@ class LocalGrammarSpellPredictor(private val context: Context) {
      * Resolves and corrects spelling errors, typos, contractions, and missed-space splits for a word.
      */
     fun correctWordSpelling(token: String, prevWord: String? = null): String {
-        val trimmed = token.trim()
-        if (trimmed.isEmpty()) return token
-
-        // Extract leading and trailing punctuation (e.g. "\"speling,\"" -> prefix="\"", core="speling", suffix=",\"")
-        val leadingPunct = token.takeWhile { !it.isLetterOrDigit() && it != '\'' }
-        val trailingPunct = token.takeLastWhile { !it.isLetterOrDigit() && it != '\'' }
-        val core = if (leadingPunct.length + trailingPunct.length <= token.length) {
-            token.substring(leadingPunct.length, token.length - trailingPunct.length)
-        } else {
-            token
-        }
+        val core = token.trim { !TypingPolicy.isWordCharacter(it) }
         if (core.isEmpty()) return token
-
-        val lower = core.lowercase(java.util.Locale.ROOT)
-
-        // 1. Personal pronoun 'i' -> 'I'
-        if (lower == "i") {
-            return "${leadingPunct}I${trailingPunct}"
-        }
-
-        // 2. Exact typo mapping (high-precision curated typos)
-        val typoMatch = dictionaryManager.gboardEngine.commonTypoLookup[lower]
-            ?: NeuralCorrectionEngine.NEURAL_CORRECTION_MAP[lower]
-            ?: TypingPolicy.correction(core)
-        if (typoMatch != null && typoMatch.lowercase(java.util.Locale.ROOT) != lower) {
-            return "${leadingPunct}${TypingPolicy.restoreCase(core, typoMatch)}${trailingPunct}"
-        }
-
-        // 3. Contraction restoration (dont -> don't, cant -> can't, im -> I'm, ive -> I've, etc.)
-        val contraction = dictionaryManager.gboardEngine.contractionLookup[lower]
-        if (contraction != null && contraction.lowercase(java.util.Locale.ROOT) != lower) {
-            return "${leadingPunct}${TypingPolicy.restoreCase(core, contraction)}${trailingPunct}"
-        }
-
-        // 4. Missed-space splits (goodmorning -> good morning, thankyou -> thank you, alot -> a lot)
-        val splits = dictionaryManager.findMissedSpaceSplits(lower)
-        if (splits.isNotEmpty()) {
-            return "${leadingPunct}${TypingPolicy.restoreCase(core, splits.first())}${trailingPunct}"
-        }
-
-        // 5. If word is already a valid dictionary word and NOT a known corpus typo, keep it
-        val isKnownTypo = dictionaryManager.gboardEngine.isKnownTypo(lower)
-        if (!isKnownTypo && (
-            dictionaryManager.isWordInDictionary(lower) ||
-            core.all { it.isDigit() } ||
-            core.contains("@") ||
-            core.startsWith("http") ||
-            (core.length > 1 && core.all { it.isUpperCase() })
-        )) {
-            return token
-        }
-
-        // 6. Look up bounded edit-distance corrections (SymSpell + Trie Levenshtein + Frequency Corpus)
-        val corrections = dictionaryManager.findDictionaryCorrections(lower, maxDistance = 2f, maxResults = 8)
-        val best = corrections.firstOrNull()?.term
-            ?: dictionaryManager.gboardEngine.symSpellEngine.lookup(lower, maxDistance = 2f, maxResults = 8).firstOrNull()?.term
-            ?: dictionaryManager.getSpellingCorrections(lower, prevWord = prevWord).firstOrNull()
-
-        if (best != null && best.lowercase(java.util.Locale.ROOT) != lower) {
-            return "${leadingPunct}${TypingPolicy.restoreCase(core, best)}${trailingPunct}"
-        }
-
-        return token
+        val correction = dictionaryManager.correctionPipeline.rank(core, listOfNotNull(prevWord)).automatic ?: return token
+        return token.replaceRange(token.indexOf(core), token.indexOf(core) + core.length, correction)
     }
 
     private fun polishSingleSentenceLocally(sentence: String): String {
@@ -723,7 +315,7 @@ class LocalGrammarSpellPredictor(private val context: Context) {
         for (i in words.indices) {
             val w = words[i]
             val clean = w.lowercase().replace(Regex("[^a-z']"), "")
-            val prevList = words.take(i).map { it.replace(Regex("[^a-zA-Z']"), "") }.filter { it.isNotBlank() }
+            val prevList = words.take(i).takeLast(5).map { it.replace(Regex("[^a-zA-Z']"), "") }.filter { it.isNotBlank() }
 
             val correction = checkGrammarDetailed(clean, prevList, sentence)
             if (correction != null) {

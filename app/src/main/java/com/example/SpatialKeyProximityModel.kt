@@ -183,38 +183,31 @@ class SpatialKeyProximityModel(
     /**
      * Computes spatial-proximity weighted Damerau-Levenshtein edit distance between two strings.
      */
-    fun computeSpatialEditDistance(s1: String, s2: String): Float {
-        val w1 = s1.lowercase().replace("'", "")
-        val w2 = s2.lowercase().replace("'", "")
-        if (w1 == w2) return 0.0f
+    private val weightedScratch = ThreadLocal.withInitial { FloatArray(65 * 65) }
+    private val latinCosts by lazy {
+        FloatArray(26 * 26) { index -> getWeightedSubstitutionCost('a' + index / 26, 'a' + index % 26) }
+    }
+    fun computeSpatialEditDistance(s1: String, s2: String): Float = weightedEditDistance(s1, s2, 1f)
 
-        val n = w1.length
-        val m = w2.length
-        val dp = Array(n + 1) { FloatArray(m + 1) }
-
-        for (i in 0..n) dp[i][0] = i.toFloat()
-        for (j in 0..m) dp[0][j] = j.toFloat()
-
-        for (i in 1..n) {
-            for (j in 1..m) {
-                val c1 = w1[i - 1]
-                val c2 = w2[j - 1]
-
-                val subCost = getWeightedSubstitutionCost(c1, c2)
-
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 0.95f,        // deletion
-                    dp[i][j - 1] + 0.95f,        // insertion
-                    dp[i - 1][j - 1] + subCost   // substitution
-                )
-
-                // Transposition (e.g. teh -> the, adn -> and, woudl -> would)
-                if (i > 1 && j > 1 && w1[i - 1] == w2[j - 2] && w1[i - 2] == w2[j - 1]) {
-                    dp[i][j] = minOf(dp[i][j], dp[i - 2][j - 2] + 0.25f)
-                }
-            }
+    /** Shared geometry scorer. Reuse worker storage rather than allocate a matrix per candidate. */
+    internal fun weightedEditDistance(s1: String, s2: String, initialCost: Float = .95f): Float {
+        val w1 = s1.lowercase(java.util.Locale.ROOT).replace("'", "")
+        val w2 = s2.lowercase(java.util.Locale.ROOT).replace("'", "")
+        if (w1 == w2) return 0f
+        val n = w1.length; val m = w2.length
+        if (n > 64 || m > 64) return maxOf(n, m).toFloat()
+        val dp = requireNotNull(weightedScratch.get()); val stride = 65
+        val costs = latinCosts
+        for (i in 0..n) dp[i * stride] = i * initialCost
+        for (j in 0..m) dp[j] = j * initialCost
+        for (i in 1..n) for (j in 1..m) {
+            val c1 = w1[i - 1]; val c2 = w2[j - 1]
+            val sub = if (c1 == c2) 0f else if (c1 in 'a'..'z' && c2 in 'a'..'z') costs[(c1 - 'a') * 26 + (c2 - 'a')]
+                else getWeightedSubstitutionCost(c1, c2)
+            val cell = i * stride + j
+            dp[cell] = minOf(dp[cell - stride] + .95f, dp[cell - 1] + .95f, dp[cell - stride - 1] + sub)
+            if (i > 1 && j > 1 && c1 == w2[j - 2] && w1[i - 2] == c2) dp[cell] = minOf(dp[cell], dp[cell - 2 * stride - 2] + .25f)
         }
-
-        return dp[n][m]
+        return dp[n * stride + m]
     }
 }

@@ -21,3 +21,9 @@ The repository tensor shards preserve the original official GGUF weights.
 Pinned revisions, original URLs, sizes, and SHA-256 checksums for all weights
 are recorded in model-catalog.json. gemma-polish.json retains Gemma 4 provenance.
 llama.cpp is copyright its contributors, under MIT (LICENSE-llama.cpp.txt).
+
+Qwen3 0.6B / 1.7B Q4_K_M: Qwen Team / Alibaba Cloud, quantized by bartowski.
+Qwen3 4B Q4_K_M: Qwen Team / Alibaba Cloud. Apache-2.0; see LICENSE-Qwen3.txt.
+Gemma 3n E2B text-only Q4_K_M: Google, quantized by LM Studio community.
+Gemma Terms and prohibited-use policy apply; see LICENSE-Gemma-3n.txt and GEMMA-PROHIBITED-USES.txt.
+Pinned provenance and SHA-256 for every downloaded model and repository tensor shard are in model-catalog.json.

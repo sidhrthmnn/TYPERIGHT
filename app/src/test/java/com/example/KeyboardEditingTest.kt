@@ -36,7 +36,10 @@ class KeyboardEditingTest {
         Selection.setSelection(text, 0)
     }
 
-    @After fun tearDown() { service.onDestroy() }
+    @After fun tearDown() {
+        service.onDestroy()
+        PersonalTypingProfile.get(service).apply { clear(); flush() }
+    }
 
     private fun useEditor(type: Int) {
         val info = EditorInfo().apply { inputType = type }
@@ -46,13 +49,27 @@ class KeyboardEditingTest {
 
     private fun invoke(name: String) = ReflectionHelpers.callInstanceMethod<Unit>(service, name)
     private fun key(value: String) = ReflectionHelpers.callInstanceMethod<Unit>(service, "handleKeyPress", ClassParameter.from(String::class.java, value))
-    private fun type(value: String) { value.forEach { if (it == ' ') invoke("handleSpace") else key(it.toString()) } }
+    private fun preparePredictions() {
+        val dictionary = DictionaryManager.getInstance(service)
+        val word = ReflectionHelpers.getField<androidx.compose.runtime.MutableState<String>>(service, "currentTypedWord").value
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) {
+            dictionary.correctionPipeline.rank(word, ReflectionHelpers.getField<androidx.compose.runtime.MutableState<List<String>>>(service, "previousWords").value, ReflectionHelpers.getField<List<android.graphics.PointF>>(service, "currentWordTapCoords"))
+        }
+    }
+    private fun type(value: String) { value.forEach {
+        if (it == ' ') { preparePredictions(); invoke("handleSpace") }
+        else { if (!it.isLetterOrDigit()) preparePredictions(); key(it.toString()) }
+    } }
 
     @Test fun immediateTypoCorrectionCanBeUndoneAndStaysSuppressed() {
+        AutocorrectMetrics.reset()
         type("teh ")
         assertEquals("the ", text.toString())
         invoke("handleDelete")
         assertEquals("teh", text.toString())
+        assertEquals(1.0, AutocorrectMetrics.snapshot().undoRate, 0.0)
+        java.io.File("build/reports/autocorrect").mkdirs()
+        java.io.File("build/reports/autocorrect/undo.json").writeText("{\"trace\":\"one correction followed by immediate backspace\",\"applied\":1,\"undone\":1,\"undoRate\":1.0}")
         invoke("handleSpace")
         assertEquals("teh ", text.toString())
     }
@@ -223,6 +240,39 @@ class KeyboardEditingTest {
         repeat(4) { type("plughsecret ") }
         val dictionary = ReflectionHelpers.getField<DictionaryManager>(service, "dictionaryManager")
         assertFalse(dictionary.isWordInUserDictionary("plughsecret"))
+    }
+
+    private fun drainBackgroundEdits() {
+        repeat(50) { org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle(); Thread.sleep(10) }
+    }
+    @Test fun cacheMissCorrectsOnWorkerAndImmediateBackspaceRestoresOriginal() {
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { DictionaryManager.getInstance(service).correctionPipeline.awaitDictionaries() }
+        "teh".forEach { key(it.toString()) }
+        invoke("handleSpace")
+        assertEquals("teh ", text.toString())
+        drainBackgroundEdits()
+        assertEquals("the ", text.toString())
+        invoke("handleDelete")
+        assertEquals("teh", text.toString())
+    }
+    @Test fun staleBoundaryNeverEditsNewTypingOrAnotherEditor() {
+        "teh".forEach { key(it.toString()) }; invoke("handleSpace"); key("x")
+        drainBackgroundEdits()
+        assertEquals("teh x", text.toString())
+        text.clear(); Selection.setSelection(text, 0); useEditor(InputType.TYPE_CLASS_TEXT)
+        "teh".forEach { key(it.toString()) }; invoke("handleSpace")
+        useEditor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        drainBackgroundEdits()
+        assertEquals("teh ", text.toString())
+    }
+    @Test fun privateFieldUndoDoesNotPersistNegativeFeedback() {
+        val profile = DictionaryManager.getInstance(service).personalProfile.apply { clear() }
+        service.currentInputEditorInfo.imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+        type("teh "); invoke("handleDelete")
+        assertEquals("teh", text.toString())
+        assertEquals(0f, profile.rejectionPenalty("teh", "the"), 0f)
+        invoke("handleSpace"); drainBackgroundEdits()
+        assertEquals("teh ", text.toString())
     }
 
     @Test fun settingsDisableImmediateCorrection() {

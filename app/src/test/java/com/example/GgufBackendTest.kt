@@ -24,14 +24,15 @@ class GgufBackendTest {
         LocalGgufModel.acceptTerms(context, true)
     }
 
-    @Test fun localOnlySelectionPersistsAndLegacyCloudSelectionStaysLocal() {
+    @Test fun localAndExplicitCloudSelectionsPersist() {
         settings.setActiveAiEngine(ActiveAiEngine.OFFLINE)
         assertEquals(ActiveAiEngine.OFFLINE, KeyboardSettings(context).activeAiEngine)
         assertFalse(settings.geminiAiEnabled)
         assertTrue(settings.offlineAiEnabled)
         settings.setActiveAiEngine(ActiveAiEngine.ONLINE)
-        assertEquals(ActiveAiEngine.OFFLINE, KeyboardSettings(context).activeAiEngine)
-        assertFalse(settings.geminiAiEnabled)
+        assertEquals(ActiveAiEngine.ONLINE, KeyboardSettings(context).activeAiEngine)
+        assertTrue(settings.geminiAiEnabled)
+        assertFalse(settings.cloudFallbackEnabled)
         settings.setActiveAiEngine(ActiveAiEngine.NONE)
         assertEquals(ActiveAiEngine.NONE, KeyboardSettings(context).activeAiEngine)
     }

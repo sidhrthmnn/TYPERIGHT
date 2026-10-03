@@ -32,6 +32,16 @@ interface IContextLanguageModel {
  */
 class NGramLanguageModel : IContextLanguageModel {
 
+    private val higherOrders = ConcurrentHashMap<String, ConcurrentHashMap<String, Int>>()
+    @Synchronized fun observeHigherOrder(word: String, context: List<String>) {
+        for (size in 4..minOf(5, context.size)) {
+            val key = context.takeLast(size).joinToString(" ") { it.lowercase(java.util.Locale.ROOT) }
+            if (!higherOrders.containsKey(key) && higherOrders.size >= 4000) higherOrders.remove(higherOrders.keys.first())
+            val following = higherOrders.getOrPut(key) { ConcurrentHashMap() }
+            if (!following.containsKey(word) && following.size >= 32) following.remove(following.keys.first())
+            following.merge(word.lowercase(java.util.Locale.ROOT), 1) { a, b -> minOf(1000, a + b) }
+        }
+    }
     // Quadgram map: "w1 w2 w3" -> Map(w4 -> frequency)
     private val quadgrams = ConcurrentHashMap<String, ConcurrentHashMap<String, Int>>()
 
@@ -49,9 +59,13 @@ class NGramLanguageModel : IContextLanguageModel {
     private val personalUnigrams = ConcurrentHashMap<String, Int>()
     private val personalTotal = java.util.concurrent.atomic.AtomicLong(0L)
     private var bootstrapping = true
-    private var frequencyBackoff: List<String> = emptyList()
-    private var baseFrequencies: Map<String, Int> = emptyMap()
-    private var baseTotal = 0L
+    @Volatile private var frequencyBackoff: List<String> = emptyList()
+    @Volatile private var baseFrequencies: Map<String, Int> = emptyMap()
+    @Volatile private var baseTotal = 0L
+    /** Probability evidence for the ranker, with up to five context words and count-aware backoff. */
+    fun contextEvidence(word: String, context: List<String>): Float =
+        (getProbability(word.lowercase(java.util.Locale.ROOT), context.takeLast(5)) * 8f).coerceIn(0f, 1f)
+
     fun seedUnigramFrequencies(frequencies: Map<String, Int>) {
         // Share the immutable corpus; each keyboard keeps only its learned/curated counts.
         baseFrequencies = frequencies
@@ -325,7 +339,7 @@ class NGramLanguageModel : IContextLanguageModel {
     override fun getProbability(word: String, contextWords: List<String>): Float {
         val target = word.lowercase(java.util.Locale.ROOT).trim()
         if (target.isEmpty()) return 0.000001f
-        val context = contextWords.takeLast(3).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
+        val context = contextWords.takeLast(5).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
         val total = (if (baseTotal > 0) baseTotal + personalTotal.get() else totalUnigramCount.get()).coerceAtLeast(1).toFloat()
         val unigram = if (baseTotal > 0) (baseFrequencies[target] ?: 0) + (personalUnigrams[target] ?: 0) else unigrams[target] ?: 0
         var probability = (unigram.coerceAtLeast(1) / total).coerceIn(0.000001f, 1f)
@@ -339,7 +353,8 @@ class NGramLanguageModel : IContextLanguageModel {
         }
         if (context.isNotEmpty()) interpolate(bigrams[context.last()])
         if (context.size >= 2) interpolate(trigrams[context.takeLast(2).joinToString(" ")])
-        if (context.size >= 3) interpolate(quadgrams[context.joinToString(" ")])
+        if (context.size >= 3) interpolate(quadgrams[context.takeLast(3).joinToString(" ")])
+        for (size in 4..minOf(5, context.size)) interpolate(higherOrders[context.takeLast(size).joinToString(" ")])
         return probability.coerceIn(0.000001f, 1f)
     }
 
@@ -349,10 +364,11 @@ class NGramLanguageModel : IContextLanguageModel {
      */
     override fun predictNextWords(contextWords: List<String>, prefix: String, maxResults: Int): List<String> {
         if (maxResults <= 0) return emptyList()
-        val context = contextWords.takeLast(3).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
+        val context = contextWords.takeLast(5).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
         val cleanPrefix = prefix.lowercase(java.util.Locale.ROOT).trim()
         val candidates = linkedSetOf<String>()
-        if (context.size >= 3) candidates.addAll(quadgrams[context.joinToString(" ")]?.keys.orEmpty())
+        for (size in 4..minOf(5, context.size)) candidates.addAll(higherOrders[context.takeLast(size).joinToString(" ")]?.keys.orEmpty())
+        if (context.size >= 3) candidates.addAll(quadgrams[context.takeLast(3).joinToString(" ")]?.keys.orEmpty())
         if (context.size >= 2) candidates.addAll(trigrams[context.takeLast(2).joinToString(" ")]?.keys.orEmpty())
         if (context.isNotEmpty()) candidates.addAll(bigrams[context.last()]?.keys.orEmpty())
         candidates.addAll(frequencyBackoff.filter { it.startsWith(cleanPrefix) })

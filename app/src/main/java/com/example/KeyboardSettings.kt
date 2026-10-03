@@ -330,6 +330,21 @@ class KeyboardSettings(private val context: Context) {
             dataStore.updateAsync { it.setVoiceInputMode(value) }
         }
 
+    var cloudFallbackEnabled: Boolean
+        get() = prefs.getBoolean("cloud_fallback_enabled", false)
+        set(value) { prefs.edit().putBoolean("cloud_fallback_enabled", value).apply() }
+    var cloudModel: String
+        get() = prefs.getString("cloud_polish_model", "gemini-3.1-flash-lite") ?: "gemini-3.1-flash-lite"
+        set(value) { prefs.edit().putString("cloud_polish_model", value).apply() }
+
+    var contextualCorrectionEnabled: Boolean
+        get() = prefs.getBoolean("contextual_correction_enabled", false)
+        set(value) { prefs.edit().putBoolean("contextual_correction_enabled", value).apply() }
+
+    var contextualModelId: String
+        get() = prefs.getString("contextual_model_id", "local-qwen3-1.7b") ?: "local-qwen3-1.7b"
+        set(value) { prefs.edit().putString("contextual_model_id", value).apply() }
+
     var personalizedLearningEnabled: Boolean
         get() = prefs.getBoolean("personalized_learning_enabled", true)
         set(value) { prefs.edit().putBoolean("personalized_learning_enabled", value).apply() }
@@ -510,6 +525,7 @@ class KeyboardSettings(private val context: Context) {
     val activeAiEngine: ActiveAiEngine
         get() = when (prefs.getString("polish_backend", "local")) {
             "off" -> ActiveAiEngine.NONE
+            "cloud" -> ActiveAiEngine.ONLINE
             else -> ActiveAiEngine.OFFLINE
         }
 
@@ -542,15 +558,15 @@ class KeyboardSettings(private val context: Context) {
         set(value) = prefs.edit().putInt(KEY_USER_WORDS_COUNT, value).apply()
 
     fun setActiveAiEngine(engine: ActiveAiEngine) {
-        val backendString = if (engine == ActiveAiEngine.NONE) "off" else "local"
+        val backendString = when (engine) { ActiveAiEngine.NONE -> "off"; ActiveAiEngine.ONLINE -> "cloud"; else -> "local" }
         prefs.edit().putString("polish_backend", backendString).commit()
         if (engine == ActiveAiEngine.NONE) {
             offlineAiEnabled = false
             geminiAiEnabled = false
             nemotronAiEnabled = false
         } else {
-            offlineAiEnabled = true
-            geminiAiEnabled = false
+            offlineAiEnabled = engine != ActiveAiEngine.ONLINE
+            geminiAiEnabled = engine == ActiveAiEngine.ONLINE
             nemotronAiEnabled = false
         }
     }
@@ -564,7 +580,7 @@ enum class ActiveAiEngine(
 ) {
     BOTH("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
     OFFLINE("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline without cloud dependency"),
-    ONLINE("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
+    ONLINE("Cloud AI", "Cloud", "☁", "Uses your configured Gemini API key for explicit polish"),
     NEMOTRON("Local On-Device AI", "Local", "📱", "Runs 100% on this phone offline"),
     NONE("AI Off", "Off", "⚪", "AI assistants disabled")
 }

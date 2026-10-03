@@ -37,11 +37,11 @@ object AiPolishBackend {
 
     val label: String get() = appContext?.let { if (engine == ActiveAiEngine.OFFLINE) LocalGgufModel.label(it) else engine.title } ?: engine.title
 
-    val isCloudActive: Boolean get() = false
+    val isCloudActive: Boolean get() = engine == ActiveAiEngine.ONLINE
 
-    fun isGeminiConfigured(): Boolean = false
+    fun isGeminiConfigured(): Boolean = appContext?.let(CloudPolishEngine::isConfigured) ?: false
 
-    val timeoutMillis: Long get() = 185_000L
+    val timeoutMillis: Long get() = if (appContext?.let { KeyboardSettings(it).cloudFallbackEnabled } == true) 240_000L else 185_000L
 
     suspend fun generatePolish(input: String, mode: String): String? = generatePolish(input, PolishMode.fromString(mode))
 
@@ -55,22 +55,15 @@ object AiPolishBackend {
         if (engine == ActiveAiEngine.NONE) return null
         val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
 
-        // Local on-device GGUF model
-        if (engine == ActiveAiEngine.OFFLINE) {
+        if (engine == ActiveAiEngine.ONLINE) return CloudPolishEngine.polish(ctx, input, mode, context)
+        try {
             return GgufPolishEngine.polish(ctx, input, mode, context, preferredModel)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (failure: Exception) {
+            // Credentials alone never authorize upload. Both fallback and a key must be configured.
+            if (!KeyboardSettings(ctx).cloudFallbackEnabled || !CloudPolishEngine.isConfigured(ctx)) throw failure
+            return CloudPolishEngine.polish(ctx, input, mode, context)
         }
-
-        val tone = when (mode) {
-            PolishMode.AUTO_FORMAT -> "auto_format"
-            PolishMode.PROFESSIONAL -> "professional"
-            PolishMode.CASUAL -> "casual"
-            PolishMode.SHORTEN -> "concise"
-            PolishMode.EXPAND -> "eloquent"
-            PolishMode.REPHRASE -> "eloquent"
-            PolishMode.VOICE_CLEANUP, PolishMode.RAMBLE -> "voice"
-            else -> "proofread"
-        }
-        return OnDeviceNeuralPolishEngine.getInstance(ctx).polish(input, tone).polishedText
     }
 
     fun streamPolish(
@@ -79,26 +72,6 @@ object AiPolishBackend {
         context: TextContext? = null,
         preferredModel: String? = null
     ): Flow<String> = flow {
-        if (engine == ActiveAiEngine.NONE) return@flow
-        val ctx = checkNotNull(appContext) { "Local GGUF engine requires initialized application context" }
-
-        // Local on-device GGUF model
-        if (engine == ActiveAiEngine.OFFLINE) {
-            emit(GgufPolishEngine.polish(ctx, input, mode, context, preferredModel))
-            return@flow
-        }
-
-        val tone = when (mode) {
-            PolishMode.AUTO_FORMAT -> "auto_format"
-            PolishMode.PROFESSIONAL -> "professional"
-            PolishMode.CASUAL -> "casual"
-            PolishMode.SHORTEN -> "concise"
-            PolishMode.EXPAND -> "eloquent"
-            PolishMode.REPHRASE -> "eloquent"
-            PolishMode.VOICE_CLEANUP, PolishMode.RAMBLE -> "voice"
-            else -> "proofread"
-        }
-        val fallback = OnDeviceNeuralPolishEngine.getInstance(ctx).polish(input, tone).polishedText
-        emit(fallback)
+        generatePolish(input, mode, context, preferredModel)?.let { emit(it) }
     }
 }

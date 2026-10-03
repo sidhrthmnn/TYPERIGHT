@@ -15,6 +15,7 @@ class FrequencyDictionaryTest {
 
     @Test fun corpusProvidesBroadVocabularyAndFrequencyOrder() {
         val corpus = EnglishFrequencyLexicon.get(context)
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { corpus.ready.await() }
         assertTrue(corpus.frequencies.size > 40_000)
         assertSame(corpus, EnglishFrequencyLexicon.get(context))
         assertTrue(corpus.frequency("you") > corpus.frequency("archaeology"))
@@ -25,6 +26,7 @@ class FrequencyDictionaryTest {
 
     @Test fun newVocabularyAppearsInKeyboardCompletionsAndIsPreservedOnCommit() {
         val dictionary = DictionaryManager(context)
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { dictionary.correctionPipeline.awaitDictionaries() }
         assertTrue(dictionary.isWordInDictionary("photosynthesis"))
         assertTrue(dictionary.findWordsWithPrefix("photosyn", 3).contains("photosynthesis"))
         val prediction = dictionary.getGboardPredictions("photosynthesis", emptyList(), null)
@@ -38,6 +40,7 @@ class FrequencyDictionaryTest {
 
     @Test fun prefixDeleteIndexFindsLongWordTyposAndTranspositions() {
         val corpus = EnglishFrequencyLexicon.get(context)
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { corpus.ready.await() }
         val index = corpus.ensureCorrectionIndex()
         assertTrue(index.lookup("crocodlie", 2f, 8).any { it.term == "crocodile" })
         assertTrue(index.lookup("photosynhesis", 2f, 8).any { it.term == "photosynthesis" })

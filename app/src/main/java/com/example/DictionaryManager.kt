@@ -13,7 +13,30 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class DictionaryManager(private val context: Context) {
+    internal val appContext get() = context.applicationContext
 
+    val correctionPipeline by lazy { CandidateRanker(context.applicationContext, this) }
+    private val contactWords = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    fun isRecognizedInAnyLanguage(word: String): Boolean = isWordInDictionary(word) || isContactWord(word) || MultilingualLexicon.get(context).contains(word)
+    fun phoneticCandidates(word: String): List<String> = corpus.phoneticCandidates(word)
+    fun isContactWord(word: String) = word.lowercase(java.util.Locale.ROOT) in contactWords
+    fun refreshContactWords() {
+        CoroutineScope(Dispatchers.IO).launch {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CONTACTS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                contactWords.clear(); return@launch
+            }
+            runCatching {
+                context.contentResolver.query(android.provider.ContactsContract.Contacts.CONTENT_URI,
+                    arrayOf(android.provider.ContactsContract.Contacts.DISPLAY_NAME_PRIMARY), null, null, null)?.use { cursor ->
+                    val fresh = mutableSetOf<String>()
+                    while (cursor.moveToNext()) cursor.getString(0).orEmpty().split(Regex("\\s+")).forEach {
+                        if (it.length in 2..32 && it.any(Char::isLetter) && it.all { char -> TypingPolicy.isWordCharacter(char) && !char.isDigit() }) fresh.add(it.lowercase(java.util.Locale.ROOT))
+                    }
+                    contactWords.clear(); contactWords.addAll(fresh)
+                }
+            }
+        }
+    }
     val personalProfile = PersonalTypingProfile.get(context)
     private val profileSettings by lazy { KeyboardSettings(context) }
     fun personalBoost(word: String, contextWords: List<String>): Float =
@@ -21,13 +44,14 @@ class DictionaryManager(private val context: Context) {
     fun personalCandidates(prefix: String, contextWords: List<String>): List<String> =
         if (profileSettings.personalizedLearningEnabled) personalProfile.candidates(prefix, contextWords).filter { !isBlocked(it) } else emptyList()
     fun learnedCorrection(word: String, contextWords: List<String>): String? {
-        if (!profileSettings.personalizedLearningEnabled || isWordInUserDictionary(word) || isBlocked(word)) return null
+        if (!profileSettings.personalizedLearningEnabled || isBlocked(word)) return null
         return personalProfile.correction(word, contextWords)?.takeIf { !isBlocked(it) && !isCorrectionSuppressed(word, it) }
     }
 
     val mlPredictor = PatternLearningPredictor.getInstance(context)
     private val corpus = EnglishFrequencyLexicon.get(context)
-    val nGramModel = NGramLanguageModel().apply { seedUnigramFrequencies(corpus.frequencies) }
+    val nGramModel = NGramLanguageModel()
+    init { CoroutineScope(Dispatchers.Default).launch { corpus.ready.await(); nGramModel.seedUnigramFrequencies(corpus.frequencies) } }
     val localGrammarPredictor by lazy { LocalGrammarSpellPredictor(context) }
     val gboardEngine by lazy { GboardPredictionEngine(context) }
 
@@ -651,21 +675,17 @@ class DictionaryManager(private val context: Context) {
 
     fun isCorrectionSuppressed(originalWord: String, correctedWord: String): Boolean {
         val original = originalWord.lowercase(java.util.Locale.ROOT).trim()
-        return original in personalBlocklist || synchronized(suppressedCorrections) {
+        return original in personalBlocklist || personalProfile.rejectionPenalty(originalWord, correctedWord) > 0f || synchronized(suppressedCorrections) {
             suppressedCorrections[original]?.contains(correctedWord.lowercase(java.util.Locale.ROOT).trim()) == true
         }
     }
 
-    fun suppressCorrection(originalWord: String, correctedWord: String) {
-        personalProfile.reject(originalWord, correctedWord)
+    fun suppressCorrection(originalWord: String, correctedWord: String, persistFeedback: Boolean = profileSettings.personalizedLearningEnabled) {
+        if (persistFeedback) personalProfile.reject(originalWord, correctedWord)
         val orig = originalWord.lowercase().trim()
         val corr = correctedWord.lowercase().trim()
-        if (orig.isNotEmpty() && corr.isNotEmpty()) {
-            synchronized(suppressedCorrections) {
-                val set = suppressedCorrections.getOrPut(orig) { mutableSetOf() }
-                set.add(corr)
-            }
-            addToBlocklist(orig)
+        if (!persistFeedback && orig.isNotEmpty() && corr.isNotEmpty()) {
+            synchronized(suppressedCorrections) { suppressedCorrections.getOrPut(orig) { mutableSetOf() }.add(corr) }
         }
     }
 
@@ -1098,7 +1118,7 @@ class DictionaryManager(private val context: Context) {
      * Checks whether a given word is recognized by the local dictionary, user words, or SymSpell index.
      */
     fun isValidOrKnownWord(word: String): Boolean {
-        val clean = word.lowercase().trim().trim { !it.isLetterOrDigit() && it != '\'' }
+        val clean = MultilingualLexicon.normalize(word).trim().trim { !TypingPolicy.isWordCharacter(it) }
         if (clean.isEmpty()) return true
         if (clean.length == 1 && (clean == "a" || clean == "i")) return true
         if (clean.all { it.isDigit() }) return true
@@ -1110,7 +1130,7 @@ class DictionaryManager(private val context: Context) {
     }
 
     fun learnWord(word: String, explicit: Boolean = false) {
-        val clean = word.lowercase().trim().trim { !it.isLetterOrDigit() && it != '\'' }
+        val clean = MultilingualLexicon.normalize(word).trim().trim { !TypingPolicy.isWordCharacter(it) }
         if (clean.isEmpty() || clean.length < 2 || isProfane(clean)) return
         if (commonWordsSet.contains(clean)) return
 
@@ -1519,98 +1539,9 @@ class DictionaryManager(private val context: Context) {
         prevWord2: String? = null,
         tapCoords: List<PointF>? = null
     ): List<String> {
-        val normalized = word.lowercase().trim()
-        if (normalized.isEmpty()) return emptyList()
-
-        // Common typos & transposition dictionary
-        val typoMap = mapOf(
-            "teh" to "the", "yhe" to "the", "taht" to "that", "tgat" to "that", "yhat" to "that",
-            "helo" to "hello", "recieve" to "receive", "recieved" to "received", "recieving" to "receiving",
-            "recive" to "receive", "hw" to "how", "hwo" to "how", "yu" to "you", "yuo" to "you",
-            "thx" to "thanks", "pls" to "please", "plz" to "please", "tks" to "thanks",
-            "woudl" to "would", "wodul" to "would", "woukd" to "would", "shoudl" to "should",
-            "shoukd" to "should", "coudl" to "could", "coukd" to "could", "cud" to "could",
-            "yesturday" to "yesterday", "tommorow" to "tomorrow", "tommorrow" to "tomorrow",
-            "goverment" to "government", "occured" to "occurred", "definately" to "definitely",
-            "definetly" to "definitely", "beautifull" to "beautiful", "seperate" to "separate",
-            "untill" to "until", "accommodate" to "accommodate", "accomodate" to "accommodate",
-            "wierd" to "weird", "belive" to "believe", "truely" to "truly", "mispell" to "misspell",
-            "alot" to "a lot", "infront" to "in front", "atleast" to "at least", "gonna" to "going to",
-            "wanna" to "want to", "gotta" to "got to", "writting" to "writing", "speling" to "spelling",
-            "grammer" to "grammar", "keybord" to "keyboard", "mye" to "my", "tyep" to "type",
-            "wrk" to "work", "wrd" to "word", "appl" to "apple", "prdct" to "predict",
-            "dont" to "don't", "cant" to "can't", "wont" to "won't", "im" to "I'm", "ive" to "I've",
-            "ill" to "I'll", "id" to "I'd", "youre" to "you're", "youve" to "you've", "theyre" to "they're",
-            "weve" to "we've", "its" to "it's", "thats" to "that's", "isnt" to "isn't", "arent" to "aren't",
-            "wasnt" to "wasn't", "werent" to "weren't", "hasnt" to "hasn't", "havent" to "haven't",
-            "hadnt" to "hadn't", "couldnt" to "couldn't", "shouldnt" to "shouldn't", "wouldnt" to "wouldn't",
-            "lets" to "let's", "wnat" to "want", "smd" to "and", "ehst" to "what", "alredy" to "already",
-            "alwasy" to "always", "beacuse" to "because", "becuase" to "because", "comming" to "coming",
-            "realy" to "really", "thier" to "their", "tought" to "thought", "tihs" to "this",
-            "whcih" to "which", "abotu" to "about", "peopel" to "people", "jsut" to "just",
-            "knwo" to "know", "themselfs" to "themselves", "wich" to "which", "widht" to "width",
-            "acording" to "according", "beleive" to "believe", "rember" to "remember", "frind" to "friend",
-            "freind" to "friend", "mkae" to "make", "liek" to "like", "godo" to "good", "tha" to "the",
-            "hte" to "the", "adn" to "and", "fomr" to "from", "frm" to "from", "oyu" to "you",
-            "dontknow" to "don't know", "goodmorning" to "good morning", "goodnight" to "good night",
-            "thankyou" to "thank you", "thanksalot" to "thanks a lot", "howareyou" to "how are you",
-            "seeyou" to "see you", "loveyou" to "love you", "letsgo" to "let's go", "withyou" to "with you",
-            "goingto" to "going to", "wantto" to "want to", "didnt" to "didn't", "doesnt" to "doesn't",
-            "theres" to "there's", "wheres" to "where's", "heres" to "here's", "hows" to "how's",
-            "whos" to "who's", "youll" to "you'll", "theyll" to "they'll", "theyve" to "they've",
-            "embarass" to "embarrass", "neccessary" to "necessary", "necesary" to "necessary",
-            "unfortunatly" to "unfortunately", "probaly" to "probably", "probly" to "probably",
-            "familar" to "familiar", "guarentee" to "guarantee", "schedual" to "schedule",
-            "intresting" to "interesting", "differant" to "different", "experiance" to "experience",
-            "fone" to "phone", "enuf" to "enough", "nite" to "night", "thru" to "through",
-            "calender" to "calendar", "restarant" to "restaurant", "restaraunt" to "restaurant",
-            "runing" to "running", "begining" to "beginning", "priviledge" to "privilege"
-        )
-        val directTypoMatch = typoMap[normalized]
-
-        // 1. Contraction Candidate Search (e.g. dont -> don't, cant -> can't, im -> I'm)
-        val cleanNormalized = normalized.replace("'", "")
-        val contractionCandidates = mutableListOf<String>()
-        commonWords.forEach { item ->
-            if (item.word.contains("'") && item.word.lowercase().replace("'", "") == cleanNormalized) {
-                contractionCandidates.add(item.word)
-            }
-        }
-
-        // 2. Missed space split candidates (e.g. "goodmorning" -> "good morning", "thankyou" -> "thank you", "forthe" -> "for the")
-        val missedSpaceCandidates = findMissedSpaceSplits(normalized)
-
-        // 3. Phonetic Sound-Alike candidate lookup (Soundex/Metaphone)
-        val phoneticKey = computePhoneticKey(normalized)
-        val phoneticCandidates = if (phoneticKey.isNotEmpty()) phoneticIndex[phoneticKey] ?: emptyList() else emptyList()
-
-        // 4. Ultra-fast Levenshtein edit distance lookup via pruned Trie (<0.2ms)
-        val trieLevenshteinCandidates = LevenshteinAutoCorrector.searchTrieLevenshtein(trie.root, normalized, maxDistance = 2)
-            .map { it.word }
-
-        // 5. SymSpell candidates
-        val symSpellCandidates = findDictionaryCorrections(normalized, maxDistance = 2f).map { it.term }
-
-        // 6. Neural NLP correction candidate
-        val neuralCandidate = try {
-            val res = neuralEngine.correctText(normalized).trim()
-            if (res.isNotEmpty() && res.lowercase() != normalized) res else null
-        } catch (_: Exception) { null }
-
-        val candidateList = (listOfNotNull(directTypoMatch, neuralCandidate) + missedSpaceCandidates + contractionCandidates + phoneticCandidates + trieLevenshteinCandidates + symSpellCandidates).distinct()
-            .filter { (!settings.profanityFilterEnabled || !isProfane(it)) && !isBlocked(it) }
-
-        if (candidateList.isEmpty()) return emptyList()
-
-        return candidateList
-            .map { dictWord ->
-                val confidence = calculateCorrectionConfidence(normalized, dictWord, prevWord, prevWord2, tapCoords)
-                Pair(dictWord, confidence)
-            }
-            .filter { it.second >= SUGGESTION_THRESHOLD && !isBlocked(it.first) }
-            .sortedByDescending { it.second }
-            .map { it.first }
-            .take(3)
+        if (word.isBlank()) return emptyList()
+        val result = correctionPipeline.rank(word, listOfNotNull(prevWord2, prevWord), tapCoords)
+        return result.candidates.filter { it.word != word && it.posterior >= .01f }.map { it.word }.take(5)
     }
 
     /**
@@ -2136,173 +2067,9 @@ class DictionaryManager(private val context: Context) {
         prevWord2: String? = null,
         tapCoords: List<PointF>? = null
     ): Float {
-        val w1 = typedWord.lowercase().trim()
-        val w2 = candidate.lowercase().trim()
-        if (w1.isEmpty() || w2.isEmpty()) return 0.0f
-        if (w1 == w2) return 1.0f
-
-        // Contraction match (e.g. dont <-> don't, cant <-> can't)
-        if (w1.replace("'", "") == w2.replace("'", "")) {
-            return 0.95f
-        }
-
-        // Missed space split match (e.g. "goodmorning" <-> "good morning", "thankyou" <-> "thank you", "infront" <-> "in front")
-        if (w2.contains(" ") && w2.replace(" ", "") == w1) {
-            // Never split an already valid word
-            if (isWordInDictionary(w1) || userWords.contains(w1) || recentlyAcceptedWords.contains(w1)) {
-                return 0.0f
-            }
-            val parts = w2.split(" ")
-            val allValid = parts.all { it == "a" || it == "i" || isWordInDictionary(it) }
-            if (allValid) {
-                var splitConfidence = 0.88f
-                if (parts.size == 2) {
-                    val p1 = parts[0]
-                    val p2 = parts[1]
-                    if (bigrams[p1]?.any { it.lowercase() == p2 } == true || personalizedBigrams[p1]?.any { it.lowercase() == p2 } == true) {
-                        splitConfidence = 0.96f
-                    }
-                }
-                return splitConfidence
-            }
-        }
-
-        // Safeguard 1: Suppressed corrections (from backspace-undo)
-        if (suppressedCorrections[w1]?.contains(w2) == true) return 0.0f
-
-        // Safeguard 2: Code tokens, URLs, emails, camelCase, snake_case
-        if (isCodeOrSpecialToken(w1) || isCodeOrSpecialToken(w2)) return 0.0f
-
-        // Safeguard 3: Valid dictionary words, user dictionary words, recently accepted words
-        if (isWordInDictionary(w1) || userWords.contains(w1) || recentlyAcceptedWords.contains(w1)) {
-            return 0.0f
-        }
-
-        // --- Signal 1: Edit Distance (w1 * edit_dist) ---
-        val d = computeWeightedEditDistance(w1, w2)
-        if (d > 2.2f) return 0.0f
-        var editDistScore = (1.0f - (d / 2.2f)) * 0.55f
-        if (d <= 1.1f) {
-            editDistScore += 0.20f
-        }
-
-        // --- Signal 2: Tap Geometry (w2 * tap_geometry) ---
-        var tapGeometryScore = 0.0f
-        if (tapCoords != null && tapCoords.size == w2.length) {
-            var totalTouchDist = 0.0f
-            var validKeyCount = 0
-            for (i in w2.indices) {
-                val keyChar = w2[i].lowercaseChar()
-                val targetPos = keyCoordinates[keyChar]
-                if (targetPos != null) {
-                    val touch = tapCoords[i]
-                    val offset = mlPredictor.getTouchOffset(keyChar)
-                    val adjX = targetPos.x + offset.x
-                    val adjY = targetPos.y + offset.y
-                    val dx = touch.x - adjX
-                    val dy = touch.y - adjY
-                    totalTouchDist += sqrt(dx * dx + dy * dy)
-                    validKeyCount++
-                }
-            }
-            if (validKeyCount > 0) {
-                val avgDist = totalTouchDist / validKeyCount
-                tapGeometryScore = when {
-                    avgDist < 0.10f -> 0.25f
-                    avgDist < 0.25f -> (1.0f - (avgDist - 0.10f) / 0.15f) * 0.25f
-                    else -> -0.10f
-                }
-            }
-        } else if (w1.length == w2.length) {
-            var adjacentCount = 0
-            for (i in w1.indices) {
-                val c1 = w1[i]
-                val c2 = w2[i]
-                if (c1 != c2) {
-                    val p1 = keyCoordinates[c1.lowercaseChar()]
-                    val p2 = keyCoordinates[c2.lowercaseChar()]
-                    if (p1 != null && p2 != null) {
-                        val dx = p1.x - p2.x
-                        val dy = p1.y - p2.y
-                        if (sqrt(dx * dx + dy * dy) < 0.18f) adjacentCount++
-                    }
-                }
-            }
-            tapGeometryScore = 0.04f * adjacentCount
-        }
-
-        // --- Signal 3: Language Model Probability (N-Gram + Bigram / Trigram) ---
-        var lmScore = 0.0f
-        val prev1 = prevWord?.lowercase()?.trim() ?: ""
-        val prev2 = prevWord2?.lowercase()?.trim() ?: ""
-        val contextList = listOfNotNull(prevWord2, prevWord)
-
-        if (contextList.isNotEmpty()) {
-            val nGramProb = nGramModel.getProbability(w2, contextList)
-            lmScore += (nGramProb * 0.25f)
-        }
-
-        if (prev1.isNotEmpty()) {
-            val learnedPredicted = personalizedBigrams[prev1] ?: emptyList()
-            val predicted = bigrams[prev1] ?: emptyList()
-            val mlNextWords = mlPredictor.predictNextWords(prev1).map { it.first.lowercase() }
-
-            if (learnedPredicted.any { it.lowercase() == w2 }) {
-                lmScore += 0.20f
-            }
-            if (predicted.any { it.lowercase() == w2 }) {
-                lmScore += 0.12f
-            }
-            if (mlNextWords.contains(w2)) {
-                lmScore += 0.15f
-            }
-
-            // Trigram context boost P(word | prev2, prev1)
-            if (prev2.isNotEmpty()) {
-                val trigramKey = "$prev2 $prev1"
-                val trigramPredicted = personalizedBigrams[trigramKey] ?: emptyList()
-                val mlTrigramPredicted = mlPredictor.predictNextWordsFromTrigram(prev2, prev1).map { it.first.lowercase() }
-                if (trigramPredicted.any { it.lowercase() == w2 } || mlTrigramPredicted.contains(w2)) {
-                    lmScore += 0.22f
-                }
-            }
-        }
-
-        // --- Signal 4: User Dictionary / Personalization (w4 * user_freq) ---
-        var userFreqScore = 0.0f
-        if (userWords.contains(w2)) {
-            userFreqScore = 0.15f
-        }
-
-        // --- Signal 5: Corpus Frequency Prior (w5 * unigram_freq) ---
-        val freq = getWordFrequency(w2).coerceAtLeast(1)
-        val unigramScore = (freq / 1000f) * 0.10f
-
-        // --- Signal 6: Phonetic Sound-Alike Signal (Soundex / Metaphone match) ---
-        var phoneticScore = 0.0f
-        val pk1 = computePhoneticKey(w1)
-        val pk2 = computePhoneticKey(w2)
-        if (pk1.isNotEmpty() && pk1 == pk2) {
-            phoneticScore = 0.22f
-        }
-
-        // --- Signal 7: Neural Sequence Correction Agreement ---
-        var neuralScore = 0.0f
-        try {
-            val neuralFix = neuralEngine.correctText(w1).trim().lowercase()
-            if (neuralFix.isNotEmpty() && neuralFix == w2) {
-                neuralScore = 0.35f
-            }
-        } catch (_: Exception) {}
-
-        var totalConfidence = editDistScore + tapGeometryScore + lmScore + userFreqScore + unigramScore + phoneticScore + neuralScore
-
-        // Short word penalty (only for large edit distance on short words)
-        if (w1.length <= 3 && d > 1.1f) {
-            totalConfidence -= 0.10f
-        }
-
-        return totalConfidence.coerceIn(0.0f, 1.0f)
+        val result = correctionPipeline.rank(typedWord, listOfNotNull(prevWord2, prevWord), tapCoords)
+        if (result.protected) return 0f
+        return result.candidates.firstOrNull { it.word.equals(candidate, true) }?.posterior ?: 0f
     }
 
     companion object {
@@ -2313,8 +2080,9 @@ class DictionaryManager(private val context: Context) {
         private var instance: DictionaryManager? = null
 
         fun getInstance(context: Context): DictionaryManager {
-            return instance ?: synchronized(this) {
-                instance ?: DictionaryManager(context.applicationContext ?: context).also { instance = it }
+            val app = context.applicationContext
+            return instance?.takeIf { it.appContext === app } ?: synchronized(this) {
+                instance?.takeIf { it.appContext === app } ?: DictionaryManager(app).also { instance = it }
             }
         }
 

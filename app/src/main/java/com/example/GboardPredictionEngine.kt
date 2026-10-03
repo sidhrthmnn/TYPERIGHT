@@ -150,7 +150,7 @@ class GboardPredictionEngine(private val context: Context) {
     ) + ComprehensiveLexicon.TYPOS
 
     // Subtitle corpora contain misspellings too; explicit corrections take priority over those entries.
-    fun isKnownTypo(word: String): Boolean = commonTypoLookup[word]?.let { it != word } == true
+    fun isKnownTypo(word: String): Boolean = typoProposal(word)?.let { it != word } == true
 
     // Contraction expansions (apostrophe restoration)
     val contractionLookup: Map<String, String> = mapOf(
@@ -167,7 +167,7 @@ class GboardPredictionEngine(private val context: Context) {
         "wheres" to "where's", "hows" to "how's"
     ) + ComprehensiveLexicon.UNPUNCTUATED_CONTRACTIONS
 
-    private val ambiguousRealWords = setOf("were", "well", "ill", "its", "lets", "wed", "id", "your", "their", "fir", "hello")
+    private val ambiguousRealWords = setOf("wether", "judgement", "supercede", "were", "well", "ill", "its", "lets", "wed", "id", "your", "their", "fir", "hello")
 
     // Emoji shortcut predictions
     val emojiIntentMap: Map<String, String> = mapOf(
@@ -306,244 +306,48 @@ class GboardPredictionEngine(private val context: Context) {
     ): GboardSuggestionResult {
         if (isSensitiveField) return GboardSuggestionResult("", "", "", false)
         val typed = rawTyped.trim()
-        val lower = typed.lowercase(Locale.ROOT)
         val model = dictionaryManager.nGramModel
-        val context = contextWords.takeLast(3).map { it.lowercase(Locale.ROOT) }
+        val context = contextWords.takeLast(5)
         if (typed.isEmpty()) {
-            val learned = context.lastOrNull()?.let { mlPredictor.predictNextWords(it).map { pair -> pair.first } }.orEmpty()
-            val pool = dictionaryManager.personalCandidates("", context) + model.predictNextWords(context, "", 12) + learned +
-                if (context.isEmpty()) listOf("I", "The", "Hi") else listOf("the", "to", "and", "you")
-            val top = pool.filter { it.isNotEmpty() && !dictionaryManager.isBlocked(it) && it.all { c -> c.isLetter() || c == '\'' } }
-                .distinctBy { it.lowercase(Locale.ROOT) }
-                .sortedByDescending { model.getProbability(it.lowercase(Locale.ROOT), context) + dictionaryManager.personalBoost(it, context) }
-                .take(3)
+            val top = dictionaryManager.correctionPipeline.nextWords(context)
             return GboardSuggestionResult(top.getOrElse(1) { "" }, top.getOrElse(0) { "" }, top.getOrElse(2) { "" }, false)
         }
-        // Bounded work: never run sentence proofreading, exhaustive mutation generation,
-        // multiple fuzzy engines, or network inference for each keystroke.
-        if (typed.length > 32 || typed.any { !it.isLetter() && it != '\'' } ||
-            dictionaryManager.isCodeOrSpecialToken(typed)) {
-            return GboardSuggestionResult("", if (!dictionaryManager.isBlocked(typed)) typed else "", "", false)
+        val ranked = dictionaryManager.correctionPipeline.rank(typed, context, tapCoords, CorrectionPhase.KEYSTROKE)
+        val center = ranked.suggestion
+        val other = ranked.candidates.map { it.word }.filter { !it.equals(center, true) }.distinct()
+        val left = if (!center.equals(typed, true)) typed else other.firstOrNull().orEmpty()
+        val right = other.firstOrNull { !it.equals(left, true) }.orEmpty()
+        val telemetry = ranked.candidates.take(5).map {
+            GboardCandidate(it.word, it.keyboard, it.context, it.distance, it.frequency, it.posterior,
+                ranked.tier, it.word == ranked.automatic, it.origins.joinToString(),
+                ScoreBreakdown(it.keyboard, it.frequency, it.context, 1f - it.distance / maxOf(3, typed.length), it.personal, it.score))
         }
-        val direct = dictionaryManager.learnedCorrection(typed, context) ?: immediateCorrection(typed, dictionaryManager)?.takeIf { !dictionaryManager.isBlocked(it) && !dictionaryManager.isCorrectionSuppressed(typed, it) }
-        val contextualDirect = if (direct == null) resolveContextualAmbiguity(lower, context)?.takeIf { !dictionaryManager.isBlocked(it) } else null
-        val effectiveDirect = direct ?: contextualDirect
-
-        val rawIsValid = (dictionaryManager.isWordInDictionary(lower) || symSpellEngine.hasWord(lower)) && !dictionaryManager.isBlocked(lower)
-        val matches = if (lower.length >= 2 && !rawIsValid) {
-            dictionaryManager.findDictionaryCorrections(lower, maxDistance = if (lower.length <= 3) 1f else 2f, maxResults = 16).filter { !dictionaryManager.isBlocked(it.term) }
-        } else emptyList()
-        val googleSpellChecker = GoogleDeviceSpellChecker.getInstance(this.context)
-        val deviceSpellMatches = if (lower.length >= 3 && !rawIsValid) {
-            googleSpellChecker.getSpellCheckSuggestions(lower).filter { !dictionaryManager.isBlocked(it) }
-        } else emptyList()
-        val pool = linkedSetOf<String>()
-        effectiveDirect?.let { pool.add(it) }
-        pool.addAll(deviceSpellMatches)
-        pool.addAll(dictionaryManager.personalCandidates(lower, context))
-        pool.addAll(dictionaryManager.findWordsWithPrefix(lower, 8).filter { !dictionaryManager.isBlocked(it) })
-        pool.addAll(model.predictNextWords(context, lower, 6).filter { !dictionaryManager.isBlocked(it) })
-        pool.addAll(matches.map { it.term })
-        if (!dictionaryManager.isBlocked(typed)) {
-            pool.add(typed)
-        }
-
-        val sensitivity = settings.autocorrectSensitivity
-        val minMargin = when (sensitivity) {
-            KeyboardSettings.SENSITIVITY_MILD -> 0.16f
-            KeyboardSettings.SENSITIVITY_AGGRESSIVE -> 0.06f
-            else -> AUTOCORRECT_MARGIN
-        }
-        val maxDist = when (sensitivity) {
-            KeyboardSettings.SENSITIVITY_MILD -> 1.2f
-            KeyboardSettings.SENSITIVITY_AGGRESSIVE -> 2.4f
-            else -> 2.1f
-        }
-
-        val candidates = pool.filter { it.isNotBlank() && !dictionaryManager.isBlocked(it) && (it == effectiveDirect || it.none(Char::isWhitespace)) }
-            .distinctBy { it.lowercase(Locale.ROOT) }.map { word ->
-                val normalized = word.lowercase(Locale.ROOT)
-                val literal = normalized == lower && word == typed
-                val deterministic = effectiveDirect != null && normalized == effectiveDirect.lowercase(Locale.ROOT)
-                val isGoogleSpellMatch = deviceSpellMatches.any { it.equals(normalized, ignoreCase = true) }
-                val match = matches.firstOrNull { it.term == normalized }
-                val distance = match?.distance ?: spatialModel.computeSpatialEditDistance(lower, normalized)
-                val frequency = (log10(dictionaryManager.getWordFrequency(normalized).toFloat() + 1f) / 3f).coerceIn(0f, 1f)
-                val probability = model.getProbability(normalized, context)
-                val spatial = spatialModel.computeSpatialTouchLikelihood(normalized, tapCoords)
-                val completion = normalized.startsWith(lower) && normalized.length > lower.length
-                val score = if (deterministic) 2f else
-                    0.45f * (1f - distance / maxOf(3, lower.length).toFloat()).coerceIn(0f, 1f) +
-                    0.25f * frequency + 0.20f * probability + 0.10f * spatial +
-                    (if (literal && rawIsValid) 0.5f else 0f) + (if (completion) 0.05f else 0f) +
-                    (if (isGoogleSpellMatch) 0.05f else 0f) + dictionaryManager.personalBoost(word, context) * .3f
-                val eligible = !literal && (!completion || deterministic) && !dictionaryManager.isCorrectionSuppressed(typed, word) && !dictionaryManager.isBlocked(word) &&
-                    (deterministic || (!rawIsValid && lower.length >= 3 && distance <= maxDist && frequency >= 0.04f))
-                GboardCandidate(TypingPolicy.restoreCase(typed, word), spatial, probability, distance,
-                    frequency, score, if (eligible) ConfidenceTier.HIGH else ConfidenceTier.LOW,
-                    eligible, if (deterministic) "Curated typo" else if (isGoogleSpellMatch) "Google Spellcheck" else if (completion) "Completion" else "Dictionary candidate")
-            }.sortedWith(compareByDescending<GboardCandidate> { it.totalPosterior }.thenBy { it.word })
-        val best = candidates.firstOrNull()
-        val margin = if (best != null) best.totalPosterior - (candidates.getOrNull(1)?.totalPosterior ?: 0f) else 0f
-        val isAmbiguousOrRealWord = (ambiguousRealWords.contains(lower) && contextualDirect == null) || rawIsValid
-
-        val completions = if (lower.length >= 2) dictionaryManager.findWordsWithPrefix(lower, 4).filter { it.length > lower.length && !dictionaryManager.isBlocked(it) } else emptyList()
-        val maxCompletionFreq = completions.maxOfOrNull { dictionaryManager.getWordFrequency(it) } ?: 0
-        val bestTermFreq = best?.word?.let { dictionaryManager.getWordFrequency(it.lowercase(Locale.ROOT)) } ?: 0
-        val completionSuppresses = when (sensitivity) {
-            KeyboardSettings.SENSITIVITY_AGGRESSIVE -> false
-            KeyboardSettings.SENSITIVITY_MILD -> completions.isNotEmpty()
-            else -> completions.isNotEmpty() && maxCompletionFreq > bestTermFreq * 2
-        }
-
-        val auto = settings.autocorrectEnabled && best?.isAutocorrectEligible == true &&
-            !dictionaryManager.isBlocked(best!!.word) &&
-            (effectiveDirect != null || (!isAmbiguousOrRealWord && !completionSuppresses && margin >= minMargin))
-        val center = if (auto && !dictionaryManager.isBlocked(best!!.word)) {
-            best.word
-        } else if (rawIsValid && !dictionaryManager.isBlocked(typed)) {
-            typed
-        } else {
-            best?.word?.takeIf { !dictionaryManager.isBlocked(it) } ?: if (!dictionaryManager.isBlocked(typed)) typed else ""
-        }
-        val left = if (!center.equals(typed, true) && !dictionaryManager.isBlocked(typed)) {
-            typed
-        } else {
-            candidates.firstOrNull { !it.word.equals(center, true) && !dictionaryManager.isBlocked(it.word) }?.word.orEmpty()
-        }
-        val right = candidates.firstOrNull { !it.word.equals(center, true) && !it.word.equals(left, true) && !dictionaryManager.isBlocked(it.word) }?.word.orEmpty()
-        return GboardSuggestionResult(left, center, right, auto, GboardTelemetry(
-            typed, context, candidates.take(5), emptyList(), margin,
-            if (auto) "High confidence correction" else "Preserve typed text on commit"
-        ))
+        return GboardSuggestionResult(left, center, right, settings.autocorrectEnabled && ranked.automatic != null,
+            GboardTelemetry(typed, context, telemetry, emptyList(), ranked.margin, "${ranked.tier}: calculated posterior ${ranked.confidence}"))
     }
 
-    /** Fast synchronous candidate evaluation for space/punctuation commit */
+    /** Worker-only compatibility facade; the IME boundary reads the ranker cache. */
     fun getBestAutocorrectCandidate(
         typed: String,
         contextWords: List<String>,
         dictionaryManager: DictionaryManager,
         tapCoords: List<PointF>? = null
     ): String? {
-        if (!settings.autocorrectEnabled || typed.length < 2 || typed.length > 32) return null
-        if (typed.any { !it.isLetter() && it != '\'' } || dictionaryManager.isCodeOrSpecialToken(typed)) return null
-
-        val lower = typed.lowercase(Locale.ROOT)
-        if (dictionaryManager.isBlocked(lower) || dictionaryManager.isWordInUserDictionary(lower)) return null
-        dictionaryManager.learnedCorrection(typed, contextWords)?.let { return it }
-        // 1. Contraction lookups (dont -> don't, cant -> can't, shouldve -> should've)
-        contractionLookup[lower]?.let {
-            val restored = restoreCasing(typed, it)
-            if (!dictionaryManager.isCorrectionSuppressed(typed, restored) && !dictionaryManager.isBlocked(restored)) return restored
-        }
-
-        // 2. Contextual ambiguity resolution
-        resolveContextualAmbiguity(lower, contextWords)?.let {
-            val restored = restoreCasing(typed, it)
-            if (!dictionaryManager.isCorrectionSuppressed(typed, restored) && !dictionaryManager.isBlocked(restored)) return restored
-        }
-
-        // 3. If user typed an already valid word, preserve it! Never split valid words
-        if (dictionaryManager.isWordInUserDictionary(lower) ||
-            ((dictionaryManager.isWordInDictionary(lower) || symSpellEngine.hasWord(lower)) && !isKnownTypo(lower))) {
-            return null
-        }
-
-        // 4. Common typos & missed space segmentation for invalid tokens
-        immediateCorrection(typed, dictionaryManager)?.let { if (!dictionaryManager.isBlocked(it)) return it }
-
-        // 5. Symmetric deletion / edit distance candidate scoring
-        val sensitivity = settings.autocorrectSensitivity
-        val maxDist = when (sensitivity) {
-            KeyboardSettings.SENSITIVITY_MILD -> if (lower.length <= 3) 1.0f else 1.2f
-            KeyboardSettings.SENSITIVITY_AGGRESSIVE -> if (lower.length <= 3) 1.5f else 2.4f
-            else -> if (lower.length <= 3) 1.0f else 2.0f
-        }
-        val minScoreThreshold = when (sensitivity) {
-            KeyboardSettings.SENSITIVITY_MILD -> 0.60f
-            KeyboardSettings.SENSITIVITY_AGGRESSIVE -> 0.35f
-            else -> 0.45f
-        }
-
-        val matches = dictionaryManager.findDictionaryCorrections(lower, maxDistance = maxDist, maxResults = 16).filter { !dictionaryManager.isBlocked(it.term) }
-        if (matches.isEmpty()) return null
-
-        val context = contextWords.takeLast(3).map { it.lowercase(Locale.ROOT) }
-        val model = dictionaryManager.nGramModel
-
-        val scored = matches.map { match ->
-            val term = match.term
-            val freq = (log10(dictionaryManager.getWordFrequency(term).toFloat() + 1f) / 3f).coerceIn(0.05f, 1f)
-            val prob = model.getProbability(term, context)
-            val distScore = (1.0f - (match.distance / maxOf(3, lower.length).toFloat())).coerceIn(0f, 1f)
-            val spatial = spatialModel.computeSpatialTouchLikelihood(term, tapCoords)
-            val score = 0.45f * distScore + 0.30f * freq + 0.15f * prob + 0.10f * spatial + dictionaryManager.personalBoost(term, context) * .3f
-            term to score
-        }.sortedByDescending { it.second }
-
-        val best = scored.firstOrNull() ?: return null
-        if (best.second < minScoreThreshold) return null
-        val minMargin = when (sensitivity) {
-            KeyboardSettings.SENSITIVITY_MILD -> 0.16f
-            KeyboardSettings.SENSITIVITY_AGGRESSIVE -> 0.06f
-            else -> AUTOCORRECT_MARGIN
-        }
-        if (best.second - (scored.getOrNull(1)?.second ?: 0f) < minMargin) return null
-        // A frequent longer word indicates an unfinished prefix, not a committed typo.
-        val completions = dictionaryManager.findWordsWithPrefix(lower, 4).filter { it.length > lower.length }
-        if (sensitivity != KeyboardSettings.SENSITIVITY_AGGRESSIVE && completions.any {
-            sensitivity == KeyboardSettings.SENSITIVITY_MILD ||
-                dictionaryManager.getWordFrequency(it) > dictionaryManager.getWordFrequency(best.first) * 2
-        }) return null
-
-        val restored = restoreCasing(typed, best.first)
-        return if (!dictionaryManager.isCorrectionSuppressed(typed, restored) && !dictionaryManager.isBlocked(restored)) restored else null
+        if (!settings.autocorrectEnabled) return null
+        return dictionaryManager.correctionPipeline.rank(typed, contextWords, tapCoords).automatic
     }
 
-    /** Constant-time fallback for fast typists; follows exactly the same suppression policy. */
+    /** Worker-only compatibility facade. Replacement policy is owned by CandidateRanker. */
     fun immediateCorrection(typed: String, dictionaryManager: DictionaryManager): String? {
-        if (!settings.autocorrectEnabled || dictionaryManager.isWordInUserDictionary(typed.lowercase(Locale.ROOT)) || dictionaryManager.isBlocked(typed)) return null
-        val lower = typed.lowercase(Locale.ROOT)
-        if (ambiguousRealWords.contains(lower)) return null
-        
-        // 1. Standalone single letter 'i' -> 'I'
-        if (typed == "i") {
-            return if (!dictionaryManager.isCorrectionSuppressed("i", "I") && !dictionaryManager.isBlocked("I")) "I" else null
-        }
-        
-        // 2. High-confidence Contraction expansions (e.g. dont -> don't, cant -> can't, im -> I'm)
-        contractionLookup[lower]?.let { contraction ->
-            val restored = restoreCasing(typed, contraction)
-            if (!dictionaryManager.isCorrectionSuppressed(typed, restored) && !dictionaryManager.isBlocked(restored)) {
-                return restored
-            }
-        }
-        
-        // 3. High-frequency common typos & transpositions (e.g. teh -> the, becuase -> because, recieve -> receive)
-        commonTypoLookup[lower]?.let { typoFix ->
-            val restored = restoreCasing(typed, typoFix)
-            if (!dictionaryManager.isCorrectionSuppressed(typed, restored) && !dictionaryManager.isBlocked(restored)) {
-                return restored
-            }
-        }
-
-        // 4. Missed-space run-together phrases (e.g. thankyou -> thank you, goodmorning -> good morning)
-        segmentMissedSpaces(lower, dictionaryManager)?.let { spaced ->
-            if (!dictionaryManager.isCorrectionSuppressed(typed, spaced) && !dictionaryManager.isBlocked(spaced)) {
-                return spaced
-            }
-        }
-        
-        // 5. Curated typing policy direct corrections
-        val direct = TypingPolicy.correction(typed)
-        if (direct != null && !dictionaryManager.isCorrectionSuppressed(typed, direct) && !dictionaryManager.isBlocked(direct)) {
-            return direct
-        }
-        
-        // Device spell suggestions are ranked in the suggestion strip; they are not
-        // sufficient evidence to silently replace a name or an unfinished prefix.
-        return null
+        if (!settings.autocorrectEnabled) return null
+        return dictionaryManager.correctionPipeline.rank(typed, emptyList()).automatic
     }
+    /** Proposes a spelling candidate; only CandidateRanker decides whether it may replace text. */
+    internal fun typoProposal(word: String): String? {
+        if (word in ambiguousRealWords) return null
+        return contractionLookup[word] ?: commonTypoLookup[word] ?: TypingPolicy.correction(word) ?: NeuralCorrectionEngine.NEURAL_CORRECTION_MAP[word]?.takeIf { it != word }
+    }
+
     private fun restoreCasing(original: String, target: String): String {
         if (original.isEmpty() || target.isEmpty()) return target
         if (properNouns.contains(target)) return target

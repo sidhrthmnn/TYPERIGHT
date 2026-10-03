@@ -38,8 +38,12 @@ data class GgufModelSpec(
 
 object GgufModelCatalog {
     const val DEFAULT_ID = "local-grmr-1.5b"
-    val FORMATS = listOf("chatml", "llama3", "gemma3", "gemma4", "grmr")
-    fun bundled(context: Context): List<GgufModelSpec> {
+    val FORMATS = listOf("chatml", "llama3", "gemma3", "gemma4", "grmr", "qwen3")
+    @Volatile private var cachedBundled: List<GgufModelSpec>? = null
+    fun bundled(context: Context): List<GgufModelSpec> = cachedBundled ?: synchronized(this) {
+        cachedBundled ?: loadBundled(context).also { cachedBundled = it }
+    }
+    private fun loadBundled(context: Context): List<GgufModelSpec> {
         val json = JSONObject(context.assets.open("model-catalog.json").bufferedReader().use { it.readText() })
         val models = json.getJSONArray("models")
         return (0 until models.length()).map { GgufModelSpec.fromJson(models.getJSONObject(it)) }

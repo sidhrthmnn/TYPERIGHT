@@ -2,10 +2,12 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="typeright_personal_learning.xml" />
+        <exclude domain="sharedpref" path="typeright_cloud_credentials.xml" />
         <exclude domain="sharedpref" path="smart_clipboard_dismissals.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="typeright_personal_learning.xml" />
+        <exclude domain="sharedpref" path="typeright_cloud_credentials.xml" />
         <exclude domain="sharedpref" path="smart_clipboard_dismissals.xml" />
     </device-transfer>
 </data-extraction-rules>

@@ -30,6 +30,10 @@ class ModelSettingsUiTest {
         compose.onNodeWithTag("model_select_local-gemma-3-1b").performScrollTo().assertIsSelected()
         compose.onNodeWithTag("model_select_local-gemma-4-e2b").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("local-gemma-4-e2b", LocalGgufModel.selected(compose.activity).id) }
+        listOf("local-qwen3-0.6b", "local-qwen3-1.7b", "local-qwen3-4b", "local-gemma-3n-e2b").forEach { id ->
+            compose.onNodeWithTag("model_select_$id").performScrollTo().performClick()
+            compose.runOnIdle { assertEquals(id, LocalGgufModel.selected(compose.activity).id) }
+        }
         compose.onNodeWithTag("model_select_local-grmr-1.5b").performScrollTo().performClick()
         compose.onNodeWithTag("model_select_local-grmr-1.5b").performScrollTo()
         compose.waitForIdle()
@@ -45,7 +49,7 @@ class ModelSettingsUiTest {
             compose.activity.getSharedPreferences(KeyboardSettings.PREFS_NAME, 0).edit().putBoolean("gemma_terms_accepted", false).commit()
         }
         compose.onNodeWithTag("model_download_local-gemma-3-1b").performScrollTo().performClick()
-        compose.onNodeWithText("Gemma 3 terms").assertExists()
+        compose.onNodeWithText("Gemma 3 1B terms").assertExists()
         compose.onNodeWithTag("model_accept_terms").assertExists()
         compose.runOnIdle { assertFalse(LocalGgufModel.state.value.busy) }
         compose.onNodeWithText("Cancel").performClick()

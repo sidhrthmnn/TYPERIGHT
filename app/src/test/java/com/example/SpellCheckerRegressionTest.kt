@@ -14,7 +14,12 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class SpellCheckerRegressionTest {
     private lateinit var service: TypeRightSpellCheckerService
-    @Before fun setup() { service = Robolectric.buildService(TypeRightSpellCheckerService::class.java).create().get() }
+    @Before fun setup() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        PersonalTypingProfile.get(context).clear()
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) { AppDatabase.getDatabase(context).clearAllTables() }
+        service = Robolectric.buildService(TypeRightSpellCheckerService::class.java).create().get()
+    }
     @After fun tearDown() { service.onDestroy() }
 
     @Test fun usesSharedCorrectionsAndPreservesRequestIdentity() {

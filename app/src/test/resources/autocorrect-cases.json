@@ -1,0 +1,1737 @@
+[
+  {
+    "typed": "teh",
+    "expected": "the",
+    "kind": "transposition",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "adn",
+    "expected": "and",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "hte",
+    "expected": "the",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "yuo",
+    "expected": "you",
+    "kind": "transposition",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "yuor",
+    "expected": "your",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "woudl",
+    "expected": "would",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "shoud",
+    "expected": "should",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "coud",
+    "expected": "could",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "thid",
+    "expected": "this",
+    "kind": "adjacent",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "helo",
+    "expected": "hello",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "helllo",
+    "expected": "hello",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "recieve",
+    "expected": "receive",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "beleive",
+    "expected": "believe",
+    "kind": "transposition",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "freind",
+    "expected": "friend",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "wierd",
+    "expected": "weird",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "definately",
+    "expected": "definitely",
+    "kind": "common",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "seperate",
+    "expected": "separate",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "becuase",
+    "expected": "because",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "tommorow",
+    "expected": "tomorrow",
+    "kind": "common",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "tomorow",
+    "expected": "tomorrow",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "tommorrow",
+    "expected": "tomorrow",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "accomodation",
+    "expected": "accommodation",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "neccessary",
+    "expected": "necessary",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "necesary",
+    "expected": "necessary",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "occured",
+    "expected": "occurred",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "untill",
+    "expected": "until",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "truely",
+    "expected": "truly",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "writting",
+    "expected": "writing",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "realy",
+    "expected": "really",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "beautifull",
+    "expected": "beautiful",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "thier",
+    "expected": "their",
+    "kind": "transposition",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "togeather",
+    "expected": "together",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "lenght",
+    "expected": "length",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "heigth",
+    "expected": "height",
+    "kind": "transposition",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "goverment",
+    "expected": "government",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "enviroment",
+    "expected": "environment",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "pronounciation",
+    "expected": "pronunciation",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "calender",
+    "expected": "calendar",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "cemetary",
+    "expected": "cemetery",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "embarass",
+    "expected": "embarrass",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "fourty",
+    "expected": "forty",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "guarentee",
+    "expected": "guarantee",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "maintenence",
+    "expected": "maintenance",
+    "kind": "common",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "millenium",
+    "expected": "millennium",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "noticable",
+    "expected": "noticeable",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "posession",
+    "expected": "possession",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "questionaire",
+    "expected": "questionnaire",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "rythm",
+    "expected": "rhythm",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "succesful",
+    "expected": "successful",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "suprise",
+    "expected": "surprise",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "unforseen",
+    "expected": "unforeseen",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "usefull",
+    "expected": "useful",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "vaccuum",
+    "expected": "vacuum",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "vehical",
+    "expected": "vehicle",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "visable",
+    "expected": "visible",
+    "kind": "common",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "wich",
+    "expected": "which",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "woh",
+    "expected": "who",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "congradulations",
+    "expected": "congratulations",
+    "kind": "common",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "dissapoint",
+    "expected": "disappoint",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "dissappear",
+    "expected": "disappear",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "existance",
+    "expected": "existence",
+    "kind": "common",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "foriegn",
+    "expected": "foreign",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "greatful",
+    "expected": "grateful",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "independant",
+    "expected": "independent",
+    "kind": "common",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "liesure",
+    "expected": "leisure",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "mispell",
+    "expected": "misspell",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "occurence",
+    "expected": "occurrence",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "persue",
+    "expected": "pursue",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "recommand",
+    "expected": "recommend",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "religous",
+    "expected": "religious",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "tendancy",
+    "expected": "tendency",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "threshhold",
+    "expected": "threshold",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "adress",
+    "expected": "address",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "adres",
+    "expected": "address",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "addres",
+    "expected": "address",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "appartment",
+    "expected": "apartment",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "begining",
+    "expected": "beginning",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "buisness",
+    "expected": "business",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "bussiness",
+    "expected": "business",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "comming",
+    "expected": "coming",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "comittee",
+    "expected": "committee",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "consious",
+    "expected": "conscious",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "decison",
+    "expected": "decision",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "desicion",
+    "expected": "decision",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "diffrent",
+    "expected": "different",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "differnt",
+    "expected": "different",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "eigth",
+    "expected": "eight",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "excersise",
+    "expected": "exercise",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "expereince",
+    "expected": "experience",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "finnaly",
+    "expected": "finally",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "finaly",
+    "expected": "finally",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "happend",
+    "expected": "happened",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "immediatly",
+    "expected": "immediately",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "intresting",
+    "expected": "interesting",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "knowlege",
+    "expected": "knowledge",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "libary",
+    "expected": "library",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "mesage",
+    "expected": "message",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "minuate",
+    "expected": "minute",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "probaly",
+    "expected": "probably",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "probabaly",
+    "expected": "probably",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "responce",
+    "expected": "response",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "sentance",
+    "expected": "sentence",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "similiar",
+    "expected": "similar",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "speach",
+    "expected": "speech",
+    "kind": "common",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "strenght",
+    "expected": "strength",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "studing",
+    "expected": "studying",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "tihs",
+    "expected": "this",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "thsi",
+    "expected": "this",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "theese",
+    "expected": "these",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "ture",
+    "expected": "true",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "usualy",
+    "expected": "usually",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "whith",
+    "expected": "with",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "whta",
+    "expected": "what",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "whne",
+    "expected": "when",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "whre",
+    "expected": "where",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "whcih",
+    "expected": "which",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "wrok",
+    "expected": "work",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "yestarday",
+    "expected": "yesterday",
+    "kind": "common",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "wrk",
+    "expected": "work",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "firend",
+    "expected": "friend",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "hellp",
+    "expected": "hello",
+    "kind": "adjacent",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "wprk",
+    "expected": "work",
+    "kind": "adjacent",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "goood",
+    "expected": "good",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "boook",
+    "expected": "book",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "meeeting",
+    "expected": "meeting",
+    "kind": "extra_repeated",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "mornign",
+    "expected": "morning",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "nigth",
+    "expected": "night",
+    "kind": "transposition",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "pleaes",
+    "expected": "please",
+    "kind": "transposition",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "dont",
+    "expected": "don't",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "cant",
+    "expected": "can't",
+    "kind": "missing",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "im",
+    "expected": "I'm",
+    "kind": "missing",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "hello",
+    "expected": "hello",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "their",
+    "expected": "their",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "there",
+    "expected": "there",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "sea",
+    "expected": "sea",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "see",
+    "expected": "see",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "were",
+    "expected": "were",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "well",
+    "expected": "well",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "ill",
+    "expected": "ill",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "its",
+    "expected": "its",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "lets",
+    "expected": "lets",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "wed",
+    "expected": "wed",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "id",
+    "expected": "id",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "fir",
+    "expected": "fir",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "sit",
+    "expected": "sit",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "wether",
+    "expected": "wether",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "judgement",
+    "expected": "judgement",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "colour",
+    "expected": "colour",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "centre",
+    "expected": "centre",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "Siddharth",
+    "expected": "Siddharth",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "Siri",
+    "expected": "Siri",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "Niamh",
+    "expected": "Niamh",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "Aarav",
+    "expected": "Aarav",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "Qwen",
+    "expected": "Qwen",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "TypeRight",
+    "expected": "TypeRight",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "myVariable",
+    "expected": "myVariable",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "JSON",
+    "expected": "JSON",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "API",
+    "expected": "API",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "NASA",
+    "expected": "NASA",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "LOL",
+    "expected": "LOL",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "lol",
+    "expected": "lol",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "brb",
+    "expected": "brb",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "idk",
+    "expected": "idk",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "plz",
+    "expected": "plz",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "gud",
+    "expected": "gud",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "gonna",
+    "expected": "gonna",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "wanna",
+    "expected": "wanna",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "thx",
+    "expected": "thx",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "rn",
+    "expected": "rn",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "ngl",
+    "expected": "ngl",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "yup",
+    "expected": "yup",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "utf8",
+    "expected": "utf8",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "https://example.com",
+    "expected": "https://example.com",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "a@b.com",
+    "expected": "a@b.com",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "@siddharth",
+    "expected": "@siddharth",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "user_name",
+    "expected": "user_name",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "123456",
+    "expected": "123456",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "3.14",
+    "expected": "3.14",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "OTP",
+    "expected": "OTP",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "njan",
+    "expected": "njan",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "varilla",
+    "expected": "varilla",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "officil",
+    "expected": "officil",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "adipoli",
+    "expected": "adipoli",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "ente",
+    "expected": "ente",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "main",
+    "expected": "main",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "mujhe",
+    "expected": "mujhe",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "yaar",
+    "expected": "yaar",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "karo",
+    "expected": "karo",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "kal",
+    "expected": "kal",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "milenge",
+    "expected": "milenge",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "नमस्ते",
+    "expected": "नमस्ते",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "हैं",
+    "expected": "हैं",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "നാളെ",
+    "expected": "നാളെ",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "നമസ്കാരം",
+    "expected": "നമസ്കാരം",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "مرحبا",
+    "expected": "مرحبا",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "ありがとう",
+    "expected": "ありがとう",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "你好",
+    "expected": "你好",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "안녕하세요",
+    "expected": "안녕하세요",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "привет",
+    "expected": "привет",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "gracias",
+    "expected": "gracias",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "mañana",
+    "expected": "mañana",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "bonjour",
+    "expected": "bonjour",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "café",
+    "expected": "café",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "danke",
+    "expected": "danke",
+    "kind": "protected",
+    "context": [],
+    "split": "calibration"
+  },
+  {
+    "typed": "obrigado",
+    "expected": "obrigado",
+    "kind": "protected",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "Njan",
+    "expected": "Njan",
+    "kind": "code_switch",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "tomorrow",
+    "expected": "tomorrow",
+    "kind": "code_switch",
+    "context": [
+      "Njan"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "officil",
+    "expected": "officil",
+    "kind": "code_switch",
+    "context": [
+      "Njan",
+      "tomorrow"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "varilla",
+    "expected": "varilla",
+    "kind": "code_switch",
+    "context": [
+      "Njan",
+      "tomorrow",
+      "officil"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "Njan",
+    "expected": "Njan",
+    "kind": "code_switch",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "tommorow",
+    "expected": "tomorrow",
+    "kind": "code_switch",
+    "context": [
+      "Njan"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "officil",
+    "expected": "officil",
+    "kind": "code_switch",
+    "context": [
+      "Njan",
+      "tommorow"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "varilla",
+    "expected": "varilla",
+    "kind": "code_switch",
+    "context": [
+      "Njan",
+      "tommorow",
+      "officil"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "main",
+    "expected": "main",
+    "kind": "code_switch",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "tommorow",
+    "expected": "tomorrow",
+    "kind": "code_switch",
+    "context": [
+      "main"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "office",
+    "expected": "office",
+    "kind": "code_switch",
+    "context": [
+      "main",
+      "tommorow"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "jaunga",
+    "expected": "jaunga",
+    "kind": "code_switch",
+    "context": [
+      "main",
+      "tommorow",
+      "office"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "kal",
+    "expected": "kal",
+    "kind": "code_switch",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "meeting",
+    "expected": "meeting",
+    "kind": "code_switch",
+    "context": [
+      "kal"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "hain",
+    "expected": "hain",
+    "kind": "code_switch",
+    "context": [
+      "kal",
+      "meeting"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "yaar",
+    "expected": "yaar",
+    "kind": "code_switch",
+    "context": [
+      "kal",
+      "meeting",
+      "hain"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "Bonjour",
+    "expected": "Bonjour",
+    "kind": "code_switch",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "je",
+    "expected": "je",
+    "kind": "code_switch",
+    "context": [
+      "Bonjour"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "suis",
+    "expected": "suis",
+    "kind": "code_switch",
+    "context": [
+      "Bonjour",
+      "je"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "ici",
+    "expected": "ici",
+    "kind": "code_switch",
+    "context": [
+      "Bonjour",
+      "je",
+      "suis"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "नमस्ते",
+    "expected": "नमस्ते",
+    "kind": "code_switch",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "मैं",
+    "expected": "मैं",
+    "kind": "code_switch",
+    "context": [
+      "नमस्ते"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "कल",
+    "expected": "कल",
+    "kind": "code_switch",
+    "context": [
+      "नमस्ते",
+      "मैं"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "office",
+    "expected": "office",
+    "kind": "code_switch",
+    "context": [
+      "नमस्ते",
+      "मैं",
+      "कल"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "jaunga",
+    "expected": "jaunga",
+    "kind": "code_switch",
+    "context": [
+      "नमस्ते",
+      "मैं",
+      "कल",
+      "office"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "നാളെ",
+    "expected": "നാളെ",
+    "kind": "code_switch",
+    "context": [],
+    "split": "holdout"
+  },
+  {
+    "typed": "tomorrow",
+    "expected": "tomorrow",
+    "kind": "code_switch",
+    "context": [
+      "നാളെ"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "officil",
+    "expected": "officil",
+    "kind": "code_switch",
+    "context": [
+      "നാളെ",
+      "tomorrow"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "varilla",
+    "expected": "varilla",
+    "kind": "code_switch",
+    "context": [
+      "നാളെ",
+      "tomorrow",
+      "officil"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "sea",
+    "expected": "see",
+    "kind": "contextual",
+    "context": [
+      "I",
+      "will"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "their",
+    "expected": "there",
+    "kind": "contextual",
+    "context": [
+      "go",
+      "over"
+    ],
+    "split": "holdout"
+  },
+  {
+    "typed": "there",
+    "expected": "their",
+    "kind": "contextual",
+    "context": [
+      "with"
+    ],
+    "split": "holdout"
+  }
+]

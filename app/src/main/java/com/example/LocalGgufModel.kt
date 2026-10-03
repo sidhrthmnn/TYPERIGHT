@@ -44,7 +44,12 @@ object LocalGgufModel {
         model.bytes > 0 && it.isFile && it.length() == model.bytes
     }
     suspend fun remove(context: Context, model: GgufModelSpec) = withContext(Dispatchers.IO) {
-        mutex.withLock { check(!file(context, model).exists() || file(context, model).delete()) { "Cannot remove model" } }
+        mutex.withLock {
+            val target = file(context, model)
+            // Close a cached mapping before unlinking, so storage is actually reclaimed.
+            GgufPolishEngine.releaseModel(target.absolutePath)
+            check(!target.exists() || target.delete()) { "Cannot remove model" }
+        }
     }
     suspend fun download(context: Context, model: GgufModelSpec = selected(context)) = withContext(Dispatchers.IO) {
         mutex.withLock {

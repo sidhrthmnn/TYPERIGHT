@@ -12,11 +12,23 @@
 namespace {
 std::mutex inferenceMutex;
 std::once_flag backendInit;
+using Model = std::unique_ptr<llama_model, decltype(&llama_model_free)>;
+Model cachedModel(nullptr, llama_model_free);
+std::string cachedPath;
 std::string bytes(JNIEnv *env, jbyteArray value) {
     const auto length = env->GetArrayLength(value);
     std::string result(length, '\0');
     env->GetByteArrayRegion(value, 0, length, reinterpret_cast<jbyte *>(result.data()));
     return result;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_GgufNative_release(JNIEnv *env, jobject, jbyteArray modelPath) {
+    std::lock_guard<std::mutex> lock(inferenceMutex);
+    if (cachedPath == bytes(env, modelPath)) {
+        cachedModel.reset();
+        cachedPath.clear();
+    }
 }
 }
 
@@ -44,11 +56,16 @@ Java_com_example_GgufNative_generate(JNIEnv *env, jobject, jbyteArray modelPath,
         modelParams.load_mode = LLAMA_LOAD_MODE_MMAP;
         // Gemma 4's large per-layer embeddings are lookup tables; read their rows on demand.
         modelParams.lazy_mode = LLAMA_LAZY_MODE_ON;
-        using Model = std::unique_ptr<llama_model, decltype(&llama_model_free)>;
-        Model model(llama_model_load_from_file(path.c_str(), modelParams), llama_model_free);
+        if (cachedPath != path || !cachedModel) {
+            cachedModel.reset();
+            cachedPath.clear();
+            cachedModel.reset(llama_model_load_from_file(path.c_str(), modelParams));
+            if (cachedModel) cachedPath = path;
+        }
+        auto *model = cachedModel.get();
         if (!model) throw std::runtime_error("Cannot load local model; check available memory");
         check();
-        const auto *vocab = llama_model_get_vocab(model.get());
+        const auto *vocab = llama_model_get_vocab(model);
         const int count = -llama_tokenize(vocab, prompt.data(), prompt.size(), nullptr, 0, true, true);
         constexpr int maxOutput = 384;
         constexpr int contextSize = 2048;
@@ -64,7 +81,7 @@ Java_com_example_GgufNative_generate(JNIEnv *env, jobject, jbyteArray modelPath,
         params.n_threads = std::max(1u, std::min(4u, std::thread::hardware_concurrency()));
         params.n_threads_batch = params.n_threads;
         using Context = std::unique_ptr<llama_context, decltype(&llama_free)>;
-        Context ctx(llama_init_from_model(model.get(), params), llama_free);
+        Context ctx(llama_init_from_model(model, params), llama_free);
         if (!ctx) throw std::runtime_error("Not enough memory for local polish");
         using Sampler = std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)>;
         Sampler sampler(llama_sampler_init_greedy(), llama_sampler_free);

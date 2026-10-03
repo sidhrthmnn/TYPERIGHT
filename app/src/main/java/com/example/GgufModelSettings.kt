@@ -26,6 +26,14 @@ internal fun GgufModelSettings(settings: KeyboardSettings) {
     val scope = rememberCoroutineScope()
     val links = LocalUriHandler.current
     var models by remember { mutableStateOf(GgufModelCatalog.all(context)) }
+    var cloud by remember { mutableStateOf(settings.activeAiEngine == ActiveAiEngine.ONLINE) }
+    var fallback by remember { mutableStateOf(settings.cloudFallbackEnabled) }
+    var cloudModel by remember { mutableStateOf(settings.cloudModel) }
+    var apiKey by remember { mutableStateOf("") }
+    var configured by remember { mutableStateOf(CloudPolishEngine.isConfigured(context)) }
+    var cloudError by remember { mutableStateOf<String?>(null) }
+    var contextEnabled by remember { mutableStateOf(settings.contextualCorrectionEnabled) }
+    var contextModel by remember { mutableStateOf(settings.contextualModelId) }
     var selected by remember { mutableStateOf(LocalGgufModel.selected(context).id) }
     var enabled by remember { mutableStateOf(settings.activeAiEngine == ActiveAiEngine.OFFLINE) }
     var revision by remember { mutableIntStateOf(0) }
@@ -39,6 +47,7 @@ internal fun GgufModelSettings(settings: KeyboardSettings) {
         models = GgufModelCatalog.all(context)
         selected = LocalGgufModel.selected(context).id
         enabled = settings.activeAiEngine == ActiveAiEngine.OFFLINE
+        cloud = settings.activeAiEngine == ActiveAiEngine.ONLINE
         revision++
     }
     DisposableEffect(settings) {
@@ -109,10 +118,47 @@ internal fun GgufModelSettings(settings: KeyboardSettings) {
             Text("Speed and memory use depend on your phone and the selected model.", style = MaterialTheme.typography.bodySmall)
         }
     }
+    AppSettingsCard(Modifier.testTag("cloud_polish_card")) {
+        AppSwitchRow("Cloud AI polish", "Use your Gemini API key for writing tools", cloud, {
+            settings.setActiveAiEngine(if (it) ActiveAiEngine.ONLINE else ActiveAiEngine.OFFLINE); refresh()
+        }, "cloud_polish_switch", Icons.Default.AutoAwesome)
+        AppSwitchRow("Cloud fallback", "Send text to Gemini if explicit local AI polish fails", fallback, {
+            fallback = it; settings.cloudFallbackEnabled = it
+        }, "cloud_fallback_switch", Icons.Default.AutoAwesome)
+        Text("Cloud requests send the text you polish and nearby context to Google. Keystroke suggestions and sentence correction stay on-device.", style = MaterialTheme.typography.bodySmall)
+        if (cloud || fallback) {
+            OutlinedTextField(cloudModel, { cloudModel = it; settings.cloudModel = it }, label = { Text("Gemini model ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(apiKey, { apiKey = it }, label = { Text(if (configured) "API key saved · enter to replace" else "Gemini API key") },
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password), modifier = Modifier.fillMaxWidth().testTag("cloud_api_key"))
+            Row {
+                TextButton(enabled = apiKey.isNotBlank(), onClick = { scope.launch {
+                    try { CloudPolishEngine.saveKey(context, apiKey); apiKey = ""; configured = true; cloudError = null }
+                    catch (e: Exception) { cloudError = "Could not save key on this device" }
+                } }) { Text("Save key") }
+                if (configured) TextButton(onClick = { scope.launch { CloudPolishEngine.saveKey(context, ""); configured = false } }) { Text("Remove key") }
+            }
+            cloudError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+    }
+    AppSettingsCard(Modifier.testTag("context_correction_card")) {
+        AppSwitchRow("Sentence correction", "Suggest minimal grammar fixes after a pause, entirely on this device", contextEnabled, {
+            contextEnabled = it; settings.contextualCorrectionEnabled = it
+        }, "context_correction_switch", Icons.Default.AutoAwesome)
+        if (contextEnabled) {
+            Text("Review each edit before accepting. Typing cancels pending edits. Download one of these small models above.", style = MaterialTheme.typography.bodySmall)
+            models.filter { it.id in setOf("local-qwen3-0.6b", "local-qwen3-1.7b") }.forEach { model ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(contextModel == model.id, onClick = { contextModel = model.id; settings.contextualModelId = model.id }, Modifier.testTag("context_model_${model.id}"))
+                    Text(model.name + if (LocalGgufModel.isReady(context, model)) " · Installed" else " · Download required")
+                }
+            }
+        }
+    }
     consent?.let { model ->
-        AlertDialog(onDismissRequest = { consent = null }, title = { Text("Gemma 3 terms") },
+        AlertDialog(onDismissRequest = { consent = null }, title = { Text("${model.name} terms") },
             text = { Column {
-                Text("Gemma 3 uses Google's Gemma terms and prohibited-use policy. Review both before downloading.")
+                Text("${model.name} uses Google's Gemma terms and prohibited-use policy. Review both before downloading.")
                 TextButton(onClick = { links.openUri(model.terms) }) { Text("Read terms") }
                 TextButton(onClick = { links.openUri("https://ai.google.dev/gemma/prohibited_use_policy") }) { Text("Read use policy") }
             } }, confirmButton = { Button(onClick = { LocalGgufModel.acceptTerms(context, true, model); consent = null; download(model) }, Modifier.testTag("model_accept_terms")) { Text("Accept & download") } },

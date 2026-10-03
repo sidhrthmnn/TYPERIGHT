@@ -11,6 +11,8 @@ screenshots, and UI verification.
 See [voice input](docs/VOICE_INPUT.md) for live editor updates, the icon-only
 toolbar, final-result handling, and speech-service requirements.
 
+See [ranked multilingual autocorrection](docs/UNIFIED_AUTOCORRECT.md) for the unified candidate pipeline, undo feedback, optional sentence edits and regression measurements.
+
 See [adaptive typing and smart clipboard](docs/PERSONAL_TYPING_AND_SMART_CLIPBOARD.md) for accepted-polish learning, personal word ranking, screenshot access, and copied-code suggestions.
 
 Type Right is an intelligent, modern Android keyboard designed to make typing faster, smarter, and effortless. Combining smart text predictions, an AI-powered writing assistant, extensive visual customization, and dynamic vocabulary updates, Type Right helps you write with speed, confidence, and style in any app.
@@ -92,11 +94,11 @@ Type Right is an intelligent, modern Android keyboard designed to make typing fa
 
 ### 9. Privacy & Control
 * **On-Device Core Processing**: Standard typing, predictions, and dictionary lookups operate entirely on your device.
-* **Configurable AI Modes**: Select an on-device GGUF model for AI polish or turn AI off.
+* **Configurable AI Modes**: Select an on-device GGUF model, configure optional Gemini cloud polish/fallback, or turn polishing off.
 * **Profanity Filter**: Optional filter to keep suggestions clean and family-friendly.
 
 ## Local GGUF AI polish
 
-AI Polish settings let users select and download **GRMR 1.5B** (recommended for English grammar and wording), **Gemma 3 1B**, **Gemma 4 E2B**, or add a compatible GGUF by HTTPS URL and SHA-256 checksum. Installed models coexist and run offline on a 64-bit Android device. All three catalog models' actual weights are committed through Git LFS (about 5.14 GB); they are downloaded separately from the APK. See [setup, model provenance, and verification](docs/LOCAL_GGUF.md).
+AI Polish settings let users select and download **GRMR 1.5B** (recommended for English editing), **Qwen3 0.6B**, **Qwen3 1.7B**, **Qwen3 4B Q4**, **Gemma 3n E2B**, **Gemma 3 1B**, **Gemma 4 E2B**, or add a compatible GGUF by HTTPS URL and SHA-256 checksum. Installed models coexist and run offline on a 64-bit Android device. All seven catalog models' actual weights are committed through Git LFS (about 12.2 GB); they are downloaded separately from the APK. See [setup, model provenance, and verification](docs/LOCAL_GGUF.md).
 
-Polishing uses bounded context from the active editor to preserve meaning, questions and refusals, and validates numbers, URLs and email addresses. Autocorrection now requires an unambiguous candidate, protects personal words and separates completions from automatic replacements. Predictions cancel obsolete requests and back off from sparse context. The dictionary includes 46,693 frequency-ranked English words. See [typing research and design choices](docs/TYPING_RESEARCH.md).
+Polishing uses bounded context from the active editor to preserve meaning, questions and refusals, and validates numbers, URLs and email addresses. Autocorrection requires an unambiguous candidate, protects personal words and separates completions from automatic replacements. Predictions cancel obsolete requests and back off from sparse context. The dictionary includes 46,693 frequency-ranked English words plus 59 multilingual tables. Optional local sentence correction follows a pause and requires accepting a minimal edit; no LLM runs on keystrokes. See [typing research and design choices](docs/TYPING_RESEARCH.md).
