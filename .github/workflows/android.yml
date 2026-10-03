@@ -22,6 +22,10 @@ jobs:
         with:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
+      - name: Reproduce baseline and evaluation splits
+        run: |
+          python3 tools/train_typing_ranker.py
+          git diff --exit-code -- app/src/main/assets/dictionaries/ranker-baseline.tsv app/src/test/resources/typing-generated.json tools/typing-training-manifest.json
       - name: Unit tests and debug APK
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
       - name: Test reports
@@ -32,3 +36,8 @@ jobs:
           path: |
             app/build/reports/tests/
             app/build/reports/autocorrect/
+      - name: Installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TypeRight-191.0-internal-learning-${{ github.sha }}
+          path: app/build/outputs/apk/debug/app-debug.apk

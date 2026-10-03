@@ -7,6 +7,9 @@ import androidx.room.Query
 
 @Dao
 interface LearnedWordDao {
+    @Query("DELETE FROM learned_words")
+    suspend fun clearAll()
+
     @Query("SELECT * FROM learned_words ORDER BY frequency DESC, timestamp DESC")
     suspend fun getAllWords(): List<LearnedWord>
 

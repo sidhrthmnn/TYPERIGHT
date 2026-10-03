@@ -105,140 +105,20 @@ class PredictiveTextSuggestionService(
             )
         }
 
-        // 1. Check for User Custom Dictionary Shortcut Expansion (e.g. "omw" -> "On my way!")
-        val shortcutExpansion = if (prefix.isNotEmpty()) {
-            userDictionaryRepository.getShortcutExpansion(prefix)
-        } else null
-
-        // 2. Fetch Gboard 3-slot candidate generation (Symmetric Deletion + Gaussian Spatial Proximity)
-        val gboardResult = dictionaryManager.getGboardPredictions(
-            rawTyped = prefix,
-            contextWords = contextWords,
-            tapCoords = buffer.tapCoords.ifEmpty { null }
-        )
-
-        // 3. Multi-Order N-gram Next-Word Suggestions (In-Memory + Room Database)
-        val inMemoryNGramPredictions = if (contextWords.isNotEmpty()) {
-            nGramModel.predictNextWords(
-                contextWords = contextWords,
-                prefix = prefix,
-                maxResults = 5
-            )
-        } else if (prefix.isNotEmpty()) {
-            nGramModel.predictNextWords(
-                contextWords = emptyList(),
-                prefix = prefix,
-                maxResults = 5
-            )
-        } else {
-            emptyList()
-        }
-
-        // Query Room Database for Offline N-gram frequencies
-        val roomNGramPredictions = if (contextWords.isNotEmpty()) {
-            val order = when {
-                contextWords.size >= 2 -> 3 // Trigram
-                else -> 2 // Bigram
-            }
-            val ctxString = when (order) {
-                3 -> "${contextWords[contextWords.size - 2]} ${contextWords.last()}"
-                else -> contextWords.last()
-            }
-            userDictionaryRepository.getOfflineNGramPredictions(
-                ngramOrder = order,
-                context = ctxString,
-                prefix = prefix,
-                limit = 5
-            ).map { it.nextWord }
-        } else {
-            emptyList()
-        }
-
-        // Merge in-memory and Room offline N-gram predictions (prioritizing Room offline learned terms)
-        val nGramPredictions = (roomNGramPredictions + inMemoryNGramPredictions)
-            .distinct()
-            .filter { !dictionaryManager.isBlocked(it) }
-            .take(5)
-
-        // 4. Multi-word phrase completions from N-Gram Model (when at word boundary)
-        val phraseCompletions = if (prefix.isEmpty() && contextWords.isNotEmpty()) {
-            nGramModel.predictNextPhrases(contextWords, maxResults = 3).filter { phrase ->
-                phrase.split(" ").none { dictionaryManager.isBlocked(it) }
-            }
-        } else {
-            emptyList()
-        }
-
-        // 5. Query user custom dictionary & frequently used words matching prefix
-        val customMatches = if (prefix.length >= 2) {
-            withContext(ioDispatcher) {
-                userDictionaryRepository.searchPrefix(prefix, limit = 3).filter { !dictionaryManager.isBlocked(it) }
-            }
-        } else {
-            emptyList()
-        }
-
-        // 6. Assemble and rank candidates for the suggestion strip
-        val rawLeft: String
-        val rawCenter: String
-        val rawRight: String
-        val isCenterAutocorrecting: Boolean
-
-        if (shortcutExpansion != null && !dictionaryManager.isBlocked(shortcutExpansion)) {
-            // Text expansion shortcut triggered
-            rawLeft = if (!dictionaryManager.isBlocked(prefix)) prefix else ""
-            rawCenter = shortcutExpansion
-            rawRight = nGramPredictions.firstOrNull { it != rawCenter } ?: gboardResult.rightCandidate
-            isCenterAutocorrecting = true
-        } else {
-            rawLeft = gboardResult.leftCandidate.ifEmpty { if (!dictionaryManager.isBlocked(prefix)) prefix else "" }
-            
-            // If custom word exists matching prefix, elevate it to center candidate
-            val topCustom = customMatches.firstOrNull()
-            if (topCustom != null && !topCustom.equals(prefix, ignoreCase = true) && !gboardResult.isCenterAutocorrecting) {
-                rawCenter = topCustom
-                isCenterAutocorrecting = false // A personal prefix completion still requires a tap.
-            } else {
-                rawCenter = gboardResult.centerCandidate.ifEmpty {
-                    nGramPredictions.firstOrNull() ?: if (!dictionaryManager.isBlocked(prefix)) prefix else ""
-                }
-                isCenterAutocorrecting = gboardResult.isCenterAutocorrecting && !dictionaryManager.isBlocked(rawCenter)
-            }
-
-            // Right slot: high-probability next word from N-gram model or Gboard prediction
-            rawRight = nGramPredictions.firstOrNull { it != rawCenter && it != rawLeft }
-                ?: gboardResult.rightCandidate
-        }
-
-        val leftCandidate = if (!dictionaryManager.isBlocked(rawLeft)) rawLeft else ""
-        val centerCandidate = if (!dictionaryManager.isBlocked(rawCenter)) rawCenter else (nGramPredictions.firstOrNull { it != leftCandidate } ?: "")
-        val rightCandidate = if (!dictionaryManager.isBlocked(rawRight)) rawRight else (nGramPredictions.firstOrNull { it != centerCandidate && it != leftCandidate } ?: "")
-
-        // Aggregate deduplicated suggestions list
-        val aggregateList = mutableListOf<String>()
-        if (shortcutExpansion != null && !dictionaryManager.isBlocked(shortcutExpansion)) {
-            aggregateList.add(shortcutExpansion)
-        }
-        if (centerCandidate.isNotEmpty() && !dictionaryManager.isBlocked(centerCandidate)) aggregateList.add(centerCandidate)
-        if (leftCandidate.isNotEmpty() && !aggregateList.contains(leftCandidate) && !dictionaryManager.isBlocked(leftCandidate)) aggregateList.add(leftCandidate)
-        if (rightCandidate.isNotEmpty() && !aggregateList.contains(rightCandidate) && !dictionaryManager.isBlocked(rightCandidate)) aggregateList.add(rightCandidate)
-        for (w in customMatches) {
-            if (!aggregateList.contains(w) && !dictionaryManager.isBlocked(w)) aggregateList.add(w)
-        }
-        for (w in nGramPredictions) {
-            if (!aggregateList.contains(w) && !dictionaryManager.isBlocked(w)) aggregateList.add(w)
-        }
-
-        PredictiveTextSuggestions(
-            leftCandidate = leftCandidate,
-            centerCandidate = centerCandidate,
-            rightCandidate = rightCandidate,
-            suggestionsList = aggregateList.filter { !dictionaryManager.isBlocked(it) }.take(6),
-            phraseCompletions = phraseCompletions,
-            shortcutExpansion = shortcutExpansion?.takeIf { !dictionaryManager.isBlocked(it) },
-            isCenterAutocorrecting = isCenterAutocorrecting && !dictionaryManager.isBlocked(centerCandidate),
-            sourceBuffer = buffer
-        )
+        val shortcut = userDictionaryRepository.getShortcutExpansion(prefix)?.takeUnless(dictionaryManager::isBlocked)
+        val ranker = dictionaryManager.correctionPipeline
+        ranker.awaitDictionaries()
+        val corrections = if (prefix.isNotEmpty()) ranker.rank(prefix, contextWords, buffer.tapCoords, layout = buffer.layout) else null
+        val ranked = if (prefix.isEmpty()) ranker.nextWords(contextWords, 6) else {
+            val correctionWords = corrections?.candidates.orEmpty().map { it.word }
+            val completions = ranker.prefix(prefix, contextWords, buffer.tapCoords, buffer.layout).candidates.map { it.word }
+            if (corrections?.tier != ConfidenceTier.LOW) correctionWords + completions else completions + correctionWords
+        }.distinctBy(MultilingualLexicon::normalize).filter { !dictionaryManager.isBlocked(it) }.take(6)
+        val center = shortcut ?: (corrections?.takeIf { it.tier != ConfidenceTier.LOW }?.suggestion ?: ranked.firstOrNull().orEmpty())
+        val left = if (prefix.isNotEmpty() && !center.equals(prefix,true)) prefix else ranked.firstOrNull { !it.equals(center,true) }.orEmpty()
+        val right = ranked.firstOrNull { !it.equals(center,true) && !it.equals(left,true) }.orEmpty()
+        PredictiveTextSuggestions(left, center, right, (listOf(center,left,right)+ranked).filter(String::isNotBlank).distinct().take(6),
+            if(prefix.isEmpty()) ranker.nextPhrases(contextWords) else emptyList(), shortcut, corrections?.automatic != null, buffer)
     }
 
     /**

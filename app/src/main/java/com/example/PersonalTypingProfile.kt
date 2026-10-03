@@ -22,8 +22,13 @@ class PersonalTypingProfile internal constructor(context: Context) {
     private var pending: ScheduledFuture<*>? = null
     private val writeLock = Any()
 
-    init {
-        runCatching {
+    data class Snapshot(val words: Map<String, Int>, val transitions: Map<String, Int>, val corrections: Map<String, Int>, val rejections: Map<String, Int>, val recency: Map<String,Float> = emptyMap())
+    @Volatile private var snapshot = Snapshot(emptyMap(), emptyMap(), emptyMap(), emptyMap())
+    private var resetEpoch = 0L
+    val ready = kotlinx.coroutines.CompletableDeferred<Unit>()
+    init { writer.execute {
+        synchronized(this) { runCatching {
+            if (resetEpoch != 0L) return@runCatching
             val json = JSONObject(prefs.getString("profile", "{}") ?: "{}")
             fun read(name: String, target: MutableMap<String, Int>, limit: Int) {
                 val entries = json.optJSONArray(name) ?: return
@@ -34,7 +39,10 @@ class PersonalTypingProfile internal constructor(context: Context) {
             }
             read("words", words, 2000); read("transitions", transitions, 4000); read("corrections", corrections, 500); read("rejections", rejections, 500)
         }.onFailure { words.clear(); transitions.clear(); corrections.clear(); rejections.clear() }
-    }
+        publish()
+        }
+        ready.complete(Unit)
+    } }
 
     @Synchronized fun observe(word: String, context: List<String>) {
         val clean = normalize(word)
@@ -47,19 +55,21 @@ class PersonalTypingProfile internal constructor(context: Context) {
         scheduleWrite()
     }
 
-    @Synchronized fun candidates(prefix: String, context: List<String>): List<String> =
-        words.keys.filter { it.startsWith(normalize(prefix)) }
+    fun candidates(prefix: String, context: List<String>): List<String> =
+        snapshot.words.keys.filter { it.startsWith(normalize(prefix)) }
             .sortedByDescending { boost(it, context) }.take(12)
 
-    @Synchronized fun boost(word: String, context: List<String>): Float {
+    fun boost(word: String, context: List<String>): Float {
+        val state = snapshot
         val clean = normalize(word)
-        val uses = words[clean] ?: 0
-        val one = context.takeLast(1).map(::normalize).joinToString(" ")
-        val two = context.takeLast(2).map(::normalize).joinToString(" ")
-        val matches = (1..minOf(5, context.size)).maxOfOrNull { size -> transitions["${context.takeLast(size).map(::normalize).joinToString(" ")}|$clean"] ?: 0 } ?: 0
+        val uses = state.words[clean] ?: 0
+        val matches = (1..minOf(5, context.size)).maxOfOrNull { size -> state.transitions["${context.takeLast(size).map(::normalize).joinToString(" ")}|$clean"] ?: 0 } ?: 0
         // A few repeated choices can beat generic corpus priors without replacing valid typed words.
         return (uses.coerceAtMost(12) * .015f + matches.coerceAtMost(8) * .10f).coerceAtMost(.9f)
     }
+
+    /** Bounded recency snapshot from the last 64 vocabulary updates; no clock or message log. */
+    fun recency(word: String): Float = snapshot.recency[normalize(word)] ?: 0f
 
     /** Called only after an explicit acceptance successfully changes the editor. */
     @Synchronized fun acceptPolish(original: String, polished: String, isKnown: (String) -> Boolean): List<String> {
@@ -103,7 +113,8 @@ class PersonalTypingProfile internal constructor(context: Context) {
         return receipt
     }
 
-    @Synchronized fun correction(word: String, context: List<String>): String? {
+    fun correction(word: String, context: List<String>): String? {
+        val corrections = snapshot.corrections
         val clean = normalize(word)
         if (!isWord(clean)) return null
         val scopes = listOf(context.takeLast(2).map(::normalize).joinToString(" "), "*")
@@ -138,16 +149,17 @@ class PersonalTypingProfile internal constructor(context: Context) {
         scheduleWrite()
     }
 
-    @Synchronized fun isTrusted(word: String) = (words[normalize(word)] ?: 0) >= 3
-    @Synchronized fun rejectionPenalty(source: String, target: String): Float =
-        ((rejections["${normalize(source)}|${normalize(target)}"] ?: 0) * .8f).coerceAtMost(1f)
-    @Synchronized fun acceptedEvidence(source: String, target: String, context: List<String>): Float {
+    fun isTrusted(word: String) = (snapshot.words[normalize(word)] ?: 0) >= 3
+    fun rejectionPenalty(source: String, target: String): Float =
+        ((snapshot.rejections["${normalize(source)}|${normalize(target)}"] ?: 0) * .8f).coerceAtMost(1f)
+    fun acceptedEvidence(source: String, target: String, context: List<String>): Float {
+        val corrections = snapshot.corrections
         val prior = context.takeLast(2).map(::normalize).joinToString(" ")
         return maxOf(corrections["*|${normalize(source)}|${normalize(target)}"] ?: 0,
             corrections["$prior|${normalize(source)}|${normalize(target)}"] ?: 0).coerceAtMost(5) / 5f
     }
 
-    @Synchronized fun clear() { words.clear(); transitions.clear(); corrections.clear(); rejections.clear(); scheduleWrite() }
+    @Synchronized fun clear() { resetEpoch++; words.clear(); transitions.clear(); corrections.clear(); rejections.clear(); scheduleWrite() }
 
     private fun increment(map: MutableMap<String, Int>, key: String, limit: Int) {
         val value = ((map.remove(key) ?: 0) + 1).coerceAtMost(1000)
@@ -155,7 +167,12 @@ class PersonalTypingProfile internal constructor(context: Context) {
         while (map.size > limit) map.remove(map.keys.first())
     }
 
+    private fun publish() {
+        val recent=words.keys.toList().takeLast(64)
+        snapshot = Snapshot(words.toMap(), transitions.toMap(), corrections.toMap(), rejections.toMap(), recent.mapIndexed { i, word -> word to (i+1f)/maxOf(1,recent.size) }.toMap())
+    }
     private fun scheduleWrite() {
+        publish()
         revision++
         pending?.cancel(false)
         pending = writer.schedule({ flush() }, 250, TimeUnit.MILLISECONDS)
@@ -182,7 +199,7 @@ class PersonalTypingProfile internal constructor(context: Context) {
             }
         }
         private fun normalize(word: String) = MultilingualLexicon.normalize(word)
-        private fun isWord(word: String) = word.length in 2..32 && word.any(Char::isLetter) && word.all { TypingPolicy.isWordCharacter(it) && !it.isDigit() }
+        private fun isWord(word: String) = word.length in 1..32 && word.any(Char::isLetter) && word.all { TypingPolicy.isWordCharacter(it) && !it.isDigit() }
         private fun tokens(text: String) = text.split(Regex("\\s+")).filter(String::isNotBlank)
             .map { normalize(it.trim { c -> !TypingPolicy.isWordCharacter(c) }) }
         internal fun plausibleTypo(a: String, b: String): Boolean {

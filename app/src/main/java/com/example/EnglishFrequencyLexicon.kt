@@ -16,11 +16,15 @@ class EnglishFrequencyLexicon private constructor(context: Context) {
     @Volatile private var correctionIndex: CompactCorrectionIndex? = null
     private val indexLock = Any()
     @Volatile private var phonetics: Map<String, List<String>> = emptyMap()
+    @Volatile var canonical: Set<String> = emptySet()
+        private set
     val ready = scope.async {
+        canonical = context.assets.open("dictionaries/english_canonical.txt").bufferedReader().useLines { it.toSet() }
         val loaded = context.assets.open("dictionaries/english_frequency.tsv").bufferedReader().useLines { lines ->
             lines.associate { line -> val (word, frequency) = line.split('\t'); word to frequency.toInt() }
         }
-        words = loaded.keys.sorted()
+        // Subtitle frequencies describe usage, not spelling correctness (they contain typos).
+        words = loaded.keys.filter { it in canonical }.sorted()
         frequencies = loaded
         ensureCorrectionIndex()
         phonetics = loaded.entries.asSequence().filter { it.key.length in 3..24 && it.key.all { c -> c in 'a'..'z' } }
@@ -88,7 +92,7 @@ internal class CompactCorrectionIndex(
     private val deletes = HashMap<String, WordIds>()
     init {
         words.forEachIndexed { id, word ->
-            scorer.getDeletes(word.take(5), 2).forEach { variant ->
+            scorer.getDeletes(word.take(7), 2).forEach { variant ->
                 deletes.getOrPut(variant) { WordIds() }.add(id)
             }
         }
@@ -100,7 +104,7 @@ internal class CompactCorrectionIndex(
         val order = compareBy<SymSpellCorrectionEngine.SuggestionItem> { it.distance }
             .thenByDescending { it.frequency }.thenBy { it.term }
         val best = PriorityQueue(order.reversed())
-        scorer.getDeletes(clean.take(5), 2).forEach { variant ->
+        scorer.getDeletes(clean.take(7), if (maxDistance <= 1f) 1 else 2).forEach { variant ->
             val ids = deletes[variant] ?: return@forEach
             for (i in 0 until ids.size) {
                 val id = ids.values[i]

@@ -96,7 +96,7 @@ class SymSpellCorrectionEngine(
         if (lower.isEmpty() || lower.length > 32 || maxResults <= 0) return emptyList()
 
         val candidates = HashSet<String>()
-        val inputDeletes = getDeletes(lower.take(prefixLength), maxEditDistance)
+        val inputDeletes = getDeletes(lower.take(prefixLength), if (maxDistance <= 1f) minOf(1,maxEditDistance) else maxEditDistance)
 
         // 1. Direct dictionary match
         if (wordFrequencyMap.containsKey(lower)) {

@@ -1,0 +1,304 @@
+{
+  "partition": "calibration plus authored required-miss guards; no holdout access",
+  "cases": 9867,
+  "sourceSHA256": "743c572d1683ff0b647cfa99a3aabefe5a3aa0f936c87b1aca46ecce56cff24a",
+  "selectionRule": "precision>=.995, recall>=.90, required misses pass; maximize recall then temperature then threshold",
+  "selected": {
+    "temperature": 0.2,
+    "threshold": 0.99,
+    "precision": 0.9976878612716763,
+    "recall": 0.9998670035909031,
+    "changes": 7785,
+    "requiredMissesPass": true
+  },
+  "sweep": [
+    {
+      "temperature": 0.1,
+      "threshold": 0.985,
+      "precision": 0.9962121212121212,
+      "recall": 0.9998670035909031,
+      "changes": 7920,
+      "requiredMissesPass": true
+    },
+    {
+      "temperature": 0.1,
+      "threshold": 0.99,
+      "precision": 0.9963337547408344,
+      "recall": 0.9998670035909031,
+      "changes": 7910,
+      "requiredMissesPass": true
+    },
+    {
+      "temperature": 0.1,
+      "threshold": 0.995,
+      "precision": 0.9964507542147294,
+      "recall": 0.9998670035909031,
+      "changes": 7889,
+      "requiredMissesPass": true
+    },
+    {
+      "temperature": 0.1,
+      "threshold": 0.999,
+      "precision": 0.9970674486803519,
+      "recall": 0.9998670035909031,
+      "changes": 7843,
+      "requiredMissesPass": true
+    },
+    {
+      "temperature": 0.15,
+      "threshold": 0.985,
+      "precision": 0.9969450101832994,
+      "recall": 0.9998670035909031,
+      "changes": 7856,
+      "requiredMissesPass": true
+    },
+    {
+      "temperature": 0.15,
+      "threshold": 0.99,
+      "precision": 0.9970670747258352,
+      "recall": 0.9998670035909031,
+      "changes": 7842,
+      "requiredMissesPass": true
+    },
+    {
+      "temperature": 0.15,
+      "threshold": 0.995,
+      "precision": 0.9971870604781997,
+      "recall": 0.9998670035909031,
+      "changes": 7821,
+      "requiredMissesPass": true
+    },
+    {
+      "temperature": 0.15,
+      "threshold": 0.999,
+      "precision": 0.9978089960046398,
+      "recall": 0.9998670035909031,
+      "changes": 7759,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.2,
+      "threshold": 0.985,
+      "precision": 0.9971830985915493,
+      "recall": 0.9998670035909031,
+      "changes": 7810,
+      "requiredMissesPass": true
+    },
+    {
+      "temperature": 0.2,
+      "threshold": 0.99,
+      "precision": 0.9976878612716763,
+      "recall": 0.9998670035909031,
+      "changes": 7785,
+      "requiredMissesPass": true
+    },
+    {
+      "temperature": 0.2,
+      "threshold": 0.995,
+      "precision": 0.9979357502257773,
+      "recall": 0.9998670035909031,
+      "changes": 7751,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.2,
+      "threshold": 0.999,
+      "precision": 0.9986975774941391,
+      "recall": 0.9994680143636122,
+      "changes": 7678,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.35,
+      "threshold": 0.985,
+      "precision": 0.9986945169712794,
+      "recall": 0.9986700359090305,
+      "changes": 7660,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.35,
+      "threshold": 0.99,
+      "precision": 0.9986910994764397,
+      "recall": 0.9981380502726427,
+      "changes": 7640,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.35,
+      "threshold": 0.995,
+      "precision": 0.9990768825003297,
+      "recall": 0.9948131400452188,
+      "changes": 7583,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.35,
+      "threshold": 0.999,
+      "precision": 0.9995924466784404,
+      "recall": 0.9712727756350579,
+      "changes": 7361,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.5,
+      "threshold": 0.985,
+      "precision": 0.9994649545211343,
+      "recall": 0.9840404309083655,
+      "changes": 7476,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.5,
+      "threshold": 0.99,
+      "precision": 0.9994582148178247,
+      "recall": 0.9737997074079,
+      "changes": 7383,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.5,
+      "threshold": 0.995,
+      "precision": 0.9995824634655532,
+      "recall": 0.9495943609522542,
+      "changes": 7185,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.5,
+      "threshold": 0.999,
+      "precision": 1.0,
+      "recall": 0.8498470541295385,
+      "changes": 6400,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.75,
+      "threshold": 0.985,
+      "precision": 1.0,
+      "recall": 0.865673626812076,
+      "changes": 6525,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.75,
+      "threshold": 0.99,
+      "precision": 1.0,
+      "recall": 0.8216518154009842,
+      "changes": 6185,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.75,
+      "threshold": 0.995,
+      "precision": 1.0,
+      "recall": 0.7461098550339141,
+      "changes": 5613,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 0.75,
+      "threshold": 0.999,
+      "precision": 1.0,
+      "recall": 0.5377044819789866,
+      "changes": 4044,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 1.0,
+      "threshold": 0.985,
+      "precision": 1.0,
+      "recall": 0.6669769916212263,
+      "changes": 5017,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 1.0,
+      "threshold": 0.99,
+      "precision": 1.0,
+      "recall": 0.5984838409362947,
+      "changes": 4501,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 1.0,
+      "threshold": 0.995,
+      "precision": 1.0,
+      "recall": 0.48317595424923526,
+      "changes": 3634,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 1.0,
+      "threshold": 0.999,
+      "precision": 1.0,
+      "recall": 0.2699827104668174,
+      "changes": 2031,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 1.5,
+      "threshold": 0.985,
+      "precision": 1.0,
+      "recall": 0.2985769384226626,
+      "changes": 2246,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 1.5,
+      "threshold": 0.99,
+      "precision": 1.0,
+      "recall": 0.24098949328368133,
+      "changes": 1813,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 1.5,
+      "threshold": 0.995,
+      "precision": 1.0,
+      "recall": 0.1822050804628275,
+      "changes": 1370,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 1.5,
+      "threshold": 0.999,
+      "precision": 1.0,
+      "recall": 0.010772709136853305,
+      "changes": 81,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 2.0,
+      "threshold": 0.985,
+      "precision": 1.0,
+      "recall": 0.13445936959702087,
+      "changes": 1011,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 2.0,
+      "threshold": 0.99,
+      "precision": 1.0,
+      "recall": 0.05399654209336348,
+      "changes": 406,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 2.0,
+      "threshold": 0.995,
+      "precision": 1.0,
+      "recall": 0.007048809682138582,
+      "changes": 53,
+      "requiredMissesPass": false
+    },
+    {
+      "temperature": 2.0,
+      "threshold": 0.999,
+      "precision": 1.0,
+      "recall": 0.00039898922729086314,
+      "changes": 3,
+      "requiredMissesPass": false
+    }
+  ]
+}

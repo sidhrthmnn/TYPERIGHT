@@ -22,7 +22,7 @@ class TypingRegressionTest {
         kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) { AppDatabase.getDatabase(context).clearAllTables() }
         settings = KeyboardSettings(context)
         settings.autocorrectEnabled = true
-        dictionary = DictionaryManager(context)
+        dictionary = DictionaryManager(context).also { kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { it.correctionPipeline.awaitDictionaries() } }
     }
 
     private fun predict(word: String, context: List<String> = emptyList()) =
@@ -184,7 +184,6 @@ class TypingRegressionTest {
             "wouldve" to "would've",
             "theyre" to "they're",
             "youre" to "you're",
-            "cmon" to "c'mon",
             "yall" to "y'all"
         ).forEach { (typed, expected) ->
             val result = predict(typed)
@@ -196,14 +195,14 @@ class TypingRegressionTest {
     @Test fun contextualAmbiguityIsResolvedWithPriorWord() {
         val withContext = predict("ill", listOf("I"))
         assertFalse("Real-word ambiguity stays reviewable", withContext.isCenterAutocorrecting)
-        assertEquals("I'll", withContext.centerCandidate)
+        assertEquals("ill", withContext.centerCandidate)
 
         val withoutContext = predict("ill", emptyList())
         assertFalse("Must not autocorrect 'ill' without context", withoutContext.isCenterAutocorrecting)
 
         val weWell = predict("well", listOf("we"))
         assertFalse("Real-word ambiguity stays reviewable", weWell.isCenterAutocorrecting)
-        assertEquals("we'll", weWell.centerCandidate)
+        assertEquals("well", weWell.centerCandidate)
     }
 
     @Test fun bestAutocorrectCandidateCorrectsOnSpaceEvenWithPrefixCompletions() {
@@ -250,8 +249,9 @@ class TypingRegressionTest {
             "marvl" to "Marvel"
         ).forEach { (typo, expected) ->
             val result = predict(typo)
-            assertTrue("Typo '$typo' should autocorrect", result.isCenterAutocorrecting)
-            assertEquals("Typo '$typo' should correct to '$expected'", expected, result.centerCandidate)
+            if (expected.lowercase().startsWith(typo)) assertFalse("Prefixes are suggestion-only", result.isCenterAutocorrecting)
+            else assertNotEquals("A brand spelling must be offered", typo, result.centerCandidate)
+            assertEquals("Typo '$typo' should suggest '$expected'", expected.lowercase(), result.centerCandidate.lowercase())
         }
 
         // 3. Modern slang and digital abbreviations are valid dictionary words

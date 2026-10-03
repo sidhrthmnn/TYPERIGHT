@@ -26,6 +26,10 @@ class UserDictionaryRepository(
     private val shortcutMap = ConcurrentHashMap<String, String>()
     // Fast in-memory cache of custom words
     private val customWordsSet = ConcurrentHashMap.newKeySet<String>()
+    @Volatile private var customSnapshot: Set<String> = emptySet()
+    @Volatile var vocabularyVersion: Int = 0; private set
+    private fun publishVocabulary() { customSnapshot = customWordsSet.toSet(); vocabularyVersion++ }
+    fun cachedCandidates(prefix: String): List<String> = customSnapshot.filter { it.startsWith(prefix.lowercase()) }.take(12)
     // Fast in-memory cache of blocked suggestion words
     private val blockedWordsSet = ConcurrentHashMap.newKeySet<String>()
 
@@ -178,6 +182,7 @@ class UserDictionaryRepository(
      * Loads saved custom entries and shortcuts into memory for instant access.
      */
     suspend fun warmUpCaches(dictionaryManager: DictionaryManager? = null) = withContext(Dispatchers.IO) {
+        dictionaryManager?.ready?.await()
         seedInitialNGramsIfEmpty()
         val entries = customDictionaryDao.getAllEntries()
         shortcutMap.clear()
@@ -195,6 +200,8 @@ class UserDictionaryRepository(
                 shortcutMap[shortcut] = normalizedWord
             }
         }
+
+        publishVocabulary()
 
         // Pre-warm blocked suggestion words
         val blocked = blockedSuggestionDao.getAllBlockedWords()
@@ -228,7 +235,7 @@ class UserDictionaryRepository(
      * Returns true if the word is in the user's custom dictionary.
      */
     fun isCustomWord(word: String): Boolean {
-        return customWordsSet.contains(word.trim().lowercase())
+        return customSnapshot.contains(word.trim().lowercase())
     }
 
     /**
@@ -287,6 +294,7 @@ class UserDictionaryRepository(
 
         // Update caches
         customWordsSet.add(cleanWord.lowercase())
+        publishVocabulary()
         if (cleanShortcut != null) {
             shortcutMap[cleanShortcut.lowercase()] = cleanWord
         }
@@ -304,6 +312,7 @@ class UserDictionaryRepository(
     suspend fun deleteCustomEntry(entry: CustomDictionaryEntry) = withContext(Dispatchers.IO) {
         customDictionaryDao.deleteEntry(entry)
         customWordsSet.remove(entry.word.trim().lowercase())
+        publishVocabulary()
         entry.shortcut?.let { shortcutMap.remove(it.trim().lowercase()) }
     }
 
@@ -315,6 +324,7 @@ class UserDictionaryRepository(
         val existing = customDictionaryDao.getEntryByWord(clean)
         customDictionaryDao.deleteByWord(clean)
         customWordsSet.remove(clean.lowercase())
+        publishVocabulary()
         existing?.shortcut?.let { shortcutMap.remove(it.trim().lowercase()) }
     }
 
@@ -330,6 +340,15 @@ class UserDictionaryRepository(
      */
     suspend fun clearFrequentlyUsedWords() = withContext(Dispatchers.IO) {
         frequentlyUsedWordDao.clearAll()
+    }
+
+    suspend fun clearAdaptiveStores() = withContext(Dispatchers.IO) {
+        frequentlyUsedWordDao.clearAll()
+        learnedWordDao.clearAll()
+        ngramFrequencyDao.clearAll()
+    }
+    suspend fun explicitWords(): Set<String> = withContext(Dispatchers.IO) {
+        customDictionaryDao.getAllEntries().map { it.word.lowercase().trim() }.toSet()
     }
 
     /**
@@ -353,6 +372,7 @@ class UserDictionaryRepository(
 
         // Purge from custom words, frequent words, learned words, and N-gram observations
         customWordsSet.remove(clean)
+        publishVocabulary()
         customDictionaryDao.deleteByWord(clean)
         frequentlyUsedWordDao.deleteWord(clean)
         learnedWordDao.deleteWord(clean)

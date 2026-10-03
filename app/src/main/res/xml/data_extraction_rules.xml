@@ -2,11 +2,19 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="typeright_personal_learning.xml" />
+        <exclude domain="sharedpref" path="typeright_dictionary.xml" />
+        <exclude domain="database" path="typeright_database" />
+        <exclude domain="database" path="typeright_database-wal" />
+        <exclude domain="database" path="typeright_database-shm" />
         <exclude domain="sharedpref" path="typeright_cloud_credentials.xml" />
         <exclude domain="sharedpref" path="smart_clipboard_dismissals.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="typeright_personal_learning.xml" />
+        <exclude domain="sharedpref" path="typeright_dictionary.xml" />
+        <exclude domain="database" path="typeright_database" />
+        <exclude domain="database" path="typeright_database-wal" />
+        <exclude domain="database" path="typeright_database-shm" />
         <exclude domain="sharedpref" path="typeright_cloud_credentials.xml" />
         <exclude domain="sharedpref" path="smart_clipboard_dismissals.xml" />
     </device-transfer>

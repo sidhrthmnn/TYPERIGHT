@@ -41,6 +41,7 @@ class NGramLanguageModel : IContextLanguageModel {
             if (!following.containsKey(word) && following.size >= 32) following.remove(following.keys.first())
             following.merge(word.lowercase(java.util.Locale.ROOT), 1) { a, b -> minOf(1000, a + b) }
         }
+        if (!bootstrapping) publish()
     }
     // Quadgram map: "w1 w2 w3" -> Map(w4 -> frequency)
     private val quadgrams = ConcurrentHashMap<String, ConcurrentHashMap<String, Int>>()
@@ -62,6 +63,22 @@ class NGramLanguageModel : IContextLanguageModel {
     @Volatile private var frequencyBackoff: List<String> = emptyList()
     @Volatile private var baseFrequencies: Map<String, Int> = emptyMap()
     @Volatile private var baseTotal = 0L
+    private data class Snapshot(val bigrams: Map<String, Map<String,Int>>, val trigrams: Map<String,Map<String,Int>>,
+        val quadgrams: Map<String,Map<String,Int>>, val higherOrders: Map<String,Map<String,Int>>,
+        val unigrams: Map<String,Int>, val personalUnigrams: Map<String,Int>)
+    @Volatile private var predictionSnapshot = Snapshot(emptyMap(),emptyMap(),emptyMap(),emptyMap(),emptyMap(),emptyMap())
+    @Volatile var version = 0L
+        private set
+    @Synchronized private fun publish() {
+        fun freeze(table: ConcurrentHashMap<String, ConcurrentHashMap<String,Int>>): Map<String,Map<String,Int>> {
+            while(table.size > 4000) table.remove(table.keys.first())
+            table.values.forEach { while(it.size > 32) it.remove(it.keys.first()) }
+            return table.mapValues { it.value.toMap() }
+        }
+        while(personalUnigrams.size > 2000) personalUnigrams.remove(personalUnigrams.keys.first())
+        predictionSnapshot = Snapshot(freeze(bigrams),freeze(trigrams),freeze(quadgrams),freeze(higherOrders),unigrams.toMap(),personalUnigrams.toMap())
+        version++
+    }
     /** Probability evidence for the ranker, with up to five context words and count-aware backoff. */
     fun contextEvidence(word: String, context: List<String>): Float =
         (getProbability(word.lowercase(java.util.Locale.ROOT), context.takeLast(5)) * 8f).coerceIn(0f, 1f)
@@ -70,6 +87,7 @@ class NGramLanguageModel : IContextLanguageModel {
         // Share the immutable corpus; each keyboard keeps only its learned/curated counts.
         baseFrequencies = frequencies
         baseTotal = frequencies.values.sumOf { it.toLong() }
+        version++
         frequencyBackoff = frequencies.entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
             .take(200).map { it.key }
     }
@@ -77,6 +95,7 @@ class NGramLanguageModel : IContextLanguageModel {
     init {
         seedCommonNGrams()
         bootstrapping = false
+        publish()
     }
 
     /**
@@ -286,6 +305,7 @@ class NGramLanguageModel : IContextLanguageModel {
             personalUnigrams.merge(target, freq) { a, b -> a + b }
             personalTotal.addAndGet(freq.toLong())
         }
+        if (!bootstrapping) publish()
     }
 
     /**
@@ -328,6 +348,7 @@ class NGramLanguageModel : IContextLanguageModel {
                 }
             }
         }
+        publish()
     }
 
     /**
@@ -337,6 +358,9 @@ class NGramLanguageModel : IContextLanguageModel {
      * backing off to the smoothed lower-order distribution.
      */
     override fun getProbability(word: String, contextWords: List<String>): Float {
+        val state = predictionSnapshot
+        val bigrams=state.bigrams; val trigrams=state.trigrams; val quadgrams=state.quadgrams; val higherOrders=state.higherOrders
+        val unigrams=state.unigrams; val personalUnigrams=state.personalUnigrams
         val target = word.lowercase(java.util.Locale.ROOT).trim()
         if (target.isEmpty()) return 0.000001f
         val context = contextWords.takeLast(5).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
@@ -363,6 +387,9 @@ class NGramLanguageModel : IContextLanguageModel {
      * matching an optional partially typed word prefix.
      */
     override fun predictNextWords(contextWords: List<String>, prefix: String, maxResults: Int): List<String> {
+        val state = predictionSnapshot
+        val bigrams=state.bigrams; val trigrams=state.trigrams; val quadgrams=state.quadgrams; val higherOrders=state.higherOrders
+        val unigrams=state.unigrams; val personalUnigrams=state.personalUnigrams
         if (maxResults <= 0) return emptyList()
         val context = contextWords.takeLast(5).map { it.lowercase(java.util.Locale.ROOT).trim() }.filter { it.isNotEmpty() }
         val cleanPrefix = prefix.lowercase(java.util.Locale.ROOT).trim()

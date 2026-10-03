@@ -49,17 +49,10 @@ class KeyboardEditingTest {
 
     private fun invoke(name: String) = ReflectionHelpers.callInstanceMethod<Unit>(service, name)
     private fun key(value: String) = ReflectionHelpers.callInstanceMethod<Unit>(service, "handleKeyPress", ClassParameter.from(String::class.java, value))
-    private fun preparePredictions() {
-        val dictionary = DictionaryManager.getInstance(service)
-        val word = ReflectionHelpers.getField<androidx.compose.runtime.MutableState<String>>(service, "currentTypedWord").value
-        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) {
-            dictionary.correctionPipeline.rank(word, ReflectionHelpers.getField<androidx.compose.runtime.MutableState<List<String>>>(service, "previousWords").value, ReflectionHelpers.getField<List<android.graphics.PointF>>(service, "currentWordTapCoords"))
-        }
+    private fun type(value: String) {
+        value.forEach { if (it == ' ') invoke("handleSpace") else key(it.toString()) }
+        drainBackgroundEdits()
     }
-    private fun type(value: String) { value.forEach {
-        if (it == ' ') { preparePredictions(); invoke("handleSpace") }
-        else { if (!it.isLetterOrDigit()) preparePredictions(); key(it.toString()) }
-    } }
 
     @Test fun immediateTypoCorrectionCanBeUndoneAndStaysSuppressed() {
         AutocorrectMetrics.reset()
@@ -243,7 +236,13 @@ class KeyboardEditingTest {
     }
 
     private fun drainBackgroundEdits() {
-        repeat(50) { org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle(); Thread.sleep(10) }
+        repeat(300) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(10)); Thread.sleep(10)
+            val dictionary=DictionaryManager.getInstance(service)
+            val coordinator=ReflectionHelpers.getField<Lazy<*>>(service,"typingCoordinator\$delegate")
+            val pending=ReflectionHelpers.getField<List<*>>(coordinator.value,"pending")
+            if(dictionary.ready.isCompleted && EnglishFrequencyLexicon.get(service).ready.isCompleted && pending.isEmpty()) return
+        }
     }
     @Test fun cacheMissCorrectsOnWorkerAndImmediateBackspaceRestoresOriginal() {
         kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { DictionaryManager.getInstance(service).correctionPipeline.awaitDictionaries() }
@@ -258,7 +257,7 @@ class KeyboardEditingTest {
     @Test fun staleBoundaryNeverEditsNewTypingOrAnotherEditor() {
         "teh".forEach { key(it.toString()) }; invoke("handleSpace"); key("x")
         drainBackgroundEdits()
-        assertEquals("teh x", text.toString())
+        assertEquals("the x", text.toString())
         text.clear(); Selection.setSelection(text, 0); useEditor(InputType.TYPE_CLASS_TEXT)
         "teh".forEach { key(it.toString()) }; invoke("handleSpace")
         useEditor(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
@@ -275,6 +274,61 @@ class KeyboardEditingTest {
         assertEquals("teh ", text.toString())
     }
 
+    @Test fun consecutiveCorrectionsKeepTheFollowingComposition() {
+        type("finaly libary buisness!next")
+        assertEquals("finally library business!next",text.toString())
+        assertEquals(text.length-4,BaseInputConnection.getComposingSpanStart(text))
+        assertEquals(text.length,BaseInputConnection.getComposingSpanEnd(text))
+    }
+    @Test fun cursorMovementAndSelectionCancelPendingWordChecks() {
+        "teh".forEach { key(it.toString()) }; invoke("handleSpace")
+        Selection.setSelection(text,0,2)
+        service.onUpdateSelection(4,4,0,2,-1,-1)
+        drainBackgroundEdits()
+        assertEquals("teh ",text.toString())
+        assertEquals(0,Selection.getSelectionStart(text))
+        assertEquals(2,Selection.getSelectionEnd(text))
+        assertFalse(PersonalTypingProfile.get(service).isTrusted("teh"))
+    }
+    @Test fun queuedOwnedSelectionUpdatesPreserveRapidTypingAndComposition() {
+        "teh next".forEach { if(it==' ') invoke("handleSpace") else key(it.toString()) }
+        // These are delayed acknowledgements of our earlier writes, not user cursor movements.
+        service.onUpdateSelection(0,0,1,1,0,1)
+        service.onUpdateSelection(1,1,4,4,-1,-1)
+        service.onUpdateSelection(4,4,5,5,4,5)
+        service.onUpdateSelection(5,5,8,8,4,8)
+        drainBackgroundEdits()
+        assertEquals("the next",text.toString())
+        assertEquals(4,BaseInputConnection.getComposingSpanStart(text))
+        assertEquals(8,BaseInputConnection.getComposingSpanEnd(text))
+    }
+    @Test fun actualCursorMovementAfterAcknowledgedTypingCancelsPendingCorrection() {
+        "teh next".forEach { if(it==' ') invoke("handleSpace") else key(it.toString()) }
+        service.onUpdateSelection(0,0,8,8,4,8)
+        Selection.setSelection(text,2)
+        service.onUpdateSelection(8,8,2,2,4,8)
+        drainBackgroundEdits()
+        assertEquals("teh next",text.toString())
+        assertEquals(2,Selection.getSelectionEnd(text))
+    }
+    @Test fun externalEditsCancelUnsafeRangesAndDoNotTeachCancelledTypos() {
+        "finaly".forEach { key(it.toString()) }; invoke("handleSpace")
+        text.replace(0,6,"external"); Selection.setSelection(text,text.length)
+        drainBackgroundEdits()
+        assertEquals("external ",text.toString())
+        assertFalse(PersonalTypingProfile.get(service).isTrusted("finaly"))
+    }
+    @Test fun identifiersAndDomainsStayLiteralInOrdinaryTextEditors() {
+        type("@buisness teh.com ")
+        assertEquals("@buisness teh.com ",text.toString())
+    }
+    @Test fun contextualCorrectionUsesAvailableFollowingTextAndPreservesIt() {
+        text.append("go over  now"); Selection.setSelection(text,8)
+        type("their ")
+        assertEquals("go over there  now",text.toString())
+        invoke("handleDelete")
+        assertEquals("go over their now",text.toString())
+    }
     @Test fun settingsDisableImmediateCorrection() {
         KeyboardSettings(service).autocorrectEnabled = false
         type("teh ")

@@ -13,10 +13,12 @@ class FrequencyDictionaryDeviceTest {
     @Test fun corpusAndCompactIndexWorkOnAndroid() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val corpus = EnglishFrequencyLexicon.get(context)
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { corpus.ready.await() }
         assertEquals(46_693, corpus.frequencies.size)
         corpus.ensureCorrectionIndex()
         assertTrue(corpus.corrections("photosynhesis", 2f, 8).any { it.term == "photosynthesis" })
         val dictionary = DictionaryManager(context)
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { dictionary.correctionPipeline.awaitDictionaries() }
         assertTrue(dictionary.findWordsWithPrefix("photosyn", 3).contains("photosynthesis"))
         assertFalse(dictionary.isWordInDictionary("helo"))
         assertEquals("hello", dictionary.gboardEngine.getBestAutocorrectCandidate("helo", emptyList(), dictionary))

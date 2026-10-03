@@ -130,7 +130,8 @@ data class TextInputBufferState(
     val activePrefix: String = "",
     val previousWord: String? = null,
     val previousWords: List<String> = emptyList(),
-    val tapCoords: List<PointF> = emptyList(),
+    val tapCoords: List<PointF?> = emptyList(),
+    val layout: String = OnlineTypingLearner.DEFAULT_LAYOUT,
     val isUrl: Boolean = false,
     val isEmail: Boolean = false,
     val isSensitive: Boolean = false,
@@ -152,7 +153,7 @@ data class EditorTextSnapshot(val session: Long, val before: String, val selecte
     val text: String get() = selected?.takeIf { it.isNotEmpty() } ?: (before + after)
 }
 
-class TypeRightKeyboardService : KeyboardService() {
+open class TypeRightKeyboardService : KeyboardService() {
 
     private lateinit var settings: KeyboardSettings
     private lateinit var dictionaryManager: DictionaryManager
@@ -178,11 +179,11 @@ class TypeRightKeyboardService : KeyboardService() {
         val info = currentInputEditorInfo
         val current = currentTextBoxInfo.value
         if (info == null) return current
-        return TextBoxClassifier.classify(info)
+        return currentTextBoxInfo.value
     }
 
     // Keyboard state
-    private val isShiftActive = mutableStateOf(false)
+    protected val isShiftActive = mutableStateOf(false)
     private val isCapsLockActive = mutableStateOf(false)
     private var lastShiftClickTime: Long = 0L
     private val isSymbolLayerActive = mutableStateOf(false)
@@ -193,7 +194,8 @@ class TypeRightKeyboardService : KeyboardService() {
     private val previousWord = mutableStateOf<String?>(null)
     private val previousWord2 = mutableStateOf<String?>(null)
     private val previousWords = mutableStateOf<List<String>>(emptyList())
-    private val currentWordTapCoords = mutableListOf<PointF>()
+    private var composingSuffix = ""
+    private val currentWordTapCoords = mutableListOf<PointF?>()
     
     // Instant autocorrect undo tracking state
     private var lastOriginalWord: String = ""
@@ -243,8 +245,8 @@ class TypeRightKeyboardService : KeyboardService() {
     private val rambleAudioLevel = mutableStateOf(0f)
 
     // Touch and machine-learning pattern tracking states
-    private var lastTapX = 0.5f
-    private var lastTapY = 0.5f
+    private var pendingTap: PointF? = null
+    private var tapLayout = OnlineTypingLearner.DEFAULT_LAYOUT
 
     // Speech recognizer and MediaRecorder
     private var speechRecognizer: SpeechRecognizer? = null
@@ -283,8 +285,10 @@ class TypeRightKeyboardService : KeyboardService() {
         AiPolishBackend.initialize(this)
         settings = KeyboardSettings(this)
         dictionaryManager = DictionaryManager.getInstance(this)
-        dictionaryManager.gboardEngine
-        dictionaryManager.correctionPipeline
+        serviceScope.launch(Dispatchers.Default) {
+            dictionaryManager.gboardEngine
+            dictionaryManager.correctionPipeline.awaitDictionaries()
+        }
         dictionaryManager.refreshContactWords()
         smartClipboard = SmartClipboardController(this, serviceScope) {
             settings.clipboardEnabled && currentInputEditorInfo != null && !isSensitiveField()
@@ -427,7 +431,7 @@ class TypeRightKeyboardService : KeyboardService() {
         isProofreadSheetOpen.value = false
         aiRephraseSuggestions.clear()
         try {
-            PolishCoordinator.getInstance(this).cancelCurrent()
+            PolishCoordinator.cancelIfCreated()
         } catch (_: Exception) {}
     }
 
@@ -476,7 +480,10 @@ class TypeRightKeyboardService : KeyboardService() {
         if (::smartClipboard.isInitialized) smartClipboard.stop()
         acceptedEdit = null
         cancelWordCorrection()
+        dictionaryManager.clearSessionRejections()
+        composingSuffix = ""
         super.onStartInput(info, restarting)
+        lastCursorPosition=info?.initialSelEnd?.takeIf { it >= 0 } ?: -1
         currentTextBoxInfo.value = TextBoxClassifier.classify(info)
         pendingContextReview.value = null
         lastContextAttempt = ""
@@ -500,7 +507,7 @@ class TypeRightKeyboardService : KeyboardService() {
         super.onStartInputView(info, restarting)
         isProofreadSheetOpen.value = false
         try {
-            PolishCoordinator.getInstance(this).cancelCurrent()
+            PolishCoordinator.cancelIfCreated()
         } catch (_: Exception) {}
         currentTextBoxInfo.value = TextBoxClassifier.classify(info)
         val setup = composeSetup ?: ComposeSetup().also { composeSetup = it }
@@ -551,6 +558,7 @@ class TypeRightKeyboardService : KeyboardService() {
         candidatesStart: Int, candidatesEnd: Int
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        if (typingCoordinator.selection(newSelStart, newSelEnd)) return
         
         val atComposingEnd = candidatesStart >= 0 && newSelStart == newSelEnd && newSelEnd == candidatesEnd
         if (currentTypedWord.value.isNotEmpty() && !atComposingEnd) {
@@ -580,6 +588,7 @@ class TypeRightKeyboardService : KeyboardService() {
      * The full word at the cursor is partBeforeCursor + partAfterCursor.
      */
     private fun getSurroundingWordTokens(ic: InputConnection): Pair<String, String> {
+        typingCoordinator.surroundingTokens()?.let { return it }
         val before = ic.getTextBeforeCursor(64, 0)?.toString() ?: ""
         val after = ic.getTextAfterCursor(64, 0)?.toString() ?: ""
 
@@ -620,7 +629,7 @@ class TypeRightKeyboardService : KeyboardService() {
             return
         }
         val ic = currentInputConnection ?: return
-        val before = ic.getTextBeforeCursor(150, 0)?.toString() ?: ""
+        val before = typingCoordinator.beforeCursor(150) ?: ic.getTextBeforeCursor(150, 0)?.toString().orEmpty()
 
         // 1. Calculate previousWord & previousThreeWords from single IPC fetch
         val trimmed = before.trim()
@@ -678,11 +687,11 @@ class TypeRightKeyboardService : KeyboardService() {
         notifyTextBufferChanged()
     }
 
-    fun notifyTextBufferChanged() {
+    fun notifyTextBufferChanged(activeOverride: String? = null) {
         val ic = currentInputConnection
-        val (partBefore, partAfter) = if (ic != null) getSurroundingWordTokens(ic) else Pair(currentTypedWord.value, "")
+        val (partBefore, partAfter) = if (activeOverride != null) activeOverride to "" else if (ic != null) getSurroundingWordTokens(ic) else Pair(currentTypedWord.value, "")
         val fullWord = (partBefore + partAfter).trim()
-        val active = if (fullWord.isNotEmpty()) fullWord else currentTypedWord.value.ifEmpty { wordUnderCursor.value }
+        val active = activeOverride ?: if (fullWord.isNotEmpty()) fullWord else currentTypedWord.value.ifEmpty { wordUnderCursor.value }
         wordUnderCursor.value = active
 
         val boxInfo = getCurrentTextBoxInfo()
@@ -698,7 +707,7 @@ class TypeRightKeyboardService : KeyboardService() {
                 activePrefix = active,
                 previousWord = previousWord.value,
                 previousWords = previousWords.value.toList(),
-                tapCoords = currentWordTapCoords.map { PointF(it.x, it.y) },
+                tapCoords = currentWordTapCoords.map { it?.let { p -> PointF(p.x, p.y) } },
                 isUrl = boxInfo.isUrl,
                 isEmail = boxInfo.isEmail,
                 isSensitive = false,
@@ -719,7 +728,7 @@ class TypeRightKeyboardService : KeyboardService() {
         super.onFinishInputView(finishingInput)
         isProofreadSheetOpen.value = false
         try {
-            PolishCoordinator.getInstance(this).cancelCurrent()
+            PolishCoordinator.cancelIfCreated()
         } catch (_: Exception) {}
         resetEditorState()
         if (isVoiceTypingActive.value) {
@@ -910,8 +919,7 @@ class TypeRightKeyboardService : KeyboardService() {
                     onRephraseSuggestionClick = { commitRephraseSuggestion(it) },
                     onClearRephrasings = { aiRephraseSuggestions.clear() },
                     onTapCoordinates = { x, y ->
-                        lastTapX = x
-                        lastTapY = y
+                        pendingTap = PointF(x, y)
                     },
                     onSpaceSwipeLeft = {
                         if (isSmartSelectOpen.value) {
@@ -948,22 +956,22 @@ class TypeRightKeyboardService : KeyboardService() {
 
     fun isSensitiveField(): Boolean {
         val info = currentInputEditorInfo ?: return false
-        return TextBoxClassifier.isSensitiveField(info)
+        return getCurrentTextBoxInfo().isSensitive
     }
 
     fun isSearchField(): Boolean {
         val info = currentInputEditorInfo ?: return false
-        return TextBoxClassifier.isSearchField(info)
+        return getCurrentTextBoxInfo().isSearch
     }
 
     fun isWebField(): Boolean {
         val info = currentInputEditorInfo ?: return false
-        return TextBoxClassifier.isWebField(info)
+        return getCurrentTextBoxInfo().isWeb
     }
 
     fun isChatField(): Boolean {
         val info = currentInputEditorInfo ?: return false
-        return TextBoxClassifier.isChatField(info)
+        return getCurrentTextBoxInfo().isChat
     }
 
     fun captureEditorText(): EditorTextSnapshot? {
@@ -1062,9 +1070,16 @@ class TypeRightKeyboardService : KeyboardService() {
             else if (ic.deleteSurroundingText(snapshot.before.length, snapshot.after.length)) committed = ic.commitText(clean, 1)
         } finally { ic.endBatchEdit() }
         if (!committed) return false
+        typingCoordinator.invalidate()
         val receipt = if (mayLearn()) dictionaryManager.personalProfile.acceptPolish(snapshot.text, clean) {
             dictionaryManager.isRecognizedInAnyLanguage(it) && !dictionaryManager.isBlocked(it) && !dictionaryManager.gboardEngine.isKnownTypo(it)
         } else emptyList()
+        if (receipt.isNotEmpty()) {
+            val epoch = dictionaryManager.adaptiveEpoch
+            serviceScope.launch(Dispatchers.Default) {
+                if (epoch == dictionaryManager.adaptiveEpoch && settings.personalizedLearningEnabled) dictionaryManager.correctionPipeline.acceptedPolish(receipt)
+            }
+        }
         acceptedEdit = AcceptedEdit(snapshot, EditorTextSnapshot(editorSession,
             ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty(), ic.getSelectedText(0)?.toString(),
             ic.getTextAfterCursor(20000, 0)?.toString().orEmpty()), clean, receipt)
@@ -1087,7 +1102,13 @@ class TypeRightKeyboardService : KeyboardService() {
             if (ic.deleteSurroundingText(edit.replacement.length, 0)) restored = ic.commitText(snapshot.text, 1)
         } finally { ic.endBatchEdit() }
         if (restored) {
-            dictionaryManager.personalProfile.retract(edit.receipt)
+            if (mayLearn()) {
+                dictionaryManager.personalProfile.retract(edit.receipt)
+                edit.receipt.forEach { receipt ->
+                    val pair=receipt.split('|')
+                    if(pair.size==3) dictionaryManager.suppressCorrection(pair[1],pair[2])
+                }
+            }
             acceptedEdit = null
             updatePreviousWord()
         }
@@ -1351,42 +1372,65 @@ class TypeRightKeyboardService : KeyboardService() {
 
     fun allowsAutocorrect(): Boolean {
         val info = currentInputEditorInfo ?: return false
-        return TextBoxClassifier.classify(info).allowsAutocorrect
+        return currentTextBoxInfo.value.allowsAutocorrect
     }
 
     fun allowsAiPolish(): Boolean {
         val info = currentInputEditorInfo ?: return false
-        return TextBoxClassifier.classify(info).allowsAiPolish
+        return currentTextBoxInfo.value.allowsAiPolish
     }
 
-    private fun mayLearn(): Boolean = settings.personalizedLearningEnabled &&
+    private fun mayLearn(): Boolean = settings.personalizedLearningEnabled && !dictionaryManager.resettingLearning &&
         ((currentInputEditorInfo?.inputType ?: 0) and android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT && allowsTextAssistance() && !isUrlField() && !isEmailField() &&
         ((currentInputEditorInfo?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) == 0
 
     // IME thread: only read an already ranked result; never build indexes or run ranking/inference here.
     private fun getAutoCorrectedWord(prefix: String): String? {
-        if (!settings.autocorrectEnabled || !allowsAutocorrect()) return null
+        if (!settings.autocorrectEnabled || !allowsAutocorrect() || typingCoordinator.isIdentifierSpan()) return null
         return dictionaryManager.correctionPipeline.cached(prefix, previousWords.value,
             currentWordTapCoords.toList())?.automatic
     }
 
-    private var boundaryJob: Job? = null
-    private var unlearnedBoundary: Pair<String, List<String>>? = null
-    private var boundaryGeneration = 0L
     private data class CompletedCorrection(val original: String, val trailing: String, val before: String,
                                            val context: List<String>, val ranked: RankedCorrection)
     private var completedCorrection: CompletedCorrection? = null
     private data class AutoCorrectionEvent(val original: String, val replacement: String, val context: List<String>, val at: Long)
     private var lastAutoCorrection: AutoCorrectionEvent? = null
-
-    private fun cancelWordCorrection() {
-        unlearnedBoundary?.let { (word, prior) -> learnWordAndContext(word, contextOverride = prior) }
-        unlearnedBoundary = null
-        boundaryGeneration++
-        boundaryJob?.cancel()
-        completedCorrection = null
+    private val typingCoordinator by lazy {
+        TypingCoordinator(serviceScope, dictionaryManager.correctionPipeline, { currentInputConnection },
+            { currentTypedWord.value }, { settings.autocorrectEnabled && allowsAutocorrect() },
+            { lastCursorPosition.takeIf { it >= 0 } }) { original, output, prior, taps, ranked, atCursor, before, trailing ->
+            if (output != original) {
+                AutocorrectMetrics.recordApplied()
+                if (atCursor) {
+                    lastOriginalWord = original
+                    lastCorrectedWord = output + trailing
+                    lastCorrectedWasSpace = false
+                    justAutocorrected = true
+                }
+                lastAutoCorrection = AutoCorrectionEvent(original, output, prior, android.os.SystemClock.uptimeMillis())
+                retainedCorrection(original, output, prior, taps)
+                updatePreviousWord()
+            } else {
+                // Unresolved spelling proposals must not become trusted just because typing continued.
+                if (ranked.protected || ranked.candidates.size <= 1 || dictionaryManager.isWordInDictionary(original))
+                    learnWordAndContext(original, contextOverride = prior)
+                else retainedLiteral(original, prior, before)
+                if (ranked.tier == ConfidenceTier.MEDIUM && currentTypedWord.value.isEmpty()) {
+                    val trailing = before.takeLastWhile { !TypingPolicy.isWordCharacter(it) }
+                    completedCorrection = CompletedCorrection(original, trailing, before, prior, ranked)
+                    asyncPredictionsState.value = AsyncKeyboardPredictions(
+                        gboardResult = GboardSuggestionResult(original, ranked.suggestion, "", false),
+                        suggestions = listOf(original, ranked.suggestion, ""), source = textBufferFlow.value)
+                }
+            }
+        }
     }
-
+    private fun cancelWordCorrection() {
+        typingCoordinator.invalidate()
+        completedCorrection = null
+        pendingTap = null
+    }
     private fun observeManualReversal(word: String, context: List<String>) {
         val event = lastAutoCorrection ?: return
         if (mayLearn() && android.os.SystemClock.uptimeMillis() - event.at < 8000 &&
@@ -1395,50 +1439,35 @@ class TypeRightKeyboardService : KeyboardService() {
             lastAutoCorrection = null
         }
     }
-
-    private fun rankCompletedWord(original: String, trailing: String, context: List<String>, taps: List<PointF>) {
+    private fun rankCompletedWord(original: String, trailing: String, context: List<String>, taps: List<PointF?>) {
         if (!settings.autocorrectEnabled || !allowsAutocorrect()) { learnWordAndContext(original); return }
-        val ic = currentInputConnection ?: return
-        val before = ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty()
-        val after = ic.getTextAfterCursor(20000, 0)?.toString().orEmpty()
-        val suffix = original + trailing
-        if (!before.endsWith(suffix)) return
+        typingCoordinator.completed(original, trailing, context, taps, tapLayout)
+    }
+    private fun retainedCorrection(original: String, correction: String, prior: List<String>, taps: List<PointF?>) {
+        if (!mayLearn()) return
+        val epoch = dictionaryManager.adaptiveEpoch
         val session = editorSession
-        val request = ++boundaryGeneration
-        boundaryJob?.cancel()
-        unlearnedBoundary = original to context
-        boundaryJob = serviceScope.launch {
-            val result = withContext(Dispatchers.Default) { dictionaryManager.correctionPipeline.rank(original, context, taps) }
-            if (request != boundaryGeneration || session != editorSession || currentInputConnection !== ic ||
-                !allowsAutocorrect() || !settings.autocorrectEnabled || currentTypedWord.value.isNotEmpty() ||
-                ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty() != before ||
-                ic.getTextAfterCursor(20000, 0)?.toString().orEmpty() != after || !ic.getSelectedText(0).isNullOrEmpty()) return@launch
-            val correction = result.automatic
-            if (correction != null) {
-                ic.beginBatchEdit()
-                try {
-                    if (!ic.deleteSurroundingText(suffix.length, 0) || !ic.commitText(correction + trailing, 1)) return@launch
-                } finally { ic.endBatchEdit() }
-                AutocorrectMetrics.recordApplied()
-                lastOriginalWord = original
-                lastCorrectedWord = correction + trailing
-                lastCorrectedWasSpace = false
-                justAutocorrected = true
-                lastAutoCorrection = AutoCorrectionEvent(original, correction, context, android.os.SystemClock.uptimeMillis())
-                unlearnedBoundary = null
-                learnWordAndContext(correction, contextOverride = context)
-                updatePreviousWord()
-            } else {
-                unlearnedBoundary = null
-                learnWordAndContext(original, contextOverride = context)
-                if (result.tier == ConfidenceTier.MEDIUM) {
-                    completedCorrection = CompletedCorrection(original, trailing, before, context, result)
-                    val proposal = result.suggestion
-                    asyncPredictionsState.value = AsyncKeyboardPredictions(
-                        gboardResult = GboardSuggestionResult(original, proposal, "", false),
-                        suggestions = listOf(original, proposal, ""), source = textBufferFlow.value)
-                }
+        val ic = currentInputConnection ?: return
+        val anchor = ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty()
+        serviceScope.launch {
+            delay(1500)
+            if (session != editorSession || ic !== currentInputConnection || !ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty().startsWith(anchor) || !mayLearn() || epoch != dictionaryManager.adaptiveEpoch || dictionaryManager.isCorrectionSuppressed(original, correction)) return@launch
+            withContext(Dispatchers.Default) {
+                dictionaryManager.correctionPipeline.feedback(original, correction, prior, .15f)
+                dictionaryManager.correctionPipeline.learner.confirmTouches(original, correction, taps, tapLayout, dictionaryManager.gboardEngine.spatialModel)
+                dictionaryManager.personalProfile.observe(correction, prior)
             }
+        }
+    }
+    private fun retainedLiteral(word: String, prior: List<String>, anchor: String) {
+        if(!mayLearn()) return
+        val session=editorSession; val epoch=dictionaryManager.adaptiveEpoch
+        val ic=currentInputConnection ?: return
+        serviceScope.launch {
+            delay(1500)
+            if(session != editorSession || ic !== currentInputConnection || !mayLearn() || epoch != dictionaryManager.adaptiveEpoch || !ic.getTextBeforeCursor(20000,0)?.toString().orEmpty().startsWith(anchor)) return@launch
+            // Retention records usage only. Ignoring the displayed suggestion is never rejection feedback.
+            withContext(Dispatchers.Default) { dictionaryManager.personalProfile.observe(word,prior) }
         }
     }
 
@@ -1446,8 +1475,9 @@ class TypeRightKeyboardService : KeyboardService() {
         val context = previousWords.value.toList()
         val taps = currentWordTapCoords.toList()
         observeManualReversal(prefix, context)
-        val corrected = getAutoCorrectedWord(prefix) ?: prefix
+        val corrected = if (trailingText == ".") prefix else getAutoCorrectedWord(prefix) ?: prefix
         if (!ic.commitText(corrected + trailingText, 1)) return
+        typingCoordinator.boundaryCommitted(prefix, corrected, trailingText)
         lastOriginalWord = prefix
         lastCorrectedWord = corrected + trailingText
         justAutocorrected = corrected != prefix
@@ -1455,7 +1485,7 @@ class TypeRightKeyboardService : KeyboardService() {
         if (justAutocorrected) {
             AutocorrectMetrics.recordApplied()
             lastAutoCorrection = AutoCorrectionEvent(prefix, corrected, context, android.os.SystemClock.uptimeMillis())
-            learnWordAndContext(corrected)
+            retainedCorrection(prefix, corrected, context, taps)
         } else rankCompletedWord(prefix, trailingText, context, taps)
     }
 
@@ -1471,7 +1501,7 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun handleKeyPress(text: String) {
-        cancelWordCorrection()
+        completedCorrection = null
         cancelPendingPolish()
         lastSpaceTime = 0L
         lastSwipeCommittedWord = null
@@ -1539,9 +1569,10 @@ class TypeRightKeyboardService : KeyboardService() {
 
             // For other symbols (@, #, $), commit the current word, then commit the symbol literally
             if (char == '@' || char == '#' || char == '$') {
+                typingCoordinator.invalidate()
                 if (currentTypedWord.value.isNotEmpty()) {
                     val prefix = currentTypedWord.value
-                    commitWordWithSmartCorrection(ic, prefix, "")
+                    ic.commitText(prefix, 1)
                     currentTypedWord.value = ""
                 }
                 ic.commitText(char.toString(), 1)
@@ -1551,15 +1582,13 @@ class TypeRightKeyboardService : KeyboardService() {
 
             val letter = if (isShiftActive.value) char.uppercaseChar().toString() else char.toString()
             
-            // Train the typing offset ML model for alphabetical characters
-            if (mayLearn() && char.lowercaseChar() in 'a'..'z') {
-                dictionaryManager.learnTapPattern(char, lastTapX, lastTapY)
-            }
-
-            val wasEmpty = currentTypedWord.value.isEmpty()
+            val priorComposition = currentTypedWord.value
+            val wasEmpty = priorComposition.isEmpty()
             if (wasEmpty) {
+                typingCoordinator.prepare()
                 // If cursor is within an already typed word, adopt the prefix but remove from editor to prevent doubling
-                val (partBefore, partAfter) = getSurroundingWordTokens(ic)
+                val (partBefore, partAfter) = typingCoordinator.surroundingTokens() ?: getSurroundingWordTokens(ic)
+                composingSuffix = partAfter
                 if (partBefore.isNotEmpty() || partAfter.isNotEmpty()) {
                     if (partBefore.isNotEmpty()) {
                         ic.deleteSurroundingText(partBefore.length, 0)
@@ -1573,17 +1602,13 @@ class TypeRightKeyboardService : KeyboardService() {
             }
 
             currentTypedWord.value += letter
-            val centroid = dictionaryManager.gboardEngine.spatialModel.getKeyCentroid(char)
-            val tapX = if (lastTapX != 0.5f) lastTapX else (centroid?.x ?: 0.5f)
-            val tapY = if (lastTapY != 0.5f) lastTapY else (centroid?.y ?: 0.5f)
-            currentWordTapCoords.add(PointF(tapX, tapY))
-            
-            ic.setComposingText(currentTypedWord.value, 1)
-            val (partB, partA) = getSurroundingWordTokens(ic)
-            val fullCurrentWord = (partB + partA).ifEmpty { currentTypedWord.value }
-            wordUnderCursor.value = fullCurrentWord
+            currentWordTapCoords.add(pendingTap)
+            pendingTap = null
 
-            notifyTextBufferChanged()
+            typingCoordinator.compose(currentTypedWord.value, if (wasEmpty) currentTypedWord.value.dropLast(letter.length) else priorComposition)
+            ic.setComposingText(currentTypedWord.value, 1)
+            wordUnderCursor.value = currentTypedWord.value + composingSuffix
+            notifyTextBufferChanged(wordUnderCursor.value)
 
             // Auto-disable shift if it wasn't caps locked
             if (isShiftActive.value && !isCapsLockActive.value) {
@@ -1645,6 +1670,7 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun handleDeleteWord() {
+        cancelWordCorrection()
         cancelPendingPolish()
         playFeedback(FeedbackType.Delete)
         val ic = currentInputConnection ?: return
@@ -1691,7 +1717,7 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun handleSpace() {
-        cancelWordCorrection()
+        completedCorrection = null
         cancelPendingPolish()
         lastSwipeCommittedWord = null
         playFeedback(FeedbackType.Space)
@@ -1700,7 +1726,7 @@ class TypeRightKeyboardService : KeyboardService() {
         val now = android.os.SystemClock.uptimeMillis()
         ic.finishComposingText()
 
-        val (partBefore, partAfter) = getSurroundingWordTokens(ic)
+        val (partBefore, partAfter) = if (currentTypedWord.value.isNotEmpty()) currentTypedWord.value to composingSuffix else getSurroundingWordTokens(ic)
         val fullWord = partBefore + partAfter
 
         ic.beginBatchEdit()
@@ -1709,20 +1735,22 @@ class TypeRightKeyboardService : KeyboardService() {
                 val context = previousWords.value.toList()
                 val taps = currentWordTapCoords.toList()
                 observeManualReversal(fullWord, context)
-                val corrected = getAutoCorrectedWord(fullWord)
-                if (corrected != null && !corrected.equals(fullWord, ignoreCase = true)) {
+                val corrected = if (partAfter.isEmpty()) getAutoCorrectedWord(fullWord) else null
+                if (corrected != null && corrected != fullWord) {
                     ic.deleteSurroundingText(partBefore.length, partAfter.length)
                     ic.commitText("$corrected ", 1)
+                    typingCoordinator.boundaryCommitted(fullWord, corrected, " ")
                     lastOriginalWord = fullWord
                     lastCorrectedWord = "$corrected "
                     justAutocorrected = true
                     lastCorrectedWasSpace = false
                     AutocorrectMetrics.recordApplied()
                     lastAutoCorrection = AutoCorrectionEvent(fullWord, corrected, context, android.os.SystemClock.uptimeMillis())
-                    learnWordAndContext(corrected)
+                    retainedCorrection(fullWord, corrected, context, taps)
                 } else {
                     ic.commitText(" ", 1)
-                    rankCompletedWord(fullWord, " ", context, taps)
+                    typingCoordinator.boundaryCommitted(fullWord, fullWord, " ")
+                    if (partAfter.isEmpty()) rankCompletedWord(fullWord, " ", context, taps)
                     justAutocorrected = false
                     lastCorrectedWasSpace = false
                 }
@@ -1731,11 +1759,12 @@ class TypeRightKeyboardService : KeyboardService() {
                 if (lastSpaceTime != 0L && TypingPolicy.shouldInsertPeriod(before, settings.doubleSpacePeriod, now - lastSpaceTime)) {
                     ic.deleteSurroundingText(1, 0)
                     ic.commitText(". ", 1)
-                } else ic.commitText(" ", 1)
+                } else { ic.commitText(" ", 1); typingCoordinator.literal(" ") }
                 justAutocorrected = false
                 lastCorrectedWasSpace = false
             }
         } finally { ic.endBatchEdit() }
+        typingCoordinator.appended()
         lastSpaceTime = now
         suggestionSpacePending = false
         currentTypedWord.value = ""
@@ -1770,9 +1799,11 @@ class TypeRightKeyboardService : KeyboardService() {
             EditorInfo.IME_ACTION_SEARCH,
             EditorInfo.IME_ACTION_SEND -> {
                 ic.performEditorAction(action)
+                typingCoordinator.invalidate()
             }
             else -> {
                 ic.commitText("\n", 1)
+                typingCoordinator.literal("\n")
             }
         }
         updatePreviousWord()
@@ -1787,6 +1818,7 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun handleUndo() {
+        cancelWordCorrection()
         playFeedback()
         if (currentTypedWord.value.isNotEmpty()) {
             currentInputConnection?.finishComposingText()
@@ -1804,6 +1836,7 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     private fun handleRedo() {
+        cancelWordCorrection()
         playFeedback()
         if (currentTypedWord.value.isNotEmpty()) {
             currentInputConnection?.finishComposingText()
@@ -1921,13 +1954,18 @@ class TypeRightKeyboardService : KeyboardService() {
                     try {
                         if (!ic.deleteSurroundingText(suffix.length, 0) || !ic.commitText(word + pending.trailing, 1)) return
                     } finally { ic.endBatchEdit() }
-                    if (mayLearn()) dictionaryManager.personalProfile.acceptPolish(
-                        pending.context.joinToString(" ") + " " + pending.original,
-                        pending.context.joinToString(" ") + " " + word) { dictionaryManager.isRecognizedInAnyLanguage(it) }
+                    if (mayLearn()) serviceScope.launch(Dispatchers.Default) {
+                        if (!mayLearn()) return@launch
+                        dictionaryManager.correctionPipeline.feedback(pending.original, word, pending.context)
+                        dictionaryManager.personalProfile.acceptPolish(
+                            pending.context.joinToString(" ") + " " + pending.original,
+                            pending.context.joinToString(" ") + " " + word) { dictionaryManager.isRecognizedInAnyLanguage(it) }
+                    }
                 } else if (mayLearn()) {
                     dictionaryManager.suppressCorrection(pending.original, pending.ranked.suggestion)
                 }
                 completedCorrection = null
+                typingCoordinator.invalidate()
                 updatePreviousWord()
                 return
             }
@@ -1961,6 +1999,7 @@ class TypeRightKeyboardService : KeyboardService() {
                 justAutocorrected = false
                 currentTypedWord.value = ""
                 currentWordTapCoords.clear()
+                typingCoordinator.invalidate()
                 updatePreviousWord()
                 return
             }
@@ -1997,7 +2036,20 @@ class TypeRightKeyboardService : KeyboardService() {
         val boxInfo = getCurrentTextBoxInfo()
         val shouldAppendSpace = !boxInfo.isUrl && !boxInfo.isEmail && !word.startsWith(".") && !word.startsWith("@")
         suggestionSpacePending = shouldAppendSpace
-        learnWordAndContext(word, explicit = isExplicitRawAccept)
+        if (mayLearn()) {
+            val prior = previousWords.value.toList()
+            serviceScope.launch(Dispatchers.Default) {
+                if (!mayLearn()) return@launch
+                val task = if (rawTyped.isEmpty()) RankingTask.NEXT_WORD else RankingTask.PREFIX
+                dictionaryManager.correctionPipeline.feedback(rawTyped, word, prior, task = task)
+                if (!isExplicitRawAccept && rawTyped.isNotEmpty()) {
+                    dictionaryManager.personalProfile.acceptPolish(rawTyped, word) { dictionaryManager.isRecognizedInAnyLanguage(it) }
+                    dictionaryManager.correctionPipeline.feedback(rawTyped, word, prior)
+                }
+            }
+        }
+        typingCoordinator.invalidate()
+        learnWordAndContext(word, explicit = true)
 
         justAutocorrected = false
         currentTypedWord.value = ""
@@ -2028,6 +2080,7 @@ class TypeRightKeyboardService : KeyboardService() {
         }
 
         suggestionSpacePending = shouldAppendSpace
+        typingCoordinator.invalidate()
         lastSwipeCommittedWord = topWord
         lastSwipeCommittedHadSpace = shouldAppendSpace
         lastSwipePath = path
@@ -2066,22 +2119,15 @@ class TypeRightKeyboardService : KeyboardService() {
 
     private fun learnWordAndContext(word: String, explicit: Boolean = false, contextOverride: List<String>? = null) {
         if (!mayLearn() || word.isEmpty() || word.any { !TypingPolicy.isWordCharacter(it) }) return
-        // A cancelled boundary check must not teach the frequency store a curated typo.
-        // Explicit literal acceptance and undo still establish intentional vocabulary.
-        if (!explicit && dictionaryManager.gboardEngine.isKnownTypo(word.lowercase(java.util.Locale.ROOT))) return
-        // Only explicitly accepted words bypass the repeated-use learning threshold.
-        if (explicit) dictionaryManager.recordAcceptedWord(word)
-        dictionaryManager.learnWord(word, explicit = explicit)
-        val context = (contextOverride ?: previousWords.value).takeLast(5)
-        dictionaryManager.personalProfile.observe(word, context)
-        context.lastOrNull()?.let { dictionaryManager.learnBigram(it, word) }
-        if (context.size >= 2) dictionaryManager.learnTrigram(context[context.size - 2], context.last(), word)
-        if (context.size >= 3) dictionaryManager.learnQuadgram(context[context.size - 3], context[context.size - 2], context.last(), word)
-        dictionaryManager.nGramModel.observeHigherOrder(word, context)
-
-        // Asynchronously persist word frequency to Room database for predictive typing
-        serviceScope.launch(Dispatchers.IO) {
-            userDictionaryRepo.recordWordUsage(word, dictionaryManager)
+        val context = (contextOverride ?: previousWords.value).takeLast(5).toList()
+        val taps = currentWordTapCoords.toList()
+        val layout = tapLayout
+        val epoch = dictionaryManager.adaptiveEpoch
+        serviceScope.launch(Dispatchers.Default) {
+            if (!mayLearn() || epoch != dictionaryManager.adaptiveEpoch) return@launch
+            if (explicit) dictionaryManager.recordAcceptedWord(word)
+            dictionaryManager.personalProfile.observe(word, context)
+            dictionaryManager.correctionPipeline.learner.confirmTouches(word, word, taps, layout, dictionaryManager.gboardEngine.spatialModel)
         }
     }
 

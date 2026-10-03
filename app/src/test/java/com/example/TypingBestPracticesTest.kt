@@ -20,7 +20,7 @@ class TypingBestPracticesTest {
         context = ApplicationProvider.getApplicationContext()
         KeyboardSettings(context).autocorrectEnabled = true
         KeyboardSettings(context).autocorrectSensitivity = KeyboardSettings.SENSITIVITY_BALANCED
-        dictionary = DictionaryManager(context)
+        dictionary = DictionaryManager(context).also { kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { it.correctionPipeline.awaitDictionaries() } }
     }
     @Test fun ambiguousNearMatchesStaySuggestionsInBothCommitAndStrip() {
         dictionary.findDictionaryCorrections("cst", 2f, 16) // Warm the shared correction index.

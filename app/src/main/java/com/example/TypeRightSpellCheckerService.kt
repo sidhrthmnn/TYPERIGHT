@@ -12,24 +12,25 @@ class TypeRightSpellCheckerService : SpellCheckerService() {
 
     override fun onCreate() {
         super.onCreate()
-        dictionary = DictionaryManager(this)
+        dictionary = DictionaryManager.getInstance(this)
     }
 
     override fun createSession(): Session = TypeRightSession()
 
     private fun suggest(info: TextInfo, limit: Int, context: List<String>): SuggestionsInfo {
+        // Android dispatches spellchecker requests on its session worker, separate from IME callbacks.
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { dictionary.correctionPipeline.awaitDictionaries() }
         val word = info.text.orEmpty().trim()
         val lower = word.lowercase(Locale.ROOT)
         val known = word.isEmpty() || word.length > 32 || dictionary.isCodeOrSpecialToken(word) ||
-            dictionary.isWordInDictionary(lower) || word.all(Char::isDigit)
+            (dictionary.isRecognizedInAnyLanguage(lower) && !dictionary.gboardEngine.isKnownTypo(lower)) || word.all(Char::isDigit)
         val result = if (known) {
             SuggestionsInfo(SuggestionsInfo.RESULT_ATTR_IN_THE_DICTIONARY, emptyArray())
         } else if (limit <= 0) {
             SuggestionsInfo(0, emptyArray())
         } else {
-            val decoded = dictionary.getGboardPredictions(word, context.takeLast(3), null)
-            val candidates = (listOf(decoded.centerCandidate, decoded.rightCandidate, decoded.leftCandidate) +
-                decoded.debugTelemetry?.topCandidates.orEmpty().map { it.word })
+            val ranked = dictionary.correctionPipeline.rank(word,context.takeLast(5))
+            val candidates = ranked.candidates.map { it.word }
                 .filter { it.isNotBlank() && !it.equals(word, true) }
                 .distinctBy { it.lowercase(Locale.ROOT) }.take(limit.coerceAtMost(5))
             val flags = if (candidates.isEmpty()) 0 else SuggestionsInfo.RESULT_ATTR_LOOKS_LIKE_TYPO or
@@ -54,7 +55,7 @@ class TypeRightSpellCheckerService : SpellCheckerService() {
                 suggest(info, suggestionsLimit, context.toList()).also {
                     if (sequentialWords) {
                         context.addLast(info.text.orEmpty())
-                        if (context.size > 3) context.removeFirst()
+                        if (context.size > 5) context.removeFirst()
                     }
                 }
             }.toTypedArray()
@@ -79,7 +80,7 @@ class TypeRightSpellCheckerService : SpellCheckerService() {
                     lengths.add(match.value.length)
                 }
                 context.addLast(match.value)
-                if (context.size > 3) context.removeFirst()
+                if (context.size > 5) context.removeFirst()
                 previousEnd = match.range.last + 1
             }
             SentenceSuggestionsInfo(results.toTypedArray(), offsets.toIntArray(), lengths.toIntArray())

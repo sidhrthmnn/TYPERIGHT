@@ -23,7 +23,7 @@ class PersonalTypingProfileTest {
         assertEquals("message", profile.correction("mesage", emptyList()))
         assertEquals("Message", profile.correction("Mesage", emptyList()))
         profile.flush()
-        assertEquals("message", PersonalTypingProfile(context).correction("mesage", emptyList()))
+        assertEquals("message", PersonalTypingProfile(context).also { kotlinx.coroutines.runBlocking { it.ready.await() } }.correction("mesage", emptyList()))
     }
     @Test fun insertionDoesNotShiftLaterCorrection() {
         profile.acceptPolish("send mesage tomororw", "please send message tomorrow") { it in setOf("send", "message", "tomorrow", "please") }
@@ -67,7 +67,7 @@ class PersonalTypingProfileTest {
         assertEquals("tea", profile.candidates("", listOf("morning")).first())
         assertEquals("coffee", profile.candidates("", listOf("afternoon")).first())
         profile.flush()
-        assertEquals("tea", PersonalTypingProfile(context).candidates("", listOf("morning")).first())
+        assertEquals("tea", PersonalTypingProfile(context).also { kotlinx.coroutines.runBlocking { it.ready.await() } }.candidates("", listOf("morning")).first())
         profile.clear()
         assertTrue(profile.candidates("", emptyList()).isEmpty())
     }

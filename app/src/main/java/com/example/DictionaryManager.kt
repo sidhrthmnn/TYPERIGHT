@@ -11,14 +11,56 @@ import kotlin.math.sqrt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 
 class DictionaryManager(private val context: Context) {
     internal val appContext get() = context.applicationContext
 
     val correctionPipeline by lazy { CandidateRanker(context.applicationContext, this) }
+    @Volatile var vocabularyVersion: Int = 1
+        private set
     private val contactWords = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     fun isRecognizedInAnyLanguage(word: String): Boolean = isWordInDictionary(word) || isContactWord(word) || MultilingualLexicon.get(context).contains(word)
     fun phoneticCandidates(word: String): List<String> = corpus.phoneticCandidates(word)
+    /** Reset every adaptive store; explicit custom and Android dictionary entries survive. */
+    @Volatile var adaptiveEpoch: Long = 0
+        private set
+    @Volatile var resettingLearning = false
+        private set
+    fun resetAdaptiveLearning(): kotlinx.coroutines.Job {
+        adaptiveEpoch++; resettingLearning = true
+        personalProfile.clear()
+        correctionPipeline.learner.clear()
+        correctionPipeline.clearCache()
+        synchronized(spellingCache) { spellingCache.clear() }
+        vocabularyVersion++
+        return scope.launch {
+            try {
+                ready.await()
+                val repository = UserDictionaryRepository.getInstance(context)
+                val explicit = repository.explicitWords()
+                repository.clearAdaptiveStores()
+                mlPredictor.clearAllLearnedData().join()
+                synchronized(suppressedCorrections) { suppressedCorrections.clear() }
+                candidateLearnFrequency.clear(); recentlyAcceptedWords.clear(); personalizedBigrams.clear(); personalBlocklist.clear()
+                userWords.clear(); userWords.addAll(explicit)
+                prefs.edit().remove("personalized_bigrams").remove("personal_blocklist").putStringSet("user_words", explicit).apply()
+                val nextTrie = TrieDictionary(); val nextWordTrie = WordTrie()
+                commonWordsFreqMap.forEach { (word, frequency) -> nextTrie.insert(word,frequency); nextWordTrie.insert(word,frequency) }
+                explicit.forEach { nextTrie.insert(it,120); nextWordTrie.insert(it,120) }
+                trie = nextTrie; wordTrie = nextWordTrie
+                gboardEngine.symSpellEngine.clear()
+                commonWordsFreqMap.forEach { (word,frequency) -> gboardEngine.symSpellEngine.insertWord(word,frequency) }
+                explicit.forEach { gboardEngine.symSpellEngine.insertWord(it,120) }
+                synchronized(swipeWordIndex) { swipeWordIndex.clear() }
+                commonWordsFreqMap.forEach { (word, frequency) -> indexWordForSwipe(word,frequency) }
+                explicit.forEach { indexWordForSwipe(it,120) }
+                nGramModel = NGramLanguageModel().also { it.seedUnigramFrequencies(corpus.frequencies) }
+                loadSystemUserDictionary()
+                vocabularyVersion++; correctionPipeline.clearCache()
+            } finally { resettingLearning = false }
+        }
+    }
     fun isContactWord(word: String) = word.lowercase(java.util.Locale.ROOT) in contactWords
     fun refreshContactWords() {
         CoroutineScope(Dispatchers.IO).launch {
@@ -50,7 +92,8 @@ class DictionaryManager(private val context: Context) {
 
     val mlPredictor = PatternLearningPredictor.getInstance(context)
     private val corpus = EnglishFrequencyLexicon.get(context)
-    val nGramModel = NGramLanguageModel()
+    @Volatile var nGramModel = NGramLanguageModel()
+        private set
     init { CoroutineScope(Dispatchers.Default).launch { corpus.ready.await(); nGramModel.seedUnigramFrequencies(corpus.frequencies) } }
     val localGrammarPredictor by lazy { LocalGrammarSpellPredictor(context) }
     val gboardEngine by lazy { GboardPredictionEngine(context) }
@@ -681,6 +724,7 @@ class DictionaryManager(private val context: Context) {
     }
 
     fun suppressCorrection(originalWord: String, correctedWord: String, persistFeedback: Boolean = profileSettings.personalizedLearningEnabled) {
+        if (persistFeedback) correctionPipeline.recordRejection(originalWord, correctedWord)
         if (persistFeedback) personalProfile.reject(originalWord, correctedWord)
         val orig = originalWord.lowercase().trim()
         val corr = correctedWord.lowercase().trim()
@@ -688,6 +732,7 @@ class DictionaryManager(private val context: Context) {
             synchronized(suppressedCorrections) { suppressedCorrections.getOrPut(orig) { mutableSetOf() }.add(corr) }
         }
     }
+    fun clearSessionRejections() { synchronized(suppressedCorrections) { suppressedCorrections.clear() }; correctionPipeline.clearCache() }
 
     private val commonTechnicalAndAbbreviations = setOf(
         "json", "api", "http", "https", "sql", "html", "css", "xml", "rest", "sdk",
@@ -818,11 +863,12 @@ class DictionaryManager(private val context: Context) {
         }
     }
 
-    private val trie = TrieDictionary()
-    val wordTrie = WordTrie()
+    @Volatile private var trie = TrieDictionary()
+    @Volatile var wordTrie = WordTrie()
+        private set
     private val phoneticIndex = HashMap<String, MutableList<String>>()
-    private val commonWordsSet = HashSet<String>(1500)
-    private val commonWordsFreqMap = HashMap<String, Int>(1500)
+    private val commonWordsSet = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val commonWordsFreqMap = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val swipeWordIndex = HashMap<Pair<Char, Char>, MutableList<Pair<String, Int>>>(700)
 
     val neuralEngine by lazy { NeuralCorrectionEngine.getInstance(context) }
@@ -856,8 +902,8 @@ class DictionaryManager(private val context: Context) {
         }
     }
 
-    init {
-        // Build local Trie index, SymSpell index, Fast Hash Set, Phonetic index & Gesture swipe index
+    val ready = scope.async(Dispatchers.Default) {
+        // Startup index work never runs in an IME callback.
         commonWords.forEach {
             val lower = it.word.lowercase()
             commonWordsSet.add(lower)
@@ -1045,9 +1091,11 @@ class DictionaryManager(private val context: Context) {
     }
 
     private fun loadWordsFromDatabase() {
+        val epoch = adaptiveEpoch
         scope.launch {
             try {
                 val dbWords = learnedWordDao.getAllWords()
+                if (epoch != adaptiveEpoch || resettingLearning) return@launch
                 synchronized(userWords) {
                     dbWords.forEach {
                         userWords.add(it.word)
@@ -1130,6 +1178,7 @@ class DictionaryManager(private val context: Context) {
     }
 
     fun learnWord(word: String, explicit: Boolean = false) {
+        vocabularyVersion++
         val clean = MultilingualLexicon.normalize(word).trim().trim { !TypingPolicy.isWordCharacter(it) }
         if (clean.isEmpty() || clean.length < 2 || isProfane(clean)) return
         if (commonWordsSet.contains(clean)) return
@@ -1380,154 +1429,17 @@ class DictionaryManager(private val context: Context) {
             listOfNotNull(prevWord2, prevWord)
         }
 
-        if (normalizedPrefix.isEmpty()) {
-            // Context-aware phrase completions from local grammar predictor
-            val phrasePredictions = localGrammarPredictor.predictPhraseCompletions(contextList, "", 3)
-
-            // Predict based on previous words using N-Gram Language Model
-            val nGramPredictions = nGramModel.predictNextWords(contextList, "", 5)
-
-            val normalizedPrev1 = prevWord?.lowercase()?.trim() ?: (contextList.lastOrNull()?.lowercase()?.trim() ?: "")
-            val normalizedPrev2 = prevWord2?.lowercase()?.trim() ?: (if (contextList.size >= 2) contextList[contextList.size - 2].lowercase().trim() else "")
-            
-            // 1. Get predictions from our 3-word trigram & 2-word bigram machine-learning models
-            val mlTrigramPredicted = if (normalizedPrev2.isNotEmpty() && normalizedPrev1.isNotEmpty()) {
-                mlPredictor.predictNextWordsFromTrigram(normalizedPrev2, normalizedPrev1).map { it.first }
-            } else emptyList()
-
-            val mlBigramPredicted = if (normalizedPrev1.isNotEmpty()) mlPredictor.predictNextWords(normalizedPrev1).map { it.first } else emptyList()
-
-            // 2. Personalized dynamic bigrams, then default pre-packaged bigrams
-            val learnedPredicted = if (normalizedPrev1.isNotEmpty()) personalizedBigrams[normalizedPrev1] ?: emptyList() else emptyList()
-            val predicted = if (normalizedPrev1.isNotEmpty()) bigrams[normalizedPrev1] ?: emptyList() else emptyList()
-            
-            val candidateList = mutableListOf<String>()
-            candidateList.addAll(phrasePredictions)
-            candidateList.addAll(mlTrigramPredicted)
-            candidateList.addAll(nGramPredictions)
-            candidateList.addAll(mlBigramPredicted)
-            candidateList.addAll(learnedPredicted)
-            candidateList.addAll(predicted)
-            candidateList.addAll(userWords)
-            candidateList.addAll(commonWords.map { it.word })
-
-            val combinedPredictions = candidateList
-                .filter { (!settings.profanityFilterEnabled || !isProfane(it)) && !isBlocked(it) }
-                .distinct()
-                .take(3)
-            return combinedPredictions
-        }
-
-        // 1. Check slang/abbreviation expansion (e.g. omw -> on my way)
-        val expansion = expandSlang(normalizedPrefix)
-        if (expansion != null && !isBlocked(expansion)) {
-            return listOf(prefix, expansion, "thanks").filter { !isBlocked(it) }
-        }
-
-        // 2. Phrase completions matching typed prefix
-        val phraseMatches = localGrammarPredictor.predictPhraseCompletions(contextList, normalizedPrefix, 3)
-            .filter { !isBlocked(it) }
-
-        // 3. Query N-gram model predictions matching current prefix
-        val nGramMatches = nGramModel.predictNextWords(contextList, normalizedPrefix, 5)
-            .filter { !isBlocked(it) }
-
-        // 4. Query Trie for prefix matching in O(k) time
-        val trieRawMatches = findWordsWithPrefix(normalizedPrefix, 30).map { it to getWordFrequency(it) }
-            .map { it.first }
-            .filter { (!settings.profanityFilterEnabled || !isProfane(it)) && !isBlocked(it) }
-
-        val normalizedPrev1 = prevWord?.lowercase()?.trim() ?: (contextList.lastOrNull()?.lowercase()?.trim() ?: "")
-        val normalizedPrev2 = prevWord2?.lowercase()?.trim() ?: (if (contextList.size >= 2) contextList[contextList.size - 2].lowercase().trim() else "")
-
-        val mlTrigramMatches = if (normalizedPrev2.isNotEmpty() && normalizedPrev1.isNotEmpty()) {
-            mlPredictor.predictNextWordsFromTrigram(normalizedPrev2, normalizedPrev1).map { it.first }.filter { !isBlocked(it) }
-        } else emptyList()
-
-        val contextBigrams = if (normalizedPrev1.isNotEmpty()) (bigrams[normalizedPrev1] ?: emptyList()).filter { !isBlocked(it) } else emptyList()
-        val learnedBigrams = if (normalizedPrev1.isNotEmpty()) (personalizedBigrams[normalizedPrev1] ?: emptyList()).filter { !isBlocked(it) } else emptyList()
-
-        val matchPool = mutableListOf<String>()
-        matchPool.addAll(phraseMatches)
-        matchPool.addAll(mlTrigramMatches)
-        matchPool.addAll(nGramMatches)
-        matchPool.addAll(trieRawMatches)
-        matchPool.addAll(userWords.filter { !isBlocked(it) })
-        matchPool.addAll(commonWords.map { it.word }.filter { !isBlocked(it) })
-
-        // Score and rank candidates by Phrase match, Trigram match, Bigram match, User habit words, and N-gram frequency
-        val scoredMatches = matchPool
-            .filter { it.lowercase().startsWith(normalizedPrefix) && !isBlocked(it) }
-            .filter { !settings.profanityFilterEnabled || !isProfane(it) }
-            .distinctBy { it.lowercase() }
-            .sortedByDescending { word ->
-                val lower = word.lowercase()
-                var score = 100f
-                if (phraseMatches.any { it.lowercase() == lower }) score += 3000f
-                if (mlTrigramMatches.any { it.lowercase() == lower }) score += 2000f
-                if (learnedBigrams.any { it.lowercase() == lower }) score += 1500f
-                if (userWords.contains(lower)) score += 1200f
-                if (nGramMatches.any { it.lowercase() == lower }) score += 1000f
-                if (contextBigrams.any { it.lowercase() == lower }) score += 700f
-                val wordFreq = getWordFrequency(lower).coerceAtLeast(1)
-                score += wordFreq.toFloat()
-                // Prefer words whose length is close to typed prefix
-                score -= (lower.length - normalizedPrefix.length) * 4f
-                score
-            }
-
-        val suggestions = mutableListOf<String>()
-
-        // Check for typo dynamic spelling corrections if typed prefix is not exact word
-        val isExact = isWordInDictionary(normalizedPrefix)
-        val corrections = if (!isExact) getSpellingCorrections(normalizedPrefix, prevWord, prevWord2, tapCoords).filter { !isBlocked(it) } else emptyList()
-
-        val isFirstUpper = prefix.isNotEmpty() && prefix[0].isUpperCase()
-        val isAllUpper = prefix.isNotEmpty() && prefix.length > 1 && prefix.all { it.isUpperCase() }
-
-        fun applyCasing(word: String): String {
-            if (word.isEmpty()) return word
-            if (isAllUpper) return word.uppercase()
-            if (isFirstUpper && word.length > 1) return word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-            if (isFirstUpper && word.length == 1 && word.lowercase() == "i") return "I"
-            return word
-        }
-
-        // Center Slot (Index 1): ALWAYS the primary accurate word / top prediction / autocorrect candidate
-        val centerCandidate = when {
-            corrections.isNotEmpty() -> corrections.first()
-            isExact -> if (normalizedPrefix == "i") "I" else prefix
-            scoredMatches.isNotEmpty() -> scoredMatches.first()
-            else -> prefix
-        }
-        val centerWord = if (!isBlocked(centerCandidate)) centerCandidate else (scoredMatches.firstOrNull { !isBlocked(it) } ?: "")
-
-        // Left Slot (Index 0): Raw typed literal if middle is a prediction/correction, otherwise alternative candidate
-        val candidatePool = mutableListOf<String>().apply {
-            addAll(corrections)
-            addAll(scoredMatches)
-            addAll(listOfNotNull(emojiPredictions[normalizedPrefix]))
-            addAll(commonWords.map { it.word })
-            addAll(userWords)
-            addAll(listOf("and", "you", "to", "this", "in", "it"))
-        }.filter { (!settings.profanityFilterEnabled || !isProfane(it)) && !isBlocked(it) }
-         .distinctBy { it.lowercase() }
-
-        val leftWord = if (centerWord.lowercase() != normalizedPrefix && !isBlocked(prefix)) {
-            prefix
-        } else {
-            scoredMatches.firstOrNull { it.lowercase() != centerWord.lowercase() && !isBlocked(it) }
-                ?: corrections.firstOrNull { it.lowercase() != centerWord.lowercase() && !isBlocked(it) }
-                ?: candidatePool.firstOrNull { it.lowercase() != centerWord.lowercase() && !isBlocked(it) }
-                ?: if (!isBlocked(prefix)) prefix else ""
-        }
-
-        // Right Slot (Index 2): Alternative candidate / emoji / next-word prediction
-        val rightWord = candidatePool.firstOrNull { candidate ->
-            candidate.lowercase() != centerWord.lowercase() && candidate.lowercase() != leftWord.lowercase() && !isBlocked(candidate)
-        } ?: if (!isBlocked("and")) "and" else ""
-
-        return listOf(applyCasing(leftWord), applyCasing(centerWord), applyCasing(rightWord))
+        // Compatibility presentation adapter. All language/spelling/ranking decisions belong to CandidateRanker.
+        val correction = if(prefix.isNotBlank()) correctionPipeline.rank(prefix,contextList,tapCoords) else null
+        val words = if(prefix.isBlank()) correctionPipeline.nextWords(contextList,6) else {
+            val completion = correctionPipeline.prefix(prefix,contextList,tapCoords).candidates.map { it.word }
+            val spelling = correction?.candidates.orEmpty().map { it.word }
+            if(correction?.tier != ConfidenceTier.LOW) spelling+completion else completion+spelling
+        }.distinctBy(MultilingualLexicon::normalize)
+        val center = correction?.takeIf { it.tier != ConfidenceTier.LOW }?.suggestion ?: words.firstOrNull().orEmpty()
+        val left = if(prefix.isNotBlank() && !prefix.equals(center,true)) prefix else words.firstOrNull { !it.equals(center,true) }.orEmpty()
+        val right = words.firstOrNull { !it.equals(center,true) && !it.equals(left,true) }.orEmpty()
+        return listOf(left,center,right)
     }
 
     /**
@@ -2107,11 +2019,22 @@ class DictionaryManager(private val context: Context) {
         return 0
     }
 
-    fun findDictionaryCorrections(word: String, maxDistance: Float = 2f, maxResults: Int = 16): List<SymSpellCorrectionEngine.SuggestionItem> =
-        (gboardEngine.symSpellEngine.lookup(word, maxDistance, maxResults) + corpus.corrections(word, maxDistance, maxResults))
-            .filter { isWordInDictionary(it.term) && !isBlocked(it.term) }
-            .distinctBy { it.term }.sortedWith(compareBy<SymSpellCorrectionEngine.SuggestionItem> { it.distance }
-                .thenByDescending { getWordFrequency(it.term) }).take(maxResults)
+    private data class SpellingLookup(val word: String, val distance: Float, val limit: Int, val vocabulary: Int)
+    // Geometry/context/ML scoring stays fresh. Reuse only lexical proposals across changing tap samples.
+    private val spellingCache = object : LinkedHashMap<SpellingLookup,List<SymSpellCorrectionEngine.SuggestionItem>>(256,.75f,true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<SpellingLookup,List<SymSpellCorrectionEngine.SuggestionItem>>?) = size > 256
+    }
+    fun findDictionaryCorrections(word: String, maxDistance: Float = 2f, maxResults: Int = 16): List<SymSpellCorrectionEngine.SuggestionItem> {
+        val key=SpellingLookup(word.lowercase(java.util.Locale.ROOT),maxDistance,maxResults,vocabularyVersion+corpus.canonical.size)
+        val proposals=synchronized(spellingCache) { spellingCache[key] } ?: run {
+            val result=(gboardEngine.symSpellEngine.lookup(word,maxDistance,maxResults)+corpus.corrections(word,maxDistance,maxResults))
+                .distinctBy { it.term }.sortedWith(compareBy<SymSpellCorrectionEngine.SuggestionItem> { it.distance }
+                    .thenByDescending { getWordFrequency(it.term) }).toList()
+            synchronized(spellingCache) { spellingCache[key]=result }
+            result
+        }
+        return proposals.filter { isWordInDictionary(it.term) && !isBlocked(it.term) }.take(maxResults)
+    }
 
     /**
      * Check if a word exists in the app's dictionary or libraries (case-insensitive) in O(1) time.
@@ -2120,14 +2043,8 @@ class DictionaryManager(private val context: Context) {
         val w = word.lowercase().trim()
         if (w.isEmpty()) return false
         if (commonWordsSet.contains(w) || userWords.contains(w) || slangExpansions.containsKey(w) || recentlyAcceptedWords.contains(w)) return true
-        if (corpus.frequency(w) > 0 && !gboardEngine.isKnownTypo(w)) return true
+        if (w in corpus.canonical && !gboardEngine.isKnownTypo(w)) return true
 
-        // Strict grammatical suffix check to prevent false positives on random typos
-        if (w.length >= 3 && w.endsWith("s") && !w.endsWith("ss") && commonWordsSet.contains(w.dropLast(1))) return true
-        if (w.length >= 4 && w.endsWith("es") && commonWordsSet.contains(w.dropLast(2))) return true
-        if (w.length >= 4 && w.endsWith("ed") && (commonWordsSet.contains(w.dropLast(2)) || commonWordsSet.contains(w.dropLast(1)))) return true
-        if (w.length >= 5 && w.endsWith("ing") && (commonWordsSet.contains(w.dropLast(3)) || commonWordsSet.contains(w.dropLast(3) + "e"))) return true
-        if (w.length >= 4 && w.endsWith("ly") && commonWordsSet.contains(w.dropLast(2))) return true
 
         return false
     }

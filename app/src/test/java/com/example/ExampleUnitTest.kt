@@ -24,7 +24,7 @@ class ExampleUnitTest {
   @Test
   fun testSpellingCorrectionLogic() {
     val context = ApplicationProvider.getApplicationContext<Context>()
-    val manager = DictionaryManager(context)
+    val manager = DictionaryManager(context).also { kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { it.correctionPipeline.awaitDictionaries() } }
 
     // 1. Correctly typed words should NOT trigger spelling correction
     assertFalse(manager.isSpellingCorrection("the", "the"))
@@ -47,7 +47,7 @@ class ExampleUnitTest {
   @Test
   fun testConfidenceScoringPipeline() {
     val context = ApplicationProvider.getApplicationContext<Context>()
-    val manager = DictionaryManager(context)
+    val manager = DictionaryManager(context).also { kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { it.correctionPipeline.awaitDictionaries() } }
 
     // 1. Proximity matching: 'helo' -> 'hello' (very close) should have high confidence
     val highConfidence = manager.calculateCorrectionConfidence("helo", "hello")
@@ -60,14 +60,14 @@ class ExampleUnitTest {
     // 3. Bigram context bonus: typing a typo that fits context should boost score
     // Use a less certain typo so the score is not already capped at 1 before adding context.
     val confidenceWithoutContext = manager.calculateCorrectionConfidence("sea", "see", null)
-    val confidenceWithContext = manager.calculateCorrectionConfidence("sea", "see", "will")
+    val confidenceWithContext = manager.correctionPipeline.rank("sea", listOf("i", "will")).candidates.first { it.word == "see" }.posterior
     assertTrue("Context should boost $confidenceWithoutContext to $confidenceWithContext", confidenceWithContext > confidenceWithoutContext)
   }
 
   @Test
   fun testSwipeTypingDecoding() {
     val context = ApplicationProvider.getApplicationContext<Context>()
-    val manager = DictionaryManager(context)
+    val manager = DictionaryManager(context).also { kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { it.correctionPipeline.awaitDictionaries() } }
 
     // Swipe path for "the": 't' -> 'h' -> 'e'
     val path = listOf(
@@ -154,6 +154,7 @@ class ExampleUnitTest {
   @Test
   fun testTrigramPhraseCompletions() {
     val context = ApplicationProvider.getApplicationContext<Context>()
+    kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { DictionaryManager.getInstance(context).correctionPipeline.awaitDictionaries() }
     val predictor = LocalGrammarSpellPredictor(context)
 
     // 1. Preceding 3 words: "let me know" -> suggest whole phrases
@@ -185,7 +186,7 @@ class ExampleUnitTest {
   @Test
   fun testGboardAutocorrectionAndPrediction() {
     val context = ApplicationProvider.getApplicationContext<Context>()
-    val dictionaryManager = DictionaryManager(context)
+    val dictionaryManager = DictionaryManager(context).also { kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { it.correctionPipeline.awaitDictionaries() } }
     val engine = GboardPredictionEngine(context)
 
     // 1. Transpositions (e.g. teh -> the, adn -> and, woudl -> would)
@@ -297,6 +298,7 @@ class ExampleUnitTest {
   @Test
   fun testLocalGrammarSpellPredictorEngine() = runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
+    kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { DictionaryManager.getInstance(context).correctionPipeline.awaitDictionaries() }
     val predictor = LocalGrammarSpellPredictor(context)
 
     // Test sentence grammar correction & capitalization
@@ -310,6 +312,7 @@ class ExampleUnitTest {
   @Test
   fun testLocalComprehensiveLexicon() {
     val context = ApplicationProvider.getApplicationContext<Context>()
+    kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Default) { DictionaryManager.getInstance(context).correctionPipeline.awaitDictionaries() }
     val predictor = LocalGrammarSpellPredictor(context)
 
     // 1. Comprehensive Lexicon verification
@@ -404,7 +407,7 @@ class ExampleUnitTest {
     )
     val suggestions = predService.fetchSuggestions(bufferWithShortcut)
     assertEquals("On my way!", suggestions.centerCandidate)
-    assertTrue("Center slot should autocorrect shortcut", suggestions.isCenterAutocorrecting)
+    assertFalse("Shortcut expansion requires a tap", suggestions.isCenterAutocorrecting)
     assertEquals("On my way!", suggestions.shortcutExpansion)
 
     // 4. Test PredictiveTextSuggestionService with N-gram context

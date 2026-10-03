@@ -72,6 +72,8 @@ class PolishCoordinator(
         @Volatile
         private var instance: PolishCoordinator? = null
 
+        fun cancelIfCreated() { instance?.cancelCurrent() }
+
         fun getInstance(context: Context): PolishCoordinator {
             return instance ?: synchronized(this) {
                 instance ?: PolishCoordinator(context.applicationContext).also { instance = it }

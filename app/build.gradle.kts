@@ -24,8 +24,8 @@ android {
     ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
     targetSdk = 36
-    versionCode = 190
-    versionName = "190.0"
+    versionCode = 191
+    versionName = "191.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -79,7 +79,7 @@ android {
     checkReleaseBuilds = false
     abortOnError = false
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions { unitTests { isIncludeAndroidResources = true; all { it.maxHeapSize = "2g" } } }
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
@@ -151,6 +151,7 @@ dependencies {
   androidTestImplementation(libs.androidx.espresso.core)
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.runner)
+  androidTestImplementation("androidx.test:rules:1.6.1")
   
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)

@@ -9,11 +9,24 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ModelSettingsUiTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private lateinit var previousEngine: ActiveAiEngine
+    private lateinit var previousModel: String
+    @Before fun preserveConfiguration() {
+        val settings=KeyboardSettings(compose.activity)
+        previousEngine=settings.activeAiEngine; previousModel=settings.aiModel
+    }
+    @After fun restoreConfiguration() {
+        compose.runOnUiThread {
+            KeyboardSettings(compose.activity).apply { setActiveAiEngine(previousEngine); aiModel=previousModel }
+        }
+    }
     private fun open() {
         compose.runOnUiThread {
             KeyboardSettings(compose.activity).setActiveAiEngine(ActiveAiEngine.OFFLINE)
@@ -42,17 +55,33 @@ class ModelSettingsUiTest {
         }
     }
     @Test fun gemma3RequiresReviewBeforeAnyDownloadStarts() {
-        open()
-        compose.runOnUiThread {
-            val model = GgufModelCatalog.resolve(compose.activity, "local-gemma-3-1b")
-            LocalGgufModel.acceptTerms(compose.activity, false, model)
-            compose.activity.getSharedPreferences(KeyboardSettings.PREFS_NAME, 0).edit().putBoolean("gemma_terms_accepted", false).commit()
+        val model=GgufModelCatalog.resolve(compose.activity,"local-gemma-3-1b")
+        val target=LocalGgufModel.file(compose.activity,model)
+        val held=File(target.parentFile,target.name+".test-held")
+        val installed=target.exists()
+        val preferences=KeyboardSettings(compose.activity).sharedPreferences
+        val consentKey="gguf_consent_${model.id}"
+        val hadConsent=preferences.contains(consentKey); val oldConsent=preferences.getBoolean(consentKey,false)
+        val hadLegacy=preferences.contains("gemma_terms_accepted"); val oldLegacy=preferences.getBoolean("gemma_terms_accepted",false)
+        if(installed) assertTrue("Preserve the installed model during the download UI fixture",!held.exists() && target.renameTo(held))
+        try {
+            open()
+            compose.runOnUiThread {
+                LocalGgufModel.acceptTerms(compose.activity, false, model)
+                preferences.edit().putBoolean("gemma_terms_accepted",false).commit()
+            }
+            compose.onNodeWithTag("model_download_local-gemma-3-1b").performScrollTo().performClick()
+            compose.onNodeWithText("Gemma 3 1B terms").assertExists()
+            compose.onNodeWithTag("model_accept_terms").assertExists()
+            compose.runOnIdle { assertFalse(LocalGgufModel.state.value.busy) }
+            compose.onNodeWithText("Cancel").performClick()
+        } finally {
+            if(installed) assertTrue("Restore the installed model",held.renameTo(target))
+            preferences.edit().apply {
+                if(hadConsent) putBoolean(consentKey,oldConsent) else remove(consentKey)
+                if(hadLegacy) putBoolean("gemma_terms_accepted",oldLegacy) else remove("gemma_terms_accepted")
+            }.commit()
         }
-        compose.onNodeWithTag("model_download_local-gemma-3-1b").performScrollTo().performClick()
-        compose.onNodeWithText("Gemma 3 1B terms").assertExists()
-        compose.onNodeWithTag("model_accept_terms").assertExists()
-        compose.runOnIdle { assertFalse(LocalGgufModel.state.value.busy) }
-        compose.onNodeWithText("Cancel").performClick()
     }
     @Test fun invalidCustomUrlKeepsDialogOpenWithoutStartingDownload() {
         open()

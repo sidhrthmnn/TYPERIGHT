@@ -101,7 +101,7 @@ class CandidatePipelineTest {
         assertNull(ranker.cached("teh", emptyList(), null))
         assertNull(ranker.rank("teh").automatic)
         dictionary.personalProfile.flush()
-        val restored = PersonalTypingProfile(context)
+        val restored = PersonalTypingProfile(context).also { it.ready.await() }
         assertTrue(restored.isTrusted("teh"))
         assertTrue(restored.rejectionPenalty("teh", "the") > 0)
     }

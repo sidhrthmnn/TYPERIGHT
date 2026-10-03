@@ -101,6 +101,7 @@ class PatternLearningPredictor private constructor(context: Context) {
     private val database = AppDatabase.getDatabase(context)
     private val dao = database.patternLearningDao()
     private val scope = CoroutineScope(Dispatchers.IO)
+    @Volatile private var resetGeneration = 0L
 
     // In-memory caches to guarantee sub-millisecond response times for real-time predictions
     private val swipeTemplates = HashMap<String, List<PointF>>()
@@ -114,10 +115,12 @@ class PatternLearningPredictor private constructor(context: Context) {
     }
 
     private fun loadDataFromDatabase() {
+        val generation=resetGeneration
         scope.launch {
             try {
                 // 1. Load Swipe Templates
                 val dbSwipe = dao.getAllSwipePatterns()
+                if(generation != resetGeneration) return@launch
                 synchronized(swipeTemplates) {
                     dbSwipe.forEach {
                         val points = deserializePoints(it.pointsJson)
@@ -127,20 +130,14 @@ class PatternLearningPredictor private constructor(context: Context) {
                     }
                 }
 
-                // 2. Load Touch Offsets
-                val dbTouch = dao.getAllTouchOffsets()
-                synchronized(touchOffsets) {
-                    dbTouch.forEach {
-                        if (it.char.isNotEmpty() && it.count > 0) {
-                            val charKey = it.char[0].lowercaseChar()
-                            touchOffsets[charKey] = PointF(it.dxSum / it.count, it.dySum / it.count)
-                            touchStatsMap[charKey] = Triple(it.dxSum, it.dySum, it.count)
-                        }
-                    }
-                }
+                // Legacy offsets were trained from pressed keys and synthetic points.
+                // Discard them; confirmed nullable samples now train OnlineTypingLearner.
+                dao.clearTouchOffsets()
+                synchronized(touchOffsets) { touchOffsets.clear(); touchStatsMap.clear() }
 
                 // 3. Load Bigrams
                 val dbBigrams = dao.getAllBigrams()
+                if(generation != resetGeneration) return@launch
                 synchronized(bigramCounts) {
                     dbBigrams.forEach {
                         val innerMap = bigramCounts.getOrPut(it.prevWord.lowercase()) { HashMap() }
@@ -150,6 +147,7 @@ class PatternLearningPredictor private constructor(context: Context) {
 
                 // 4. Load Trigrams
                 val dbTrigrams = dao.getAllTrigrams()
+                if(generation != resetGeneration) return@launch
                 synchronized(trigramCounts) {
                     dbTrigrams.forEach {
                         val key = "${it.prev2.lowercase()}:${it.prev1.lowercase()}"
@@ -405,8 +403,9 @@ class PatternLearningPredictor private constructor(context: Context) {
         )
     }
 
-    fun clearAllLearnedData(onComplete: (() -> Unit)? = null) {
-        scope.launch {
+    fun clearAllLearnedData(onComplete: (() -> Unit)? = null): kotlinx.coroutines.Job {
+        resetGeneration++
+        return scope.launch {
             try {
                 dao.clearSwipePatterns()
                 dao.clearTouchOffsets()
@@ -414,7 +413,7 @@ class PatternLearningPredictor private constructor(context: Context) {
                 dao.clearTrigrams()
 
                 synchronized(swipeTemplates) { swipeTemplates.clear() }
-                synchronized(touchOffsets) { touchOffsets.clear() }
+                synchronized(touchOffsets) { touchOffsets.clear(); touchStatsMap.clear() }
                 synchronized(bigramCounts) { bigramCounts.clear() }
                 synchronized(trigramCounts) { trigramCounts.clear() }
 

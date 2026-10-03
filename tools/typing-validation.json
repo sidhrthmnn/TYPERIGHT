@@ -1,0 +1,66 @@
+{
+  "version": "191.0",
+  "validatedUTC": "2026-10-03T18:46:25.754459+00:00",
+  "unitTests": {
+    "tests": 166,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "deviceTests": {
+    "tests": 19,
+    "failures": 0,
+    "environment": "Pixel_9 emulator, Android 16, x86_64, SwiftShader",
+    "editors": [
+      "native EditText",
+      "Compose BasicTextField",
+      "WebView textarea"
+    ],
+    "latency": {
+      "workerP95Ms": 9.049866,
+      "imeExclusiveHandlerP95Ms": 0.630045,
+      "nativeEditorEndToEndP95Ms": 9.546144
+    },
+    "latencyDefinition": "240 warm worker ranking samples; 150 actual IME key callbacks. IME-exclusive subtracts delegated native InputConnection work; end-to-end includes it."
+  },
+  "independent": {
+    "calibration": {
+      "cases": 9867,
+      "automaticPrecision": 0.9976878612716763,
+      "unambiguousCases": 7519,
+      "automaticRecall": 0.9998670035909031,
+      "falseCorrectionRate": 0.0004053917097395358
+    },
+    "holdout": {
+      "cases": 9767,
+      "automaticPrecision": 0.9976467512093085,
+      "unambiguousCases": 7370,
+      "automaticRecall": 0.9995929443690638,
+      "falseCorrectionRate": 0
+    }
+  },
+  "overallHoldoutTypoRecall": 0.7813043923415584,
+  "authored": {
+    "cases": 237,
+    "englishTypos": 131,
+    "automaticPrecision": 1,
+    "falseCorrectionRate": 0,
+    "automaticRecall": 0.8045112781954887
+  },
+  "protectedControls": {
+    "cases": 74,
+    "changes": 0
+  },
+  "undoTrace": {
+    "trace": "one correction followed by immediate backspace",
+    "applied": 1,
+    "undone": 1,
+    "undoRate": 1.0
+  },
+  "limitations": "Synthetic word-disjoint typo evaluation supplements authored multilingual/context fixtures. Unambiguous recall labels the only closest dictionary spelling. Overall recall deliberately includes ambiguous cases. Undo is a deterministic regression trace, not observed user behavior. Emulator measurements are not physical-device guarantees.",
+  "apk": {
+    "file": "TypeRight-191.0-internal-learning-debug.apk",
+    "bytes": 39749858,
+    "sha256": "d2eb6ffdd115d0dd11f35cc5d30a760c500cb62675a0dfe23c143fdec96b5463"
+  }
+}

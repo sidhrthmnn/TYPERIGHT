@@ -43,7 +43,7 @@ internal fun AppPreferencesScreen(settings: KeyboardSettings, onOpenTyping: () -
         title = { Text("Clear adaptive typing profile?") },
         text = { Text("Remove the typo fixes learned from accepted polish and the word-use counts used to rank suggestions. Your personal dictionary stays available.") },
         confirmButton = { TextButton(onClick = {
-            PersonalTypingProfile.get(context).clear(); clearLearning = false
+            DictionaryManager.getInstance(context).resetAdaptiveLearning(); clearLearning = false
             android.widget.Toast.makeText(context, "Adaptive typing profile cleared", android.widget.Toast.LENGTH_SHORT).show()
         }) { Text("Clear") } },
         dismissButton = { TextButton(onClick = { clearLearning = false }) { Text("Cancel") } })

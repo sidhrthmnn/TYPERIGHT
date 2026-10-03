@@ -110,14 +110,12 @@ class LocalGrammarSpellPredictor(private val context: Context) {
     }
 
     companion object {
-        fun contextCandidates(word: String, previous: List<String>): List<String> {
+        fun contextCandidates(word: String, previous: List<String>, following: List<String> = emptyList()): List<String> {
             val last = previous.lastOrNull().orEmpty()
             return when {
-                word == "ill" && last == "i" -> listOf("I'll")
-                word == "well" && last == "we" -> listOf("we'll")
-                word == "sea" && last in setOf("will", "can", "to", "would", "could", "should") -> listOf("see")
-                word == "their" && last in setOf("over", "from", "right", "go", "going", "was", "is", "are") -> listOf("there")
-                word == "there" && last in setOf("with", "in", "at", "of", "for") -> listOf("their")
+                word == "sea" && last in setOf("will", "can", "would", "could", "should") && previous.size >= 2 && previous[previous.size-2] in setOf("i", "you", "we", "they", "he", "she", "it") -> listOf("see")
+                word == "their" && last == "over" && following.firstOrNull() in setOf("now", "today", "tomorrow", "soon") -> listOf("there")
+                word == "there" && last in setOf("with", "in", "at", "of", "for") && following.firstOrNull() in setOf("house", "home", "office", "car", "family", "friends", "team") -> listOf("their")
                 word == "has" && last in setOf("i", "you", "we", "they") -> listOf("have")
                 word == "have" && last in setOf("he", "she", "it") -> listOf("has")
                 word == "was" && last in setOf("you", "we", "they") -> listOf("were")
@@ -314,10 +312,11 @@ class LocalGrammarSpellPredictor(private val context: Context) {
 
         for (i in words.indices) {
             val w = words[i]
-            val clean = w.lowercase().replace(Regex("[^a-z']"), "")
-            val prevList = words.take(i).takeLast(5).map { it.replace(Regex("[^a-zA-Z']"), "") }.filter { it.isNotBlank() }
+            val clean = w.trim { !TypingPolicy.isWordCharacter(it) }
+            val prevList = words.take(i).takeLast(5).map { it.trim { c -> !TypingPolicy.isWordCharacter(c) } }.filter { it.isNotBlank() }
 
-            val correction = checkGrammarDetailed(clean, prevList, sentence)
+            val ranked = dictionaryManager.correctionPipeline.rank(clean, prevList, following = words.drop(i+1).take(2).map { it.trim { c -> !TypingPolicy.isWordCharacter(c) }.lowercase() })
+            val correction = ranked.automatic?.let { GrammarCorrection(it, 1, "Ranked context", ranked.confidence) }
             if (correction != null) {
                 val fix = correction.correctedWord
                 val leadingPunct = w.takeWhile { !it.isLetterOrDigit() && it != '\'' }
