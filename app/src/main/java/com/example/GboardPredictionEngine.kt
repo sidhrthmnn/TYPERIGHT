@@ -311,11 +311,11 @@ class GboardPredictionEngine(private val context: Context) {
         val context = contextWords.takeLast(3).map { it.lowercase(Locale.ROOT) }
         if (typed.isEmpty()) {
             val learned = context.lastOrNull()?.let { mlPredictor.predictNextWords(it).map { pair -> pair.first } }.orEmpty()
-            val pool = model.predictNextWords(context, "", 12) + learned +
+            val pool = dictionaryManager.personalCandidates("", context) + model.predictNextWords(context, "", 12) + learned +
                 if (context.isEmpty()) listOf("I", "The", "Hi") else listOf("the", "to", "and", "you")
             val top = pool.filter { it.isNotEmpty() && !dictionaryManager.isBlocked(it) && it.all { c -> c.isLetter() || c == '\'' } }
                 .distinctBy { it.lowercase(Locale.ROOT) }
-                .sortedByDescending { model.getProbability(it.lowercase(Locale.ROOT), context) }
+                .sortedByDescending { model.getProbability(it.lowercase(Locale.ROOT), context) + dictionaryManager.personalBoost(it, context) }
                 .take(3)
             return GboardSuggestionResult(top.getOrElse(1) { "" }, top.getOrElse(0) { "" }, top.getOrElse(2) { "" }, false)
         }
@@ -325,7 +325,7 @@ class GboardPredictionEngine(private val context: Context) {
             dictionaryManager.isCodeOrSpecialToken(typed)) {
             return GboardSuggestionResult("", if (!dictionaryManager.isBlocked(typed)) typed else "", "", false)
         }
-        val direct = immediateCorrection(typed, dictionaryManager)?.takeIf { !dictionaryManager.isBlocked(it) }
+        val direct = dictionaryManager.learnedCorrection(typed, context) ?: immediateCorrection(typed, dictionaryManager)?.takeIf { !dictionaryManager.isBlocked(it) && !dictionaryManager.isCorrectionSuppressed(typed, it) }
         val contextualDirect = if (direct == null) resolveContextualAmbiguity(lower, context)?.takeIf { !dictionaryManager.isBlocked(it) } else null
         val effectiveDirect = direct ?: contextualDirect
 
@@ -340,6 +340,7 @@ class GboardPredictionEngine(private val context: Context) {
         val pool = linkedSetOf<String>()
         effectiveDirect?.let { pool.add(it) }
         pool.addAll(deviceSpellMatches)
+        pool.addAll(dictionaryManager.personalCandidates(lower, context))
         pool.addAll(dictionaryManager.findWordsWithPrefix(lower, 8).filter { !dictionaryManager.isBlocked(it) })
         pool.addAll(model.predictNextWords(context, lower, 6).filter { !dictionaryManager.isBlocked(it) })
         pool.addAll(matches.map { it.term })
@@ -375,7 +376,7 @@ class GboardPredictionEngine(private val context: Context) {
                     0.45f * (1f - distance / maxOf(3, lower.length).toFloat()).coerceIn(0f, 1f) +
                     0.25f * frequency + 0.20f * probability + 0.10f * spatial +
                     (if (literal && rawIsValid) 0.5f else 0f) + (if (completion) 0.05f else 0f) +
-                    (if (isGoogleSpellMatch) 0.05f else 0f)
+                    (if (isGoogleSpellMatch) 0.05f else 0f) + dictionaryManager.personalBoost(word, context) * .3f
                 val eligible = !literal && (!completion || deterministic) && !dictionaryManager.isCorrectionSuppressed(typed, word) && !dictionaryManager.isBlocked(word) &&
                     (deterministic || (!rawIsValid && lower.length >= 3 && distance <= maxDist && frequency >= 0.04f))
                 GboardCandidate(TypingPolicy.restoreCase(typed, word), spatial, probability, distance,
@@ -429,6 +430,7 @@ class GboardPredictionEngine(private val context: Context) {
 
         val lower = typed.lowercase(Locale.ROOT)
         if (dictionaryManager.isBlocked(lower) || dictionaryManager.isWordInUserDictionary(lower)) return null
+        dictionaryManager.learnedCorrection(typed, contextWords)?.let { return it }
         // 1. Contraction lookups (dont -> don't, cant -> can't, shouldve -> should've)
         contractionLookup[lower]?.let {
             val restored = restoreCasing(typed, it)
@@ -475,7 +477,7 @@ class GboardPredictionEngine(private val context: Context) {
             val prob = model.getProbability(term, context)
             val distScore = (1.0f - (match.distance / maxOf(3, lower.length).toFloat())).coerceIn(0f, 1f)
             val spatial = spatialModel.computeSpatialTouchLikelihood(term, tapCoords)
-            val score = 0.45f * distScore + 0.30f * freq + 0.15f * prob + 0.10f * spatial
+            val score = 0.45f * distScore + 0.30f * freq + 0.15f * prob + 0.10f * spatial + dictionaryManager.personalBoost(term, context) * .3f
             term to score
         }.sortedByDescending { it.second }
 

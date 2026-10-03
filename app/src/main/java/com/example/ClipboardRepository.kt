@@ -7,7 +7,7 @@ class ClipboardRepository(private val clipboardDao: ClipboardDao) {
 
     suspend fun insert(text: String) {
         val trimmed = text.trim()
-        if (trimmed.isEmpty()) return
+        if (trimmed.isEmpty() || SmartClipboardPolicy.otp(trimmed) != null) return
         
         val existing = clipboardDao.getItemByText(trimmed)
         if (existing != null) {

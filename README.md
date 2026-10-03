@@ -11,6 +11,8 @@ screenshots, and UI verification.
 See [voice input](docs/VOICE_INPUT.md) for live editor updates, the icon-only
 toolbar, final-result handling, and speech-service requirements.
 
+See [adaptive typing and smart clipboard](docs/PERSONAL_TYPING_AND_SMART_CLIPBOARD.md) for accepted-polish learning, personal word ranking, screenshot access, and copied-code suggestions.
+
 Type Right is an intelligent, modern Android keyboard designed to make typing faster, smarter, and effortless. Combining smart text predictions, an AI-powered writing assistant, extensive visual customization, and dynamic vocabulary updates, Type Right helps you write with speed, confidence, and style in any app.
 
 ---
@@ -19,6 +21,9 @@ Type Right is an intelligent, modern Android keyboard designed to make typing fa
 
 ### 1. Smart Predictive Typing & Correction
 * **Intelligent Next-Word Predictions**: Anticipates the next word as you type, adapting to your personal vocabulary and conversation style.
+* **Accepted-Polish Learning**: Learns small typo fixes only after you apply a polish result; undo removes that correction.
+* **Personal Word Ranking**: Uses local word counts and recent word context to rank predictions and typo candidates.
+* **Lowercase Glide Typing**: Swipe words stay lowercase unless you explicitly enable caps lock.
 * **Instant Auto-Correction**: Fixes typos, accidental letter swaps, double-typing mistakes, and missed spaces on the fly.
 * **Multi-Candidate Suggestion Strip**: Displays multiple relevant suggestions right above the keyboard for quick one-tap insertion.
 * **Live Grammar & Spell Checking**: Highlights and fixes spelling errors and grammatical inconsistencies in real time.
@@ -55,6 +60,7 @@ Type Right is an intelligent, modern Android keyboard designed to make typing fa
 ---
 
 ### 5. Built-in Clipboard Manager & Quick Snippets
+* **Smart Clipboard Toolbar**: Shows copied OTP codes for 2 minutes and recent screenshots for 5 minutes, with individual dismiss buttons. Enable screenshot photo access in Settings; receiving apps must support image paste.
 * **Clipboard History**: Access recently copied text snippets, links, and messages with a single tap.
 * **Pinned Snippets**: Save frequently used text—such as addresses, email signatures, bank details, or reply templates—for immediate access.
 * **One-Tap Insertion**: Paste any saved clip directly into the active text field without switching apps.

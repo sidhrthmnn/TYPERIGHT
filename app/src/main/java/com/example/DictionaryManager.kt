@@ -14,6 +14,17 @@ import kotlinx.coroutines.launch
 
 class DictionaryManager(private val context: Context) {
 
+    val personalProfile = PersonalTypingProfile.get(context)
+    private val profileSettings by lazy { KeyboardSettings(context) }
+    fun personalBoost(word: String, contextWords: List<String>): Float =
+        if (profileSettings.personalizedLearningEnabled) personalProfile.boost(word, contextWords) else 0f
+    fun personalCandidates(prefix: String, contextWords: List<String>): List<String> =
+        if (profileSettings.personalizedLearningEnabled) personalProfile.candidates(prefix, contextWords).filter { !isBlocked(it) } else emptyList()
+    fun learnedCorrection(word: String, contextWords: List<String>): String? {
+        if (!profileSettings.personalizedLearningEnabled || isWordInUserDictionary(word) || isBlocked(word)) return null
+        return personalProfile.correction(word, contextWords)?.takeIf { !isBlocked(it) && !isCorrectionSuppressed(word, it) }
+    }
+
     val mlPredictor = PatternLearningPredictor.getInstance(context)
     private val corpus = EnglishFrequencyLexicon.get(context)
     val nGramModel = NGramLanguageModel().apply { seedUnigramFrequencies(corpus.frequencies) }
@@ -646,6 +657,7 @@ class DictionaryManager(private val context: Context) {
     }
 
     fun suppressCorrection(originalWord: String, correctedWord: String) {
+        personalProfile.reject(originalWord, correctedWord)
         val orig = originalWord.lowercase().trim()
         val corr = correctedWord.lowercase().trim()
         if (orig.isNotEmpty() && corr.isNotEmpty()) {

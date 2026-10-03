@@ -23,6 +23,27 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun AppPreferencesScreen(settings: KeyboardSettings, onOpenTyping: () -> Unit, onOpenAi: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var learning by remember { mutableStateOf(settings.personalizedLearningEnabled) }
+    var clipboard by remember { mutableStateOf(settings.clipboardEnabled) }
+    var clearLearning by remember { mutableStateOf(false) }
+    var photoAccess by remember { mutableStateOf(SmartClipboardPolicy.hasPhotoAccess(context)) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) photoAccess = SmartClipboardPolicy.hasPhotoAccess(context)
+        }
+        lifecycle.lifecycle.addObserver(observer)
+        onDispose { lifecycle.lifecycle.removeObserver(observer) }
+    }
+    if (clearLearning) AlertDialog(onDismissRequest = { clearLearning = false },
+        title = { Text("Clear adaptive typing profile?") },
+        text = { Text("Remove the typo fixes learned from accepted polish and the word-use counts used to rank suggestions. Your personal dictionary stays available.") },
+        confirmButton = { TextButton(onClick = {
+            PersonalTypingProfile.get(context).clear(); clearLearning = false
+            android.widget.Toast.makeText(context, "Adaptive typing profile cleared", android.widget.Toast.LENGTH_SHORT).show()
+        }) { Text("Clear") } },
+        dismissButton = { TextButton(onClick = { clearLearning = false }) { Text("Cancel") } })
     var query by rememberSaveable { mutableStateOf("") }
     val prefs by settings.dataStore.userPreferencesFlow.collectAsState(initial = settings.dataStore.currentSnapshot())
     // Read persisted values again when DataStore publishes a setting change or this screen is reopened.
@@ -34,6 +55,7 @@ internal fun AppPreferencesScreen(settings: KeyboardSettings, onOpenTyping: () -
     var theme by remember(prefs) { mutableStateOf(settings.theme) }
     fun matches(vararg terms: String) = query.isBlank() || terms.any { it.contains(query.trim(), ignoreCase = true) }
     val typing = matches("typing", "auto-correct", "autocorrect", "correction sensitivity", "mild balanced strong aggressive", "number row digits")
+    val intelligence = matches("learning personal typing patterns accepted polish typos", "smart clipboard screenshot OTP code photo access")
     val feedback = matches("touch feedback", "haptic vibration", "keypress sound audio")
     val appearance = matches("appearance theme", "light dark midnight night color")
     val more = matches("dictionary words shortcuts predictions", "AI polish languages Gemma model")
@@ -90,6 +112,24 @@ internal fun AppPreferencesScreen(settings: KeyboardSettings, onOpenTyping: () -
                     { numberRow = it; settings.numberRowEnabled = it }, "pref_number_row_switch", Icons.Default.Numbers)
             }
         }
+        if (intelligence) {
+            SettingsSectionLabel("Smarter typing", "Personal and on this device")
+            AppSettingsCard {
+                AppSwitchRow("Learn from my typing", "Remember accepted typo fixes and frequently used words", learning,
+                    { learning = it; settings.personalizedLearningEnabled = it }, "pref_learning_switch", Icons.Default.Psychology)
+                AppLinkRow("Clear adaptive profile", "Reset accepted fixes and word-use ranking", Icons.Default.RestartAlt,
+                    "pref_clear_learning", { clearLearning = true })
+                SettingsDivider()
+                AppSwitchRow("Smart clipboard", "Suggest copied codes and recent screenshots; tap × to dismiss", clipboard,
+                    { clipboard = it; settings.clipboardEnabled = it }, "pref_clipboard_switch", Icons.Default.ContentPaste)
+                if (clipboard) AppLinkRow("Screenshot access", if (photoAccess) "Photo access allowed" else "Allow photo access to show recent screenshots",
+                    Icons.Default.Image, "pref_screenshot_access", {
+                        context.startActivity(android.content.Intent(context, ScreenshotPermissionActivity::class.java))
+                    })
+                Text("Codes disappear after 2 minutes and are never saved to clipboard history. Screenshots are suggested for 5 minutes.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         if (feedback) {
             SettingsSectionLabel("Touch & sound", "Choose how each tap feels")
             AppSettingsCard {
@@ -121,7 +161,7 @@ internal fun AppPreferencesScreen(settings: KeyboardSettings, onOpenTyping: () -
                 AppLinkRow("AI & languages", "Set up your writing assistant", Icons.Default.AutoAwesome, "settings_open_ai", onOpenAi)
             }
         }
-        if (!typing && !feedback && !appearance && !more) {
+        if (!typing && !intelligence && !feedback && !appearance && !more) {
             AppStatusNote("No settings found", "Try searching for typing, sound, theme or AI.", Icons.Default.Search)
         }
         if (query.isBlank()) {

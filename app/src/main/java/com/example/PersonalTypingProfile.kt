@@ -1,0 +1,175 @@
+package com.example
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
+
+/** Bounded local counts, never full messages. Reads on the typing path are entirely in memory. */
+class PersonalTypingProfile internal constructor(context: Context) {
+    private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val words = linkedMapOf<String, Int>()
+    private val transitions = linkedMapOf<String, Int>()
+    private val corrections = linkedMapOf<String, Int>()
+    private val writer = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "typing-profile").apply { isDaemon = true } }
+    private var pending: ScheduledFuture<*>? = null
+    private val writeLock = Any()
+
+    init {
+        runCatching {
+            val json = JSONObject(prefs.getString("profile", "{}") ?: "{}")
+            fun read(name: String, target: MutableMap<String, Int>, limit: Int) {
+                val entries = json.optJSONArray(name) ?: return
+                for (i in 0 until minOf(entries.length(), limit)) {
+                    val pair = entries.getJSONArray(i)
+                    target[pair.getString(0)] = pair.getInt(1).coerceIn(1, 1000)
+                }
+            }
+            read("words", words, 2000); read("transitions", transitions, 4000); read("corrections", corrections, 500)
+        }.onFailure { words.clear(); transitions.clear(); corrections.clear() }
+    }
+
+    @Synchronized fun observe(word: String, context: List<String>) {
+        val clean = normalize(word)
+        if (!isWord(clean)) return
+        increment(words, clean, 2000)
+        for (size in 1..minOf(2, context.size)) {
+            val prior = context.takeLast(size).map(::normalize)
+            if (prior.all(::isWord)) increment(transitions, "${prior.joinToString(" ")}|$clean", 4000)
+        }
+        scheduleWrite()
+    }
+
+    @Synchronized fun candidates(prefix: String, context: List<String>): List<String> =
+        words.keys.filter { it.startsWith(normalize(prefix)) }
+            .sortedByDescending { boost(it, context) }.take(12)
+
+    @Synchronized fun boost(word: String, context: List<String>): Float {
+        val clean = normalize(word)
+        val uses = words[clean] ?: 0
+        val one = context.takeLast(1).map(::normalize).joinToString(" ")
+        val two = context.takeLast(2).map(::normalize).joinToString(" ")
+        val matches = maxOf(transitions["$one|$clean"] ?: 0, transitions["$two|$clean"] ?: 0)
+        // A few repeated choices can beat generic corpus priors without replacing valid typed words.
+        return (uses.coerceAtMost(12) * .015f + matches.coerceAtMost(8) * .10f).coerceAtMost(.9f)
+    }
+
+    /** Called only after an explicit acceptance successfully changes the editor. */
+    @Synchronized fun acceptPolish(original: String, polished: String, isKnown: (String) -> Boolean): List<String> {
+        val before = tokens(original); val after = tokens(polished)
+        if (before.isEmpty() || before.size > 200 || after.size > 200) return emptyList()
+        // Token edit alignment handles inserted/deleted words without shifting subsequent typo pairs.
+        val cost = Array(before.size + 1) { IntArray(after.size + 1) }
+        for (i in before.indices) cost[i + 1][0] = i + 1
+        for (j in after.indices) cost[0][j + 1] = j + 1
+        for (i in before.indices) for (j in after.indices) {
+            cost[i + 1][j + 1] = minOf(cost[i][j] + if (before[i] == after[j]) 0 else 1,
+                cost[i][j + 1] + 1, cost[i + 1][j] + 1)
+        }
+        var i = before.size; var j = after.size
+        val pairs = mutableListOf<Pair<Int, Int>>()
+        while (i > 0 || j > 0) {
+            when {
+                i > 0 && j > 0 && cost[i][j] == cost[i - 1][j - 1] + if (before[i - 1] == after[j - 1]) 0 else 1 -> {
+                    if (before[i - 1] != after[j - 1]) pairs.add((i - 1) to (j - 1))
+                    i--; j--
+                }
+                i > 0 && cost[i][j] == cost[i - 1][j] + 1 -> i--
+                else -> j--
+            }
+        }
+        val receipt = mutableListOf<String>()
+        for ((a, b) in pairs) {
+            val source = before[a]; val target = after[b]
+            if (!plausibleTypo(source, target) || !isKnown(target)) continue
+            val prior = before.take(a).takeLast(2)
+            // Existing real words require repeated acceptance in the same context; never a global rewrite.
+            val scope = if (isKnown(source)) prior.joinToString(" ").takeIf { prior.isNotEmpty() && prior.all(::isWord) } ?: continue else "*"
+            val key = "$scope|$source|$target"
+            increment(corrections, key, 500)
+            receipt.add(key)
+            observe(target, after.take(b).takeLast(2))
+        }
+        scheduleWrite()
+        return receipt
+    }
+
+    @Synchronized fun correction(word: String, context: List<String>): String? {
+        val clean = normalize(word)
+        if (!isWord(clean)) return null
+        val scopes = listOf(context.takeLast(2).map(::normalize).joinToString(" "), "*")
+        for (scope in scopes.distinct()) {
+            val prefix = "$scope|$clean|"
+            val options = corrections.filterKeys { it.startsWith(prefix) }.entries.sortedByDescending { it.value }
+            val top = options.firstOrNull() ?: continue
+            val total = options.sumOf { it.value }
+            if (scope != "*" && top.value < 3) continue
+            if (options.size > 1 && (top.value < 3 || top.value * 4 < total * 3)) continue
+            return TypingPolicy.restoreCase(word, top.key.substringAfterLast('|'))
+        }
+        return null
+    }
+
+    @Synchronized fun retract(receipt: List<String>) {
+        receipt.forEach { key ->
+            val count = corrections[key] ?: return@forEach
+            if (count <= 1) corrections.remove(key) else corrections[key] = count - 1
+        }
+        scheduleWrite()
+    }
+
+    @Synchronized fun reject(source: String, target: String) {
+        corrections.keys.removeAll { it.endsWith("|${normalize(source)}|${normalize(target)}") }
+        scheduleWrite()
+    }
+
+    @Synchronized fun clear() { words.clear(); transitions.clear(); corrections.clear(); scheduleWrite() }
+
+    private fun increment(map: MutableMap<String, Int>, key: String, limit: Int) {
+        val value = ((map.remove(key) ?: 0) + 1).coerceAtMost(1000)
+        map[key] = value
+        while (map.size > limit) map.remove(map.keys.first())
+    }
+
+    private fun scheduleWrite() {
+        pending?.cancel(false)
+        pending = writer.schedule({ flush() }, 250, TimeUnit.MILLISECONDS)
+    }
+
+    internal fun flush() = synchronized(writeLock) {
+        val payload = synchronized(this) {
+            fun entries(map: Map<String, Int>) = JSONArray().apply { map.forEach { (key, count) -> put(JSONArray().put(key).put(count)) } }
+            JSONObject().put("words", entries(words)).put("transitions", entries(transitions))
+                .put("corrections", entries(corrections)).toString()
+        }
+        // Disk I/O never holds the profile lock used by keystroke-time reads and observations.
+        prefs.edit().putString("profile", payload).commit()
+        Unit
+    }
+
+    companion object {
+        const val PREFS = "typeright_personal_learning"
+        @Volatile private var instance: PersonalTypingProfile? = null
+        fun get(context: Context): PersonalTypingProfile = instance ?: synchronized(this) {
+            instance ?: PersonalTypingProfile(context).also { instance = it }
+        }
+        private fun normalize(word: String) = word.lowercase(Locale.ROOT).replace('’', '\'')
+        private fun isWord(word: String) = word.length in 2..32 && word.any(Char::isLetter) && word.all { it.isLetter() || it == '\'' }
+        private fun tokens(text: String) = text.split(Regex("\\s+")).filter(String::isNotBlank)
+            .map { normalize(it.trim { c -> !c.isLetterOrDigit() && c != '\'' && c != '’' }) }
+        internal fun plausibleTypo(a: String, b: String): Boolean {
+            if (!isWord(a) || !isWord(b) || minOf(a.length, b.length) < 3 || a == b) return false
+            val d = Array(a.length + 1) { IntArray(b.length + 1) }
+            for (i in 0..a.length) d[i][0] = i
+            for (j in 0..b.length) d[0][j] = j
+            for (i in 1..a.length) for (j in 1..b.length) {
+                d[i][j] = minOf(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1)
+                if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) d[i][j] = minOf(d[i][j], d[i - 2][j - 2] + 1)
+            }
+            return d[a.length][b.length] <= 2 && d[a.length][b.length].toFloat() / maxOf(a.length, b.length) <= .4f
+        }
+    }
+}

@@ -330,6 +330,10 @@ class KeyboardSettings(private val context: Context) {
             dataStore.updateAsync { it.setVoiceInputMode(value) }
         }
 
+    var personalizedLearningEnabled: Boolean
+        get() = prefs.getBoolean("personalized_learning_enabled", true)
+        set(value) { prefs.edit().putBoolean("personalized_learning_enabled", value).apply() }
+
     var clipboardEnabled: Boolean
         get() = prefs.getBoolean(KEY_CLIPBOARD_ENABLED, true)
         set(value) {

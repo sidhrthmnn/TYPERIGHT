@@ -37,6 +37,10 @@ object TypingPolicy {
         else -> replacement
     }
 
+    // Automatic sentence shift must not capitalize every glide word. Explicit caps lock still works.
+    fun swipeCase(word: String, capsLock: Boolean): String =
+        if (capsLock) word.uppercase(Locale.ROOT) else word.lowercase(Locale.ROOT)
+
     fun isWordCharacter(char: Char): Boolean = char.isLetterOrDigit() || char == '\'' || char == '’' ||
         Character.getType(char) == Character.NON_SPACING_MARK.toInt() ||
         Character.getType(char) == Character.COMBINING_SPACING_MARK.toInt()

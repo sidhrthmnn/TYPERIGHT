@@ -57,6 +57,94 @@ class KeyboardEditingTest {
         assertEquals("teh ", text.toString())
     }
 
+    @Test fun acceptedPolishLearnsOnlyAfterCommitAndUndoRetractsIt() {
+        val profile = PersonalTypingProfile.get(service).apply { clear() }
+        text.append("send the mesage"); Selection.setSelection(text, text.length)
+        val snapshot = service.captureEditorText()
+        assertNull(profile.correction("mesage", emptyList()))
+        assertTrue(service.applyEditorReplacement(snapshot, "send the message", PolishMode.PROOFREAD))
+        assertEquals("message", profile.correction("mesage", emptyList()))
+        assertFalse(service.applyEditorReplacement(snapshot, "send the message", PolishMode.PROOFREAD))
+        assertTrue(service.undoEditorReplacement(snapshot))
+        assertEquals("send the mesage", text.toString())
+        assertNull(profile.correction("mesage", emptyList()))
+    }
+
+    @Test fun acceptedFullEditorPolishRefusesStaleTextAndLearnsNothing() {
+        val profile = PersonalTypingProfile.get(service).apply { clear() }
+        text.append("send the mesage"); Selection.setSelection(text, text.length)
+        val snapshot = service.captureFullEditorText()
+        Selection.setSelection(text, text.length); text.append(" now"); Selection.setSelection(text, text.length)
+        assertFalse(service.applyEditorReplacement(snapshot, "send the message", PolishMode.PROOFREAD))
+        assertNull(profile.correction("mesage", emptyList()))
+        assertEquals("send the mesage now", text.toString())
+    }
+
+    @Test fun acceptedCorrectionIsUsedOnTheNextTypedWord() {
+        val profile = PersonalTypingProfile.get(service).apply { clear() }
+        text.append("send the mesage"); Selection.setSelection(text, text.length)
+        assertTrue(service.applyEditorReplacement(service.captureEditorText(), "send the message", PolishMode.PROOFREAD))
+        text.clear(); Selection.setSelection(text, 0)
+        useEditor(InputType.TYPE_CLASS_TEXT)
+        type("mesage ")
+        assertEquals("message ", text.toString())
+        invoke("handleDelete")
+        assertEquals("mesage", text.toString())
+        assertNull(profile.correction("mesage", emptyList()))
+    }
+
+    @Test fun noLearningFlagPreventsLearningAcceptedPolish() {
+        val profile = PersonalTypingProfile.get(service).apply { clear() }
+        service.currentInputEditorInfo.imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+        text.append("send the mesage"); Selection.setSelection(text, text.length)
+        assertTrue(service.applyEditorReplacement(service.captureEditorText(), "send the message", PolishMode.PROOFREAD))
+        assertNull(profile.correction("mesage", emptyList()))
+        assertTrue(profile.candidates("", emptyList()).isEmpty())
+    }
+
+    @Test fun failedEditorCommitDoesNotTeachATypo() {
+        val profile = PersonalTypingProfile.get(service).apply { clear() }
+        val refusing = object : BaseInputConnection(View(service), true) {
+            override fun getEditable(): Editable = text
+            override fun commitText(value: CharSequence?, newCursorPosition: Int): Boolean = false
+        }
+        ReflectionHelpers.setField(service, "mStartedInputConnection", refusing)
+        text.append("say mesage please"); Selection.setSelection(text, 4, 10)
+        assertFalse(service.applyEditorReplacement(service.captureEditorText(), "message", PolishMode.PROOFREAD))
+        assertNull(profile.correction("mesage", emptyList()))
+        assertEquals("say mesage please", text.toString())
+    }
+
+    @Test fun learningSwitchStopsBothUsageAndAcceptedFixLearning() {
+        val profile = PersonalTypingProfile.get(service).apply { clear() }
+        KeyboardSettings(service).personalizedLearningEnabled = false
+        text.append("send the mesage"); Selection.setSelection(text, text.length)
+        assertTrue(service.applyEditorReplacement(service.captureEditorText(), "send the message", PolishMode.PROOFREAD))
+        type(" hello ")
+        assertNull(profile.correction("mesage", emptyList()))
+        assertTrue(profile.candidates("", emptyList()).isEmpty())
+    }
+
+    @Test fun acceptedSelectionUndoPreservesSurroundingTextAndNewEditsAreProtected() {
+        text.append("say mesage please"); Selection.setSelection(text, 4, 10)
+        val snapshot = service.captureEditorText()
+        assertTrue(service.applyEditorReplacement(snapshot, "message", PolishMode.PROOFREAD))
+        assertTrue(service.undoEditorReplacement(snapshot))
+        assertEquals("say mesage please", text.toString())
+        Selection.setSelection(text, 4, 10)
+        val next = service.captureEditorText()
+        assertTrue(service.applyEditorReplacement(next, "message", PolishMode.PROOFREAD))
+        text.append("!"); Selection.setSelection(text, text.length)
+        assertFalse(service.undoEditorReplacement(next))
+        assertEquals("say message please!", text.toString())
+    }
+
+    @Test fun repeatedSwipesAreLowercaseDespiteSentenceShift() {
+        service.handleSwipeResult("Hello", listOf("Hello", "Hollow"), emptyList())
+        service.handleSwipeResult("World", listOf("World", "Word"), emptyList())
+        assertEquals("hello world ", text.toString())
+    }
+
     @Test fun apostropheDoesNotSplitContraction() {
         type("don't ")
         assertEquals("don't ", text.toString())

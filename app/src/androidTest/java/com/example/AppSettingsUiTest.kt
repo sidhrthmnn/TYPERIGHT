@@ -79,6 +79,35 @@ class AppSettingsUiTest {
         compose.onNodeWithTag("pref_sound_switch").assertExists()
     }
 
+    @Test fun adaptiveTypingControlsPersistAndClearOnlyTheProfile() {
+        val settings = KeyboardSettings(compose.activity)
+        val originalLearning = settings.personalizedLearningEnabled
+        val originalClipboard = settings.clipboardEnabled
+        val profile = PersonalTypingProfile.get(compose.activity)
+        try {
+            profile.observe("tea", listOf("morning"))
+            compose.onNodeWithTag("nav_settings").performClick()
+            compose.onNodeWithTag("settings_search").performTextInput("learning")
+            compose.onNodeWithTag("pref_learning_switch").performScrollTo().performClick()
+            compose.activityRule.scenario.recreate()
+            assertEquals(!originalLearning, KeyboardSettings(compose.activity).personalizedLearningEnabled)
+            compose.onNodeWithTag("pref_clear_learning").performScrollTo().performClick()
+            compose.onNodeWithText("Clear adaptive typing profile?").assertExists()
+            compose.onNodeWithText("Clear", useUnmergedTree = true).performClick()
+            compose.runOnIdle { org.junit.Assert.assertTrue(profile.candidates("", emptyList()).isEmpty()) }
+            compose.onNodeWithTag("pref_clipboard_switch").performScrollTo().performClick()
+            compose.activityRule.scenario.recreate()
+            assertEquals(!originalClipboard, KeyboardSettings(compose.activity).clipboardEnabled)
+            compose.onNodeWithTag("pref_clipboard_switch").performScrollTo().performClick()
+            compose.onNodeWithTag("pref_screenshot_access").performScrollTo().assertExists()
+            capture("settings-smart-typing")
+        } finally {
+            settings.personalizedLearningEnabled = originalLearning
+            settings.clipboardEnabled = originalClipboard
+            profile.clear()
+        }
+    }
+
     @Test fun themeChoicesPersistAndRender() {
         val settings = KeyboardSettings(compose.activity)
         val original = settings.theme

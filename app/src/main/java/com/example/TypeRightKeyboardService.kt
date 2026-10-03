@@ -223,6 +223,11 @@ class TypeRightKeyboardService : KeyboardService() {
     private var currentAiRequestId: Long = 0L
     private var currentAiJob: kotlinx.coroutines.Job? = null
     private var rephraseSnapshot: EditorTextSnapshot? = null
+    lateinit var smartClipboard: SmartClipboardController
+        private set
+    private data class AcceptedEdit(val original: EditorTextSnapshot, val after: EditorTextSnapshot,
+                                    val replacement: String, val receipt: List<String>)
+    private var acceptedEdit: AcceptedEdit? = null
     private val isAiRephrasing = mutableStateOf(false)
     private val aiRephraseSuggestions = androidx.compose.runtime.mutableStateListOf<String>()
     private val isMicPermissionGranted = mutableStateOf(false)
@@ -278,6 +283,9 @@ class TypeRightKeyboardService : KeyboardService() {
         AiPolishBackend.initialize(this)
         settings = KeyboardSettings(this)
         dictionaryManager = DictionaryManager(this)
+        smartClipboard = SmartClipboardController(this, serviceScope) {
+            settings.clipboardEnabled && currentInputEditorInfo != null && !isSensitiveField()
+        }
         aiPolishManager = AiPolishManager(this)
         voiceRecordingService = VoiceRecordingSttService(this)
         composeSetup = ComposeSetup()
@@ -412,6 +420,8 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
+        if (::smartClipboard.isInitialized) smartClipboard.stop()
+        acceptedEdit = null
         super.onStartInput(info, restarting)
         currentTextBoxInfo.value = TextBoxClassifier.classify(info)
         resetEditorState()
@@ -455,6 +465,8 @@ class TypeRightKeyboardService : KeyboardService() {
         currentTypedWord.value = ""
         asyncPredictionsState.value = AsyncKeyboardPredictions()
         updatePreviousWord()
+
+        smartClipboard.start()
 
         // Capture new system clipboard content
         try {
@@ -644,6 +656,7 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        smartClipboard.stop()
         super.onFinishInputView(finishingInput)
         isProofreadSheetOpen.value = false
         try {
@@ -661,6 +674,7 @@ class TypeRightKeyboardService : KeyboardService() {
     }
 
     override fun onDestroy() {
+        if (::smartClipboard.isInitialized) smartClipboard.stop()
         super.onDestroy()
         if (::voiceRecordingService.isInitialized) voiceRecordingService.cancelRecording()
         try {
@@ -703,6 +717,45 @@ class TypeRightKeyboardService : KeyboardService() {
     override fun onKeySpace() {
         handleSpace()
         notifySpace()
+    }
+
+    fun pasteSmartSuggestion(item: SmartClipSuggestion) {
+        if (!settings.clipboardEnabled || isSensitiveField()) return
+        val ic = currentInputConnection ?: return
+        val info = currentInputEditorInfo ?: return
+        val session = editorSession
+        val lifetime = if (item.code != null) SmartClipboardPolicy.OTP_LIFETIME else SmartClipboardPolicy.SCREENSHOT_LIFETIME
+        if (!SmartClipboardPolicy.recent(item.timestamp, System.currentTimeMillis(), lifetime)) {
+            smartClipboard.refresh(); return
+        }
+        if (item.code != null) {
+            ic.finishComposingText()
+            if (ic.commitText(item.code, 1)) {
+                currentTypedWord.value = ""
+                currentWordTapCoords.clear()
+                smartClipboard.dismiss(item)
+                updatePreviousWord()
+            }
+            return
+        }
+        if (!ScreenshotPaste.supported(info, item.mimeType)) {
+            android.widget.Toast.makeText(this, "This app does not accept pasted images", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        serviceScope.launch {
+            runCatching {
+                val uri = ScreenshotPaste.prepare(this@TypeRightKeyboardService, item)
+                if (session != editorSession || currentInputConnection !== ic || isSensitiveField() || !settings.clipboardEnabled) return@launch
+                val content = androidx.core.view.inputmethod.InputContentInfoCompat(uri,
+                    android.content.ClipDescription("Screenshot", arrayOf(item.mimeType)), null)
+                val flag = if (Build.VERSION.SDK_INT >= 25) androidx.core.view.inputmethod.InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION else 0
+                if (Build.VERSION.SDK_INT < 25 && !info.packageName.isNullOrBlank()) grantUriPermission(info.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if (androidx.core.view.inputmethod.InputConnectionCompat.commitContent(ic, info, content, flag, null)) smartClipboard.dismiss(item)
+                else android.widget.Toast.makeText(this@TypeRightKeyboardService, "This app could not paste the screenshot", android.widget.Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                android.widget.Toast.makeText(this@TypeRightKeyboardService, "Screenshot is no longer available", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     fun commitRichMedia(item: GiphyMediaItem) {
@@ -922,74 +975,64 @@ class TypeRightKeyboardService : KeyboardService() {
 
     fun applyEditorReplacement(snapshot: EditorTextSnapshot?, replacement: String, mode: PolishMode): Boolean {
         if (snapshot == null || snapshot.session != editorSession || !allowsTextAssistance()) return false
+        if (acceptedEdit?.original == snapshot && replacement == snapshot.text) return undoEditorReplacement(snapshot)
         val ic = currentInputConnection ?: return false
-
-        val currentBefore = ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty()
-        val currentAfter = ic.getTextAfterCursor(20000, 0)?.toString().orEmpty()
-        val currentSelected = ic.getSelectedText(0)?.toString()
-
-        val isFullEditorSnapshot = !snapshot.selected.isNullOrEmpty() && snapshot.before.isEmpty() && snapshot.after.isEmpty()
-        if (!isFullEditorSnapshot) {
-            if (currentBefore != snapshot.before ||
-                currentAfter != snapshot.after ||
-                currentSelected != snapshot.selected) {
-                return false
-            }
-        }
-
+        val before = ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty()
+        val after = ic.getTextAfterCursor(20000, 0)?.toString().orEmpty()
+        val selected = ic.getSelectedText(0)?.toString().orEmpty()
+        val full = !snapshot.selected.isNullOrEmpty() && snapshot.before.isEmpty() && snapshot.after.isEmpty()
+        if (full) {
+            if (before + selected + after != snapshot.text) return false
+        } else if (before != snapshot.before || after != snapshot.after || selected != snapshot.selected.orEmpty()) return false
         if (!AiOutputValidator.isValid(snapshot.text, replacement, mode)) return false
-        val cleanReplacement = AiOutputValidator.sanitize(replacement, snapshot.text)
-        if (cleanReplacement.isEmpty()) return false
-
+        val clean = AiOutputValidator.sanitize(replacement, snapshot.text)
+        if (clean.isEmpty() || clean == snapshot.text) return false
+        var committed = false
         ic.beginBatchEdit()
         try {
             ic.finishComposingText()
-            if (isFullEditorSnapshot) {
-                try {
-                    ic.setSelection(0, 50000)
-                    ic.performContextMenuAction(android.R.id.selectAll)
-                } catch (_: Exception) {}
-                val sel = ic.getSelectedText(0)?.toString().orEmpty()
-                if (sel.isNotEmpty()) {
-                    ic.commitText(cleanReplacement, 1)
-                } else {
-                    val curBefore = ic.getTextBeforeCursor(50000, 0)?.toString().orEmpty()
-                    val curAfter = ic.getTextAfterCursor(50000, 0)?.toString().orEmpty()
-                    if (curBefore.isNotEmpty() || curAfter.isNotEmpty()) {
-                        ic.deleteSurroundingText(curBefore.length, curAfter.length)
-                    }
-                    ic.commitText(cleanReplacement, 1)
+            if (full) {
+                ic.performContextMenuAction(android.R.id.selectAll)
+                if (ic.getSelectedText(0)?.toString() == snapshot.text) {
+                    committed = ic.commitText(clean, 1)
+                } else if (ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty() +
+                    ic.getSelectedText(0)?.toString().orEmpty() + ic.getTextAfterCursor(20000, 0)?.toString().orEmpty() == snapshot.text) {
+                    if (ic.getSelectedText(0).isNullOrEmpty() && ic.deleteSurroundingText(before.length, after.length)) committed = ic.commitText(clean, 1)
                 }
-            } else if (!snapshot.selected.isNullOrEmpty()) {
-                ic.commitText(cleanReplacement, 1)
-            } else {
-                ic.deleteSurroundingText(snapshot.before.length, snapshot.after.length)
-                ic.commitText(cleanReplacement, 1)
-            }
-        } finally {
-            ic.endBatchEdit()
-        }
+            } else if (!snapshot.selected.isNullOrEmpty()) committed = ic.commitText(clean, 1)
+            else if (ic.deleteSurroundingText(snapshot.before.length, snapshot.after.length)) committed = ic.commitText(clean, 1)
+        } finally { ic.endBatchEdit() }
+        if (!committed) return false
+        val receipt = if (mayLearn()) dictionaryManager.personalProfile.acceptPolish(snapshot.text, clean) {
+            dictionaryManager.isWordInDictionary(it) && !dictionaryManager.isBlocked(it) && !dictionaryManager.gboardEngine.isKnownTypo(it)
+        } else emptyList()
+        acceptedEdit = AcceptedEdit(snapshot, EditorTextSnapshot(editorSession,
+            ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty(), ic.getSelectedText(0)?.toString(),
+            ic.getTextAfterCursor(20000, 0)?.toString().orEmpty()), clean, receipt)
         justAutocorrected = false
         updatePreviousWord()
         return true
     }
 
     fun undoEditorReplacement(snapshot: EditorTextSnapshot?): Boolean {
-        if (snapshot == null || snapshot.session != editorSession) return false
+        val edit = acceptedEdit ?: return false
+        if (snapshot == null || snapshot != edit.original || snapshot.session != editorSession) return false
         val ic = currentInputConnection ?: return false
+        val before = ic.getTextBeforeCursor(20000, 0)?.toString().orEmpty()
+        if (before != edit.after.before || ic.getTextAfterCursor(20000, 0)?.toString().orEmpty() != edit.after.after ||
+            ic.getSelectedText(0)?.toString().orEmpty() != edit.after.selected.orEmpty() || !before.endsWith(edit.replacement)) return false
+        var restored = false
         ic.beginBatchEdit()
         try {
             ic.finishComposingText()
-            if (snapshot.selected.isNullOrEmpty()) {
-                ic.deleteSurroundingText(2000, 2000)
-                ic.commitText(snapshot.before + snapshot.after, 1)
-            } else {
-                ic.commitText(snapshot.text, 1)
-            }
-        } finally {
-            ic.endBatchEdit()
+            if (ic.deleteSurroundingText(edit.replacement.length, 0)) restored = ic.commitText(snapshot.text, 1)
+        } finally { ic.endBatchEdit() }
+        if (restored) {
+            dictionaryManager.personalProfile.retract(edit.receipt)
+            acceptedEdit = null
+            updatePreviousWord()
         }
-        return true
+        return restored
     }
 
     // --- SMART SELECT & ON-DEVICE AUTO-POLISH ENGINE ---
@@ -1257,13 +1300,16 @@ class TypeRightKeyboardService : KeyboardService() {
         return TextBoxClassifier.classify(info).allowsAiPolish
     }
 
-    private fun mayLearn(): Boolean = allowsTextAssistance() && !isUrlField() && !isEmailField() &&
+    private fun mayLearn(): Boolean = settings.personalizedLearningEnabled &&
+        ((currentInputEditorInfo?.inputType ?: 0) and android.text.InputType.TYPE_MASK_CLASS) == android.text.InputType.TYPE_CLASS_TEXT && allowsTextAssistance() && !isUrlField() && !isEmailField() &&
         ((currentInputEditorInfo?.imeOptions ?: 0) and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) == 0
 
     private fun getAutoCorrectedWord(prefix: String): String? {
         if (!settings.autocorrectEnabled || prefix.isEmpty() || !allowsAutocorrect()) return null
         val lower = prefix.lowercase(Locale.ROOT)
         if (dictionaryManager.isBlocked(lower)) return null
+
+        dictionaryManager.learnedCorrection(prefix, previousWords.value)?.let { return it }
 
         // 1. If user typed an already valid word, preserve it! Never split or replace valid single words
         if (dictionaryManager.isWordInUserDictionary(lower) ||
@@ -1784,7 +1830,7 @@ class TypeRightKeyboardService : KeyboardService() {
                     ic.endBatchEdit()
                 }
                 learnWordAndContext(word, explicit = true)
-                if (lastSwipePath.isNotEmpty()) {
+                if (mayLearn() && lastSwipePath.isNotEmpty()) {
                     dictionaryManager.learnSwipePattern(word, lastSwipePath)
                 }
                 justAutocorrected = false
@@ -1834,7 +1880,10 @@ class TypeRightKeyboardService : KeyboardService() {
         updatePreviousWord()
     }
 
-    internal fun handleSwipeResult(topWord: String, candidates: List<String>, path: List<PointF>) {
+    internal fun handleSwipeResult(decodedWord: String, decodedCandidates: List<String>, path: List<PointF>) {
+        val topWord = TypingPolicy.swipeCase(decodedWord, isCapsLockActive.value)
+        val candidates = decodedCandidates.map { TypingPolicy.swipeCase(it, isCapsLockActive.value) }
+        if (!isCapsLockActive.value) isShiftActive.value = false
         cancelPendingPolish()
         playFeedback()
         val ic = currentInputConnection ?: return
@@ -1896,6 +1945,7 @@ class TypeRightKeyboardService : KeyboardService() {
         if (explicit) dictionaryManager.recordAcceptedWord(word)
         dictionaryManager.learnWord(word, explicit = explicit)
         val context = previousWords.value.takeLast(3)
+        dictionaryManager.personalProfile.observe(word, context)
         context.lastOrNull()?.let { dictionaryManager.learnBigram(it, word) }
         if (context.size >= 2) dictionaryManager.learnTrigram(context[context.size - 2], context.last(), word)
         if (context.size == 3) dictionaryManager.learnQuadgram(context[0], context[1], context[2], word)
@@ -3534,52 +3584,14 @@ fun KeyboardLayout(
                                                     )
                                                 }
 
-                                                // Smart clipboard paste or suggestion chips
-                                                val clipManager = remember(context) { context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager }
-                                                val recentClipText = remember(clipManager, isClipboard) {
-                                                    try {
-                                                        if (clipManager?.hasPrimaryClip() == true) {
-                                                            val txt = clipManager.primaryClip?.getItemAt(0)?.text?.toString()?.trim() ?: ""
-                                                            if (txt.isNotBlank() && txt.length <= 120) txt else null
-                                                        } else null
-                                                    } catch (e: Exception) { null }
-                                                }
-
-                                                if (recentClipText != null && activePrefix.isEmpty() && isClipboard) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .padding(horizontal = 6.dp)
-                                                            .clip(RoundedCornerShape(18.dp))
-                                                            .background(accentColor.copy(alpha = 0.18f))
-                                                            .border(0.5.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(18.dp))
-                                                            .clickable {
-                                                                (context as? TypeRightKeyboardService)?.currentInputConnection?.commitText(recentClipText, 1)
-                                                            }
-                                                            .padding(horizontal = 12.dp, vertical = 7.dp)
-                                                            .testTag("toolbar_quick_paste_chip"),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Row(
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                        ) {
-                                                            Icon(
-                                                                imageVector = Icons.Default.ContentPaste,
-                                                                contentDescription = "Quick Paste",
-                                                                tint = accentColor,
-                                                                modifier = Modifier.size(15.dp)
-                                                            )
-                                                            Text(
-                                                                text = "Paste: \"${if (recentClipText.length > 20) recentClipText.take(18) + "..." else recentClipText}\"",
-                                                                color = keyTextColor,
-                                                                fontSize = 12.sp,
-                                                                fontWeight = FontWeight.Medium,
-                                                                maxLines = 1,
-                                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                                            )
-                                                        }
-                                                    }
+                                                val keyboardService = context as? TypeRightKeyboardService
+                                                val smartItems by (keyboardService?.smartClipboard?.suggestions
+                                                    ?: remember { MutableStateFlow(emptyList<SmartClipSuggestion>()) }).collectAsState()
+                                                if (!isSensitiveInput && settings.clipboardEnabled && smartItems.isNotEmpty() && activePrefix.isEmpty()) {
+                                                    SmartClipboardChips(smartItems, accentColor, keyTextColor,
+                                                        onPaste = { keyboardService?.pasteSmartSuggestion(it) },
+                                                        onDismiss = { keyboardService?.smartClipboard?.dismiss(it) },
+                                                        modifier = Modifier.weight(1f))
                                                 } else if (isSensitiveInput) {
                                                     // Clarify that predictions & corrections are not available in password/sensitive text fields
                                                     Row(
@@ -4631,11 +4643,7 @@ fun QwertyLayout(
                                         val decoded = dictionaryManager.decodeSwipePath(normalizedPath.toList(), prevWord)
                                         if (decoded.isNotEmpty()) {
                                             val formattedCandidates = decoded.map { word ->
-                                                if (isShift) {
-                                                    word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
-                                                } else {
-                                                    word
-                                                }
+                                                TypingPolicy.swipeCase(word, isCapsLock)
                                             }
                                             val bestWord = formattedCandidates.first()
                                             onSwipeResult(bestWord, formattedCandidates, normalizedPath.toList())
