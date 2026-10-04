@@ -6,6 +6,8 @@ on:
       - '.github/workflows/native-polish-export.yml'
       - 'tools/export_polish.py'
       - 'tools/requirements-polish-export.txt'
+      - 'tools/requirements-polish-export.lock'
+      - 'tools/merge_polish.py'
       - 'tools/training/**'
       - 'tools/polish-template.jinja'
   workflow_dispatch:
@@ -29,12 +31,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip==26.2.1
           pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
-          pip install -r tools/requirements-polish-export.txt
+          pip install -r tools/requirements-polish-export.lock --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Export custom checkpoint or verify toolchain against pretrained baseline
         run: |
-          if test -f tools/training/merged/config.json; then
-            git lfs pull --include='tools/training/merged/*.safetensors' --exclude=''
-            python tools/export_polish.py --checkpoint tools/training/merged --output /tmp/polish-export
+          if test -f tools/training/adapter/adapter_config.json; then
+            git lfs pull --include='tools/training/adapter/*.safetensors' --exclude=''
+            python tools/merge_polish.py tools/training/adapter --output /tmp/polish-merged
+            python tools/export_polish.py --checkpoint /tmp/polish-merged --output /tmp/polish-export
           else
             python tools/export_polish.py --baseline-only --output /tmp/polish-export
           fi

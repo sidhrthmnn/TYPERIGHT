@@ -1,4 +1,6 @@
-models/*.gguf filter=lfs diff=lfs merge=lfs -text
+models/*.litertlm filter=lfs diff=lfs merge=lfs -text
+models/*.litertlm.chunk* filter=lfs diff=lfs merge=lfs -text
+tools/training/**/*.safetensors filter=lfs diff=lfs merge=lfs -text
 gradlew text eol=lf
 
 app/src/main/assets/dictionaries/* text eol=lf
@@ -6,3 +8,6 @@ app/src/main/assets/dictionaries/* text eol=lf
 app/src/main/assets/dictionaries/** text eol=lf
 tools/data/dakshina/*.tsv text eol=lf
 tools/data/*.tsv text eol=lf
+tools/data/polish/*.jsonl text eol=lf
+tools/*.py text eol=lf
+tools/*.jinja text eol=lf
